@@ -3,8 +3,6 @@
 A vendor-neutral remote control platform for AI coding agents (Claude Code, Codex, OpenCode, Cline, Cursor, Antigravity, …). Start a task at your desk, supervise and approve it from your phone — with a mandatory sandbox layer, encrypted device pairing, and a policy engine that no trust profile can bypass.
 
 📄 **Full architecture, threat model, and implementation spec:** [Executive_Summary_Enhanced.docx](./docs/Executive_Summary_Enhanced.docx)
-*(download the file and drop it into `/docs` in this repo, or replace the link above with wherever you host it — e.g. Google Drive, Notion, or a release asset)*
-
 This README covers **building and running the project**. For the full design rationale, security fixes, and diagrams, read the doc above.
 
 ---
