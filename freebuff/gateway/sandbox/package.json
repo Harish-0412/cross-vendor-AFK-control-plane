@@ -1,0 +1,27 @@
+{
+  "name": "@freebuff/sandbox",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sandbox Manager for Freebuff AFK Control Plane - multi-platform process isolation",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run --config vitest.config.ts --dir src",
+    "test:integration": "vitest run --config vitest.config.ts --dir tests",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@freebuff/protocol": "workspace:*",
+    "@freebuff/schemas": "workspace:*",
+    "@freebuff/config": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "vitest": "^1.5.0"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@freebuff/identity",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Device identity, key generation, secure storage, and cryptographic operations for Freebuff Gateway",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc -w",
+    "clean": "rm -rf dist",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "@freebuff/protocol": "workspace:*",
+    "@freebuff/schemas": "workspace:*",
+    "@freebuff/config": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^1.5.0",
+    "typescript": "^5.4.0",
+    "@types/node": "^20.12.0"
+  }
+}

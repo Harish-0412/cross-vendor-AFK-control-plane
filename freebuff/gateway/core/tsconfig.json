@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "baseUrl": ".",
+    "paths": {
+      "@freebuff/protocol": ["../../packages/protocol/src/index.ts"],
+      "@freebuff/schemas": ["../../packages/schemas/src/index.ts"],
+      "@freebuff/config": ["../../packages/config/src/index.ts"],
+      "@freebuff/mock-adapter": ["../adapters/mock/src/index.ts"],
+      "@freebuff/gateway-core": ["./src/index.ts"]
+    }
+  },
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["dist", "node_modules"]
+}

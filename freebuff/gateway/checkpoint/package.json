@@ -1,0 +1,25 @@
+{
+  "name": "@freebuff/checkpoint",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Checkpoint Store for Freebuff Gateway - session state persistence and recovery",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run --config vitest.config.ts --dir src",
+    "test:integration": "vitest run --config vitest.config.ts --dir tests",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@freebuff/protocol": "workspace:*",
+    "@freebuff/config": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^1.5.0"
+  }
+}

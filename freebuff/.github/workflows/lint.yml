@@ -1,0 +1,79 @@
+name: Lint
+
+on:
+  pull_request:
+    branches: [main, develop]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: freebuff
+
+      - name: ESLint (changed files)
+        run: |
+          CHANGED_FILES=$(git diff --name-only --diff-filter=ACMRTUXB origin/${{ github.base_ref }}...HEAD -- '*.ts' '*.tsx' | grep -E '\.tsx?$' || true)
+          if [ -n "$CHANGED_FILES" ]; then
+            cd freebuff
+            pnpm eslint $CHANGED_FILES --max-warnings 0
+          else
+            echo "No TypeScript files changed, skipping lint"
+          fi
+
+      - name: Prettier check (changed files)
+        run: |
+          CHANGED_FILES=$(git diff --name-only --diff-filter=ACMRTUXB origin/${{ github.base_ref }}...HEAD -- '*.ts' '*.tsx' '*.js' '*.json' '*.md' || true)
+          if [ -n "$CHANGED_FILES" ]; then
+            cd freebuff
+            pnpm prettier --check $CHANGED_FILES
+          else
+            echo "No files changed, skipping prettier check"
+          fi
+
+  typecheck:
+    name: TypeScript Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: freebuff
+
+      - name: Run TypeScript check
+        run: pnpm typecheck
+        working-directory: freebuff

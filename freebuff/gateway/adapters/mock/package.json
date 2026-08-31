@@ -1,0 +1,26 @@
+{
+  "name": "@freebuff/mock-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mock Agent Adapter for testing Freebuff AFK Control Plane",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run --config vitest.config.ts",
+    "test:integration": "vitest run --config vitest.config.ts --dir tests/integration",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@freebuff/protocol": "workspace:*",
+    "@freebuff/schemas": "workspace:*",
+    "@freebuff/config": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^1.5.0"
+  }
+}

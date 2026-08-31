@@ -1,0 +1,30 @@
+{
+  "name": "@freebuff/gateway-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Gateway Core - Central orchestrator for Freebuff AFK Control Plane",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run --config vitest.config.ts --dir src",
+    "test:integration": "vitest run --config vitest.config.ts --dir tests/integration",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@freebuff/protocol": "workspace:*",
+    "@freebuff/schemas": "workspace:*",
+    "@freebuff/config": "workspace:*",
+    "@freebuff/mock-adapter": "workspace:*",
+    "@freebuff/checkpoint": "workspace:*",
+    "@freebuff/health": "workspace:*",
+    "@freebuff/tunnel": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^1.5.0"
+  }
+}
