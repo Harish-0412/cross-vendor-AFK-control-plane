@@ -1,8 +1,8 @@
 {
-  "name": "@freebuff/certificate",
+  "name": "@freebuff/reconciliation",
   "version": "0.1.0",
   "private": true,
-  "description": "Device certificate management, signing, rotation, revocation for Freebuff Gateway",
+  "description": "Reconnection state machine, reconciliation, gap detection, and durable event replay for Freebuff Gateway",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -20,8 +20,7 @@
   "dependencies": {
     "@freebuff/protocol": "workspace:*",
     "@freebuff/schemas": "workspace:*",
-    "@freebuff/config": "workspace:*",
-    "@freebuff/identity": "workspace:*"
+    "@freebuff/config": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^1.5.0",

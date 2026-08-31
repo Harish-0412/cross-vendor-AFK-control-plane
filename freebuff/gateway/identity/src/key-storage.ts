@@ -17,9 +17,14 @@ export const DEFAULT_KEY_STORAGE_OPTIONS: Required<Omit<KeyStorageOptions, 'useP
   usePlatformKeychain: false,
 };
 
+export interface StoredDeviceData extends DeviceKeyMaterial {
+  deviceId?: string;
+  gatewayId?: string;
+}
+
 export interface KeyStorage {
-  load(): Promise<DeviceKeyMaterial | null>;
-  save(keyMaterial: DeviceKeyMaterial): Promise<void>;
+  load(): Promise<StoredDeviceData | null>;
+  save(keyMaterial: StoredDeviceData): Promise<void>;
   exists(): Promise<boolean>;
   destroy(): Promise<void>;
   getStoragePath(): string;
@@ -46,7 +51,7 @@ class FileKeyStorage implements KeyStorage {
     return fs.existsSync(this.getStoragePath());
   }
 
-  async load(): Promise<DeviceKeyMaterial | null> {
+  async load(): Promise<StoredDeviceData | null> {
     const storagePath = this.getStoragePath();
     if (!fs.existsSync(storagePath)) {
       return null;
@@ -67,7 +72,7 @@ class FileKeyStorage implements KeyStorage {
     }
   }
 
-  async save(keyMaterial: DeviceKeyMaterial): Promise<void> {
+  async save(keyMaterial: StoredDeviceData): Promise<void> {
     this.ensureStorageDir();
     const storagePath = this.getStoragePath();
 

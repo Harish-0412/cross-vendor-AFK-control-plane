@@ -4,6 +4,9 @@
   "description": "Shared types, schemas, and event format for Freebuff AFK Control Plane",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "files": ["dist", "src"],
   "scripts": {
     "build": "tsc",

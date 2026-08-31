@@ -3,8 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "description": "Tunnel Client stub for Freebuff Gateway - outbound connection framework (Phase 2 foundation)",
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "files": ["dist", "src"],
   "scripts": {
     "build": "tsc",

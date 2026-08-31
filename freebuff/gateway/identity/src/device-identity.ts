@@ -2,7 +2,11 @@ import {
   generateKeyPairSync,
   createSign,
   createVerify,
+  createPrivateKey,
+  createPublicKey,
   randomBytes,
+  sign,
+  verify,
   KeyObject,
 } from 'node:crypto';
 import {
@@ -58,16 +62,21 @@ export class DeviceIdentityManager {
       const existing = await this.storage.load();
       if (existing) {
         this.keyMaterial = existing;
-        this.identity = this.buildIdentity(existing);
+        this.identity = this.buildIdentity(existing, existing.deviceId, existing.gatewayId);
         this.cacheKeyObjects(existing);
         return this.identity;
       }
     }
 
     const keyMaterial = this.generateKeys();
-    await this.storage.save(keyMaterial);
+    const identity = this.buildIdentity(keyMaterial);
+    await this.storage.save({
+      ...keyMaterial,
+      deviceId: identity.deviceId,
+      gatewayId: identity.gatewayId,
+    } as import('./key-storage').StoredDeviceData);
     this.keyMaterial = keyMaterial;
-    this.identity = this.buildIdentity(keyMaterial);
+    this.identity = identity;
     this.cacheKeyObjects(keyMaterial);
     return this.identity;
   }
@@ -90,9 +99,14 @@ export class DeviceIdentityManager {
     const newKeys = this.generateKeys();
     const oldIdentity = this.identity;
 
-    await this.storage.save(newKeys);
+    const newIdentity = this.buildIdentity(newKeys);
+    await this.storage.save({
+      ...newKeys,
+      deviceId: newIdentity.deviceId,
+      gatewayId: newIdentity.gatewayId,
+    } as import('./key-storage').StoredDeviceData);
     this.keyMaterial = newKeys;
-    this.identity = this.buildIdentity(newKeys);
+    this.identity = newIdentity;
     this.cacheKeyObjects(newKeys);
 
     if (oldIdentity && this.options.metadata) {
@@ -119,10 +133,10 @@ export class DeviceIdentityManager {
       throw new Error('Private key not available. Call initialize() first.');
     }
 
-    const signer = createSign('sha512');
-    signer.update(data);
-    signer.end();
-    return signer.sign(this.privateKeyObj).toString('base64');
+    const dataBuf = typeof data === 'string' ? Buffer.from(data, 'utf8') : data;
+    const algorithm = this.options.algorithm === 'Ed25519' ? undefined : 'sha512';
+    const sig = sign(algorithm, dataBuf, this.privateKeyObj);
+    return sig.toString('base64');
   }
 
   verifySignature(
@@ -130,19 +144,24 @@ export class DeviceIdentityManager {
     signature: string,
     publicKeyJwk?: Record<string, unknown>,
   ): boolean {
-    const keyObj = publicKeyJwk
-      ? KeyObject.from({ format: 'jwk', key: publicKeyJwk as import('node:crypto').JsonWebKey })
-      : this.publicKeyObj;
+    let keyObj: KeyObject | null = null;
+    if (publicKeyJwk) {
+      keyObj = createPublicKey({
+        key: publicKeyJwk as import('node:crypto').JsonWebKey,
+        format: 'jwk',
+      });
+    } else {
+      keyObj = this.publicKeyObj;
+    }
 
     if (!keyObj) {
       throw new Error('No public key available for verification.');
     }
 
     try {
-      const verifier = createVerify('sha512');
-      verifier.update(data);
-      verifier.end();
-      return verifier.verify(keyObj, Buffer.from(signature, 'base64'));
+      const dataBuf = typeof data === 'string' ? Buffer.from(data, 'utf8') : data;
+      const algorithm = this.options.algorithm === 'Ed25519' ? undefined : 'sha512';
+      return verify(algorithm, dataBuf, keyObj, Buffer.from(signature, 'base64'));
     } catch {
       return false;
     }
@@ -191,34 +210,25 @@ export class DeviceIdentityManager {
 
     if (algorithm === 'Ed25519') {
       keyPair = generateKeyPairSync('ed25519', {
-        privateKeyEncoding: { format: 'jwk', type: 'pkcs8' },
-        publicKeyEncoding: { format: 'jwk', type: 'spki' },
+        privateKeyEncoding: { format: 'pem', type: 'pkcs8' },
+        publicKeyEncoding: { format: 'pem', type: 'spki' },
       });
     } else {
       keyPair = generateKeyPairSync('ec', {
         namedCurve: 'prime256v1',
-        privateKeyEncoding: { format: 'jwk', type: 'pkcs8' },
-        publicKeyEncoding: { format: 'jwk', type: 'spki' },
+        privateKeyEncoding: { format: 'pem', type: 'pkcs8' },
+        publicKeyEncoding: { format: 'pem', type: 'spki' },
       });
     }
 
-    const privateJwk = keyPair.privateKey as unknown as Record<string, unknown>;
-    const publicJwk = keyPair.publicKey as unknown as Record<string, unknown>;
+    const privateKeyPem = keyPair.privateKey as string;
+    const publicKeyPem = keyPair.publicKey as string;
 
-    const privateKeyObj = KeyObject.from({
-      format: 'jwk',
-      key: privateJwk as import('node:crypto').JsonWebKey,
-    });
-    const publicKeyObj = KeyObject.from({
-      format: 'jwk',
-      key: publicJwk as import('node:crypto').JsonWebKey,
-    });
+    const privateKeyObj = createPrivateKey(privateKeyPem);
+    const publicKeyObj = createPublicKey(publicKeyPem);
 
-    const { publicKey: publicKeyPem } = {
-      publicKey: publicKeyObj
-        .export({ format: 'pem', type: 'spki' })
-        .toString('utf8'),
-    };
+    const privateJwk = privateKeyObj.export({ format: 'jwk' }) as Record<string, unknown>;
+    const publicJwk = publicKeyObj.export({ format: 'jwk' }) as Record<string, unknown>;
 
     const publicDer = publicKeyObj
       .export({ format: 'der', type: 'spki' })
@@ -229,14 +239,14 @@ export class DeviceIdentityManager {
       privateKeyJwk: privateJwk,
       publicKeyJwk: publicJwk,
       publicKeyDer: publicDer,
-      publicKeyPem: publicKeyPem,
+      publicKeyPem,
     };
   }
 
-  private buildIdentity(keyMaterial: DeviceKeyMaterial): DeviceIdentity {
+  private buildIdentity(keyMaterial: DeviceKeyMaterial, savedDeviceId?: string, savedGatewayId?: string): DeviceIdentity {
     const fingerprint = createFingerprint(keyMaterial.publicKeyDer);
-    const deviceId = this.options.deviceId ?? generateDeviceId();
-    const gatewayId = this.options.gatewayId ?? generateGatewayId();
+    const deviceId = this.options.deviceId ?? savedDeviceId ?? generateDeviceId();
+    const gatewayId = this.options.gatewayId ?? savedGatewayId ?? generateGatewayId();
 
     return {
       deviceId,
@@ -251,13 +261,13 @@ export class DeviceIdentityManager {
   }
 
   private cacheKeyObjects(keyMaterial: DeviceKeyMaterial): void {
-    this.privateKeyObj = KeyObject.from({
-      format: 'jwk',
+    this.privateKeyObj = createPrivateKey({
       key: keyMaterial.privateKeyJwk as import('node:crypto').JsonWebKey,
-    });
-    this.publicKeyObj = KeyObject.from({
       format: 'jwk',
+    });
+    this.publicKeyObj = createPublicKey({
       key: keyMaterial.publicKeyJwk as import('node:crypto').JsonWebKey,
+      format: 'jwk',
     });
   }
 }

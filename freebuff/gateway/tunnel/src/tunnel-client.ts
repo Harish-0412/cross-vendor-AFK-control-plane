@@ -7,29 +7,79 @@ import type {
   TunnelStats,
   TunnelEvent,
   TunnelEventListener,
+  AuthPayload,
+  AuthChallengePayload,
+  AuthSuccessPayload,
+  AuthFailurePayload,
+  ReconciliationRequest,
+  ReconciliationResponse,
+  SessionReconciliationState,
+  EventEnvelope,
+  DeviceCertificate,
 } from './types';
 import { DEFAULT_TUNNEL_CONFIG } from './types';
 
-/**
- * TunnelClient - Outbound-only connection framework from Gateway to Control Plane.
- *
- * Phase 1 stub: provides the state machine, message queuing, reconnect logic,
- * and authentication state tracking. Does not actually open connections yet.
- *
- * Phase 2 will implement the actual WebSocket connection, TLS, and
- * device certificate authentication.
- *
- * Key invariant: The Gateway NEVER opens inbound ports. All connections
- * are initiated outbound by this client.
- */
+type WebSocketClass = new (
+  url: string,
+  protocols?: string | string[],
+  options?: Record<string, unknown>,
+) => {
+  readyState: number;
+  onopen: ((event: unknown) => void) | null;
+  onmessage: ((event: { data: unknown }) => void) | null;
+  onclose: ((event: { code: number; reason: string; wasClean: boolean }) => void) | null;
+  onerror: ((event: unknown) => void) | null;
+  send(data: string | Uint8Array): void;
+  close(code?: number, reason?: string): void;
+};
+
+const WS_CONNECTING = 0;
+const WS_OPEN = 1;
+const WS_CLOSING = 2;
+const WS_CLOSED = 3;
+
+export interface TunnelAuthProvider {
+  getPublicKeyJwk(): Record<string, unknown>;
+  getCertificateThumbprint(): string | null;
+  sign(data: string): string;
+  verifySignature(data: string, signature: string, publicKeyJwk?: Record<string, unknown>): boolean;
+}
+
+export interface TunnelReconciliationProvider {
+  getSessionStates(): SessionReconciliationState[];
+  getLastAckedGlobalSequence(): number;
+  applySessionUpdates(
+    updates: ReconciliationResponse['sessionUpdates'],
+  ): Promise<{ applied: number; warnings: string[] }>;
+  replayEvent(sequence: number, event: unknown): Promise<boolean>;
+  getEventsSince(
+    fromSequence: number,
+  ): Promise<Array<{ sequence: number; envelope: EventEnvelope }>>;
+  recordUnrecoverableGap(
+    sessionId: string | null,
+    from: number,
+    to: number,
+    reason: string,
+  ): void;
+}
+
+export interface TunnelCommandHandler {
+  handleCommand(command: unknown): Promise<{ success: boolean; result?: unknown; error?: string }>;
+}
+
 export class TunnelClient {
-  private readonly config: Required<TunnelConfig> & Pick<TunnelConfig, 'authToken'>;
+  private readonly config: Required<
+    Omit<TunnelConfig, 'authToken' | 'tlsOptions' | 'wsOptions'>
+  > &
+    Pick<TunnelConfig, 'authToken' | 'tlsOptions' | 'wsOptions'>;
   private _state: TunnelState = 'idle';
   private messageQueue: TunnelMessage[] = [];
   private sequenceCounter = 0;
   private reconnectAttempts = 0;
   private reconnectTimer?: NodeJS.Timeout;
   private heartbeatTimer?: NodeJS.Timeout;
+  private heartbeatTimeoutTimer?: NodeJS.Timeout;
+  private authTimeoutTimer?: NodeJS.Timeout;
   private stats: {
     messagesSent: number;
     messagesReceived: number;
@@ -39,16 +89,36 @@ export class TunnelClient {
     lastDisconnectedAt?: Date;
     lastSentAt?: Date;
     lastReceivedAt?: Date;
+    lastHeartbeatSentAt?: Date;
+    lastHeartbeatReceivedAt?: Date;
     disconnectedTimeMs: number;
+    missedHeartbeats: number;
+    authFailures: number;
+    globalSequenceAcked: number;
+    globalSequenceSent: number;
   } = {
     messagesSent: 0,
     messagesReceived: 0,
     bytesSent: 0,
     bytesReceived: 0,
     disconnectedTimeMs: 0,
+    missedHeartbeats: 0,
+    authFailures: 0,
+    globalSequenceAcked: 0,
+    globalSequenceSent: 0,
   };
   private listeners: Set<TunnelEventListener> = new Set();
   private shuttingDown = false;
+  private ws: InstanceType<WebSocketClass> | null = null;
+  private WebSocketImpl: WebSocketClass | null = null;
+  private authProvider: TunnelAuthProvider | null = null;
+  private reconciliationProvider: TunnelReconciliationProvider | null = null;
+  private commandHandler: TunnelCommandHandler | null = null;
+  private pendingAuthChallenge: AuthChallengePayload | null = null;
+  private wsSessionId: string | null = null;
+  private disconnectInitiatedByServer = false;
+  private disconnectCode = 0;
+  private disconnectReason = '';
 
   constructor(config: TunnelConfig) {
     this.config = {
@@ -57,16 +127,30 @@ export class TunnelClient {
     };
   }
 
-  /**
-   * Get the current tunnel state.
-   */
+  setWebSocketImplementation(impl: WebSocketClass | null): void {
+    this.WebSocketImpl = impl;
+  }
+
+  setAuthProvider(provider: TunnelAuthProvider | null): void {
+    this.authProvider = provider;
+  }
+
+  setReconciliationProvider(provider: TunnelReconciliationProvider | null): void {
+    this.reconciliationProvider = provider;
+  }
+
+  setCommandHandler(handler: TunnelCommandHandler | null): void {
+    this.commandHandler = handler;
+  }
+
   getState(): TunnelState {
     return this._state;
   }
 
-  /**
-   * Get tunnel statistics.
-   */
+  getWsSessionId(): string | null {
+    return this.wsSessionId;
+  }
+
   getStats(): TunnelStats {
     const now = Date.now();
     let uptimeMs = 0;
@@ -88,40 +172,480 @@ export class TunnelClient {
       lastReceivedAt: this.stats.lastReceivedAt,
       uptimeMs,
       disconnectedTimeMs: this.stats.disconnectedTimeMs,
+      lastHeartbeatSentAt: this.stats.lastHeartbeatSentAt,
+      lastHeartbeatReceivedAt: this.stats.lastHeartbeatReceivedAt,
+      missedHeartbeats: this.stats.missedHeartbeats,
+      authFailures: this.stats.authFailures,
+      globalSequenceAcked: this.stats.globalSequenceAcked,
+      globalSequenceSent: this.stats.globalSequenceSent,
     };
   }
 
-  /**
-   * Initiate the tunnel connection (outbound only).
-   *
-   * Phase 2: This will open a WebSocket to the control plane URL.
-   * Phase 1: This transitions the state machine but does not connect.
-   */
   async connect(): Promise<void> {
-    if (this._state === 'connected' || this._state === 'connecting') {
+    if (this.shuttingDown) return;
+    if (this._state === 'connected' || this._state === 'connecting' || this._state === 'authenticating') {
       return;
+    }
+
+    if (!this.config.controlPlaneUrl) {
+      this.setState('error');
+      this.emitEvent({
+        type: 'error',
+        timestamp: new Date(),
+        message: 'controlPlaneUrl is required',
+      });
+      throw new Error('controlPlaneUrl is required for tunnel connection');
     }
 
     this.setState('connecting');
 
-    // Phase 1 stub: simulate connection setup
-    // In Phase 2, this will open: new WebSocket(this.config.controlPlaneUrl)
-    //
-    // The connection is always outbound:
-    //   Gateway → Control Plane
-    // No inbound ports are ever opened.
+    try {
+      await this.openWebSocket();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.emitEvent({
+        type: 'error',
+        timestamp: new Date(),
+        message: `Failed to open WebSocket: ${message}`,
+      });
+      this.handleConnectionFailure();
+    }
+  }
 
-    // Simulate successful connection
+  private async openWebSocket(): Promise<void> {
+    const WS = this.WebSocketImpl;
+    if (!WS) {
+      this.emitEvent({
+        type: 'state_change',
+        timestamp: new Date(),
+        state: 'connected',
+        previousState: 'connecting',
+        message: 'Phase 2 stub: No WebSocket implementation provided, simulating connection (use setWebSocketImplementation for real WS)',
+      });
+      this.simulateConnection();
+      return;
+    }
+
+    const url = this.config.controlPlaneUrl;
+    const protocols = 'freebuff-tunnel.v1';
+    const options: Record<string, unknown> = {};
+
+    if (this.config.tlsOptions) {
+      if (this.config.tlsOptions.caCertPem) options.ca = this.config.tlsOptions.caCertPem;
+      if (this.config.tlsOptions.clientCertPem) options.cert = this.config.tlsOptions.clientCertPem;
+      if (this.config.tlsOptions.clientKeyPem) options.key = this.config.tlsOptions.clientKeyPem;
+      if (this.config.tlsOptions.rejectUnauthorized !== undefined) {
+        options.rejectUnauthorized = this.config.tlsOptions.rejectUnauthorized;
+      }
+      if (this.config.tlsOptions.serverName) {
+        options.servername = this.config.tlsOptions.serverName;
+      }
+    }
+
+    if (this.config.wsOptions?.headers) {
+      options.headers = { ...this.config.wsOptions.headers };
+    }
+    if (this.config.wsOptions?.origin) {
+      if (!options.headers) options.headers = {};
+      (options.headers as Record<string, string>).Origin = this.config.wsOptions.origin;
+    }
+    if (this.config.authToken) {
+      if (!options.headers) options.headers = {};
+      (options.headers as Record<string, string>).Authorization = `Bearer ${this.config.authToken}`;
+    }
+
+    let connectTimer: NodeJS.Timeout | null = null;
+    let timedOut = false;
+
+    await new Promise<void>((resolve, reject) => {
+      try {
+        const ws = new WS(url, protocols, Object.keys(options).length > 0 ? options : undefined);
+        this.ws = ws;
+
+        connectTimer = setTimeout(() => {
+          timedOut = true;
+          try { ws.close(4000, 'Connection timeout'); } catch { /* ignore */ }
+          reject(new Error(`Connection timed out after ${this.config.connectTimeoutMs}ms`));
+        }, this.config.connectTimeoutMs);
+
+        ws.onopen = () => {
+          if (timedOut) return;
+          if (connectTimer) {
+            clearTimeout(connectTimer);
+            connectTimer = null;
+          }
+          this.handleWebSocketOpen();
+          resolve();
+        };
+
+        ws.onmessage = (event: { data: unknown }) => {
+          this.handleWebSocketMessage(event.data);
+        };
+
+        ws.onclose = (event: { code: number; reason: string; wasClean: boolean }) => {
+          if (connectTimer) {
+            clearTimeout(connectTimer);
+            connectTimer = null;
+          }
+          this.handleWebSocketClose(event.code, event.reason, event.wasClean);
+        };
+
+        ws.onerror = () => {
+          // The close handler will fire next; avoid double-rejection
+        };
+      } catch (err) {
+        if (connectTimer) {
+          clearTimeout(connectTimer);
+        }
+        reject(err);
+      }
+    });
+  }
+
+  private simulateConnection(): void {
     this.setState('connected');
     this.stats.connectedAt = new Date();
     this.reconnectAttempts = 0;
-
+    this.wsSessionId = `sim-${randomBytes(8).toString('hex')}`;
+    this.stats.globalSequenceAcked = 0;
+    this.emitEvent({
+      type: 'auth_success',
+      timestamp: new Date(),
+      payload: { simulated: true },
+    });
     this.startHeartbeat();
+    void this.flushQueue();
   }
 
-  /**
-   * Disconnect the tunnel.
-   */
+  private handleWebSocketOpen(): void {
+    this.setState('authenticating');
+    this.emitEvent({
+      type: 'auth_started',
+      timestamp: new Date(),
+      message: 'Performing device auth handshake',
+    });
+    this.startAuthTimeout();
+    this.sendAuthMessage();
+  }
+
+  private sendAuthMessage(): void {
+    if (!this.authProvider) {
+      this.setState('connected');
+      this.stats.connectedAt = new Date();
+      this.reconnectAttempts = 0;
+      this.stopAuthTimeout();
+      this.startHeartbeat();
+      void this.flushQueue();
+      return;
+    }
+
+    const nonce = randomBytes(32).toString('hex');
+    const timestamp = new Date();
+    const thumbprint = this.authProvider.getCertificateThumbprint();
+    const payload: AuthPayload = {
+      deviceId: this.config.deviceId,
+      gatewayId: this.config.gatewayId,
+      nonce,
+      timestamp,
+      publicKeyJwk: this.authProvider.getPublicKeyJwk(),
+      certificateThumbprint: thumbprint ?? undefined,
+      signature: '',
+    };
+    const signatureBase = JSON.stringify({
+      deviceId: payload.deviceId,
+      gatewayId: payload.gatewayId,
+      nonce: payload.nonce,
+      timestamp: payload.timestamp.toISOString(),
+      certificateThumbprint: payload.certificateThumbprint ?? '',
+    });
+    payload.signature = this.authProvider.sign(signatureBase);
+
+    this.sendRaw('auth', payload);
+  }
+
+  private startAuthTimeout(): void {
+    this.stopAuthTimeout();
+    this.authTimeoutTimer = setTimeout(() => {
+      this.stats.authFailures++;
+      this.emitEvent({
+        type: 'auth_failure',
+        timestamp: new Date(),
+        message: 'Authentication timed out',
+      });
+      this.handleAuthFailure('AUTH_TIMEOUT', 'Authentication timed out', true, 2000);
+    }, this.config.authTimeoutMs);
+    if (typeof this.authTimeoutTimer.unref === 'function') {
+      this.authTimeoutTimer.unref();
+    }
+  }
+
+  private stopAuthTimeout(): void {
+    if (this.authTimeoutTimer) {
+      clearTimeout(this.authTimeoutTimer);
+      this.authTimeoutTimer = null;
+    }
+  }
+
+  private handleWebSocketMessage(data: unknown): void {
+    try {
+      const str = typeof data === 'string' ? data : Buffer.from(data as Uint8Array).toString('utf8');
+      const parsed = JSON.parse(str) as TunnelMessage;
+      if (!parsed || typeof parsed !== 'object') throw new Error('Invalid message');
+
+      this.stats.messagesReceived++;
+      this.stats.bytesReceived += str.length;
+      this.stats.lastReceivedAt = new Date();
+
+      this.emitEvent({
+        type: 'message_received',
+        timestamp: new Date(),
+        payload: { type: parsed.type, id: parsed.id },
+      });
+
+      switch (parsed.type) {
+        case 'auth_challenge':
+          this.handleAuthChallenge(parsed.payload as AuthChallengePayload);
+          break;
+        case 'auth_success':
+          this.handleAuthSuccess(parsed.payload as AuthSuccessPayload);
+          break;
+        case 'auth_failure':
+          this.handleAuthFailurePayload(parsed.payload as AuthFailurePayload);
+          break;
+        case 'heartbeat':
+          this.handleIncomingHeartbeat(parsed.payload as { timestamp: Date; sequence: number });
+          break;
+        case 'command':
+          void this.handleIncomingCommand(parsed);
+          break;
+        case 'ack':
+          this.handleAck(parsed.payload as { sequence: number });
+          break;
+        case 'disconnect':
+          this.handleServerDisconnect(parsed.payload as { reason: string; code: number; willReconnect: boolean });
+          break;
+        case 'reconciliation_response':
+          void this.handleReconciliationResponse(parsed.payload as ReconciliationResponse);
+          break;
+        case 'replay_event':
+        case 'replay':
+        case 'event':
+          // Forward to message handler
+          break;
+        case 'error':
+          this.emitEvent({
+            type: 'error',
+            timestamp: new Date(),
+            payload: parsed.payload,
+          });
+          break;
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.emitEvent({
+        type: 'error',
+        timestamp: new Date(),
+        message: `Failed to parse incoming message: ${message}`,
+      });
+    }
+  }
+
+  private handleAuthChallenge(payload: AuthChallengePayload): void {
+    if (!this.authProvider) return;
+    this.pendingAuthChallenge = payload;
+
+    const signatureBase = JSON.stringify({
+      challenge: payload.challenge,
+      serverNonce: payload.serverNonce,
+      issuedAt: payload.issuedAt.toISOString(),
+    });
+    const signature = this.authProvider.sign(signatureBase);
+
+    this.sendRaw('auth', {
+      challenge: payload.challenge,
+      serverNonce: payload.serverNonce,
+      signature,
+      deviceId: this.config.deviceId,
+    });
+  }
+
+  private handleAuthSuccess(payload: AuthSuccessPayload): void {
+    this.stopAuthTimeout();
+    this.wsSessionId = payload.sessionId;
+    this.stats.globalSequenceAcked = payload.assignedGlobalSequence ?? 0;
+    this.setState('connected');
+    this.stats.connectedAt = new Date();
+    this.reconnectAttempts = 0;
+    this.pendingAuthChallenge = null;
+    this.emitEvent({
+      type: 'auth_success',
+      timestamp: new Date(),
+      payload: {
+        sessionId: payload.sessionId,
+        assignedGlobalSequence: payload.assignedGlobalSequence,
+      },
+    });
+    this.startHeartbeat();
+    void this.flushQueue();
+  }
+
+  private handleAuthFailurePayload(payload: AuthFailurePayload): void {
+    this.stopAuthTimeout();
+    this.stats.authFailures++;
+    this.emitEvent({
+      type: 'auth_failure',
+      timestamp: new Date(),
+      payload,
+    });
+    this.handleAuthFailure(payload.code, payload.reason, payload.retryable, payload.retryAfterMs);
+  }
+
+  private handleAuthFailure(
+    code: string,
+    reason: string,
+    retryable: boolean,
+    retryAfterMs?: number,
+  ): void {
+    try {
+      this.ws?.close(4001, `Auth failed: ${code}`);
+    } catch { /* ignore */ }
+    this.ws = null;
+
+    if (!retryable) {
+      this.setState('error');
+      this.emitEvent({
+        type: 'error',
+        timestamp: new Date(),
+        message: `Authentication failed (non-retryable): ${code} - ${reason}`,
+      });
+      return;
+    }
+
+    const deviceStatus = (reason.toLowerCase().includes('revoke') || code.includes('REVOKED'))
+      ? 'revoked'
+      : undefined;
+
+    if (deviceStatus === 'revoked') {
+      this.emitEvent({
+        type: 'certificate_warning',
+        timestamp: new Date(),
+        message: 'Device certificate is revoked; aborting reconnect',
+      });
+      this.setState('error');
+      return;
+    }
+
+    this.handleConnectionFailure(retryAfterMs);
+  }
+
+  private handleIncomingHeartbeat(payload: { timestamp: Date; sequence: number }): void {
+    this.stats.lastHeartbeatReceivedAt = new Date();
+    this.stats.missedHeartbeats = 0;
+    if (this.heartbeatTimeoutTimer) {
+      clearTimeout(this.heartbeatTimeoutTimer);
+      this.heartbeatTimeoutTimer = null;
+    }
+    if (payload.sequence !== undefined) {
+      this.stats.globalSequenceAcked = Math.max(
+        this.stats.globalSequenceAcked,
+        payload.sequence,
+      );
+    }
+  }
+
+  private async handleIncomingCommand(msg: TunnelMessage): Promise<void> {
+    if (!this.commandHandler) return;
+    try {
+      const result = await this.commandHandler.handleCommand(msg.payload);
+      const correlation = msg.correlationId ?? msg.id;
+      if (correlation) {
+        this.sendRaw('ack', {
+          correlationId: correlation,
+          success: result.success,
+          result: result.result,
+          error: result.error,
+        });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (msg.correlationId ?? msg.id) {
+        this.sendRaw('ack', {
+          correlationId: msg.correlationId ?? msg.id,
+          success: false,
+          error: message,
+        });
+      }
+    }
+  }
+
+  private handleAck(payload: { sequence: number }): void {
+    if (payload && typeof payload.sequence === 'number') {
+      this.stats.globalSequenceAcked = Math.max(
+        this.stats.globalSequenceAcked,
+        payload.sequence,
+      );
+    }
+  }
+
+  private handleServerDisconnect(payload: { reason: string; code: number; willReconnect: boolean }): void {
+    this.disconnectInitiatedByServer = true;
+    this.disconnectCode = payload.code;
+    this.disconnectReason = payload.reason;
+    this.emitEvent({
+      type: 'state_change',
+      timestamp: new Date(),
+      message: `Server initiated disconnect: ${payload.reason} (${payload.code}). Will reconnect: ${payload.willReconnect}`,
+    });
+    if (!payload.willReconnect) {
+      this.config.autoReconnect = false;
+    }
+  }
+
+  private handleWebSocketClose(code: number, reason: string, wasClean: boolean): void {
+    const now = Date.now();
+    this.stopHeartbeat();
+    this.stopAuthTimeout();
+    this.wsSessionId = null;
+    this.pendingAuthChallenge = null;
+
+    const prevConnectedAt = this.stats.connectedAt;
+    if (prevConnectedAt) {
+      this.stats.disconnectedTimeMs += now - prevConnectedAt.getTime();
+    }
+    this.stats.lastDisconnectedAt = new Date();
+    this.disconnectInitiatedByServer = code >= 4000;
+
+    const state = this._state;
+    if (state === 'disconnecting') {
+      this.setState('disconnected');
+      return;
+    }
+
+    if (this.shuttingDown) {
+      this.setState('idle');
+      return;
+    }
+
+    if (this.config.autoReconnect) {
+      void this.reconnect();
+    } else {
+      this.setState('disconnected');
+    }
+  }
+
+  private handleConnectionFailure(retryAfterMs?: number): void {
+    if (this.shuttingDown) return;
+    this.stopHeartbeat();
+    this.stopAuthTimeout();
+    this.wsSessionId = null;
+
+    if (this.config.autoReconnect) {
+      void this.reconnect(retryAfterMs);
+    } else {
+      this.setState('disconnected');
+    }
+  }
+
   async disconnect(): Promise<void> {
     if (this._state === 'idle' || this._state === 'disconnected' || this._state === 'disconnecting') {
       return;
@@ -130,18 +654,32 @@ export class TunnelClient {
     this.setState('disconnecting');
     this.stopHeartbeat();
     this.stopReconnect();
+    this.stopAuthTimeout();
 
-    // Phase 2: close the actual WebSocket
-    this.stats.disconnectedTimeMs += Date.now() - (this.stats.connectedAt?.getTime() ?? Date.now());
+    if (this.ws && this.ws.readyState === WS_OPEN) {
+      try {
+        this.sendRaw('disconnect', {
+          reason: 'Client initiated disconnect',
+          code: 1000,
+          willReconnect: false,
+          serverInitiated: false,
+        });
+      } catch { /* ignore */ }
+      try {
+        this.ws.close(1000, 'Client shutdown');
+      } catch { /* ignore */ }
+    }
+    this.ws = null;
+
+    const prevConnectedAt = this.stats.connectedAt;
+    if (prevConnectedAt) {
+      this.stats.disconnectedTimeMs += Date.now() - prevConnectedAt.getTime();
+    }
     this.stats.lastDisconnectedAt = new Date();
-
+    this.wsSessionId = null;
     this.setState('disconnected');
   }
 
-  /**
-   * Queue a message for sending through the tunnel.
-   * Messages are buffered if the tunnel is not connected.
-   */
   send(type: TunnelMessageType, payload: unknown, correlationId?: string): TunnelMessage {
     const message: TunnelMessage = {
       id: this.generateMessageId(),
@@ -150,19 +688,25 @@ export class TunnelClient {
       timestamp: new Date(),
       payload,
       correlationId,
+      certificateThumbprint: this.authProvider?.getCertificateThumbprint() ?? undefined,
     };
 
-    if (this._state === 'connected') {
-      // Phase 2: actually send via WebSocket
-      // For now, just record it
-      this.stats.messagesSent++;
-      this.stats.bytesSent += JSON.stringify(message).length;
-      this.stats.lastSentAt = new Date();
+    if (this.config.signMessages && this.authProvider) {
+      const sigBase = JSON.stringify({
+        id: message.id,
+        type: message.type,
+        sequence: message.sequence,
+        timestamp: message.timestamp.toISOString(),
+      });
+      message.signature = this.authProvider.sign(sigBase);
+    }
+
+    if (this._state === 'connected' && this.ws && this.ws.readyState === WS_OPEN) {
+      this.sendMessageOverWire(message);
     } else {
-      // Queue for later delivery
       if (this.messageQueue.length >= this.config.maxQueueSize) {
-        // Drop oldest messages
-        this.messageQueue.splice(0, this.messageQueue.length - this.config.maxQueueSize + 1);
+        const toRemove = this.messageQueue.length - this.config.maxQueueSize + 1;
+        this.messageQueue.splice(0, toRemove);
       }
       this.messageQueue.push(message);
     }
@@ -170,48 +714,79 @@ export class TunnelClient {
     this.emitEvent({
       type: 'message_sent',
       timestamp: new Date(),
-      message: `Sent ${type} message`,
+      message: `Queued/sent ${type} message`,
+      payload: { id: message.id, type },
     });
 
     return message;
   }
 
-  /**
-   * Flush the message queue (send all queued messages).
-   */
-  async flushQueue(): Promise<number> {
-    if (this._state !== 'connected') return 0;
-
-    const count = this.messageQueue.length;
-    for (const message of this.messageQueue) {
-      // Phase 2: actually send via WebSocket
-      this.stats.messagesSent++;
-      this.stats.bytesSent += JSON.stringify(message).length;
-      this.stats.lastSentAt = new Date();
-    }
-    this.messageQueue = [];
-    return count;
+  private sendRaw(type: TunnelMessageType, payload: unknown): TunnelMessage {
+    const message: TunnelMessage = {
+      id: this.generateMessageId(),
+      type,
+      sequence: this.nextSequence(),
+      timestamp: new Date(),
+      payload,
+      certificateThumbprint: this.authProvider?.getCertificateThumbprint() ?? undefined,
+    };
+    this.sendMessageOverWire(message);
+    return message;
   }
 
-  /**
-   * Get the message queue contents.
-   */
+  private sendMessageOverWire(message: TunnelMessage): void {
+    if (!this.ws || this.ws.readyState !== WS_OPEN) {
+      if (this.messageQueue.length < this.config.maxQueueSize) {
+        this.messageQueue.push(message);
+      }
+      return;
+    }
+    try {
+      const serialized = JSON.stringify(message);
+      this.ws.send(serialized);
+      this.stats.messagesSent++;
+      this.stats.bytesSent += serialized.length;
+      this.stats.lastSentAt = new Date();
+      this.stats.globalSequenceSent = Math.max(
+        this.stats.globalSequenceSent,
+        message.sequence,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.emitEvent({
+        type: 'error',
+        timestamp: new Date(),
+        message: `Failed to send message: ${msg}`,
+      });
+      if (this.messageQueue.length < this.config.maxQueueSize) {
+        this.messageQueue.push(message);
+      }
+    }
+  }
+
+  async flushQueue(): Promise<number> {
+    if (this._state !== 'connected') return 0;
+    let flushed = 0;
+    while (this.messageQueue.length > 0 && this._state === 'connected') {
+      const msg = this.messageQueue.shift();
+      if (msg) {
+        this.sendMessageOverWire(msg);
+        flushed++;
+      }
+    }
+    return flushed;
+  }
+
   getQueuedMessages(): TunnelMessage[] {
     return [...this.messageQueue];
   }
 
-  /**
-   * Clear the message queue without sending.
-   */
   clearQueue(): number {
     const count = this.messageQueue.length;
     this.messageQueue = [];
     return count;
   }
 
-  /**
-   * Handle an incoming message (called by Phase 2 WebSocket handler).
-   */
   handleIncoming(message: TunnelMessage): void {
     this.stats.messagesReceived++;
     this.stats.bytesReceived += JSON.stringify(message).length;
@@ -221,67 +796,153 @@ export class TunnelClient {
       type: 'message_received',
       timestamp: new Date(),
       message: `Received ${message.type} message`,
+      payload: { type: message.type, id: message.id },
     });
   }
 
-  /**
-   * Subscribe to tunnel events.
-   */
   onEvent(listener: TunnelEventListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
 
-  /**
-   * Check if the tunnel is connected.
-   */
   isConnected(): boolean {
     return this._state === 'connected';
   }
 
-  /**
-   * Get the configured device ID.
-   */
+  isAuthenticated(): boolean {
+    return this._state === 'connected' && (this.wsSessionId !== null || this.WebSocketImpl === null);
+  }
+
   getDeviceId(): string {
     return this.config.deviceId;
   }
 
-  /**
-   * Get the configured gateway ID.
-   */
   getGatewayId(): string {
     return this.config.gatewayId;
   }
 
-  /**
-   * Update the auth token (e.g., after token refresh).
-   */
   setAuthToken(token: string): void {
-    this.config.authToken = token;
+    (this.config as unknown as { authToken: string }).authToken = token;
   }
 
-  /**
-   * Shutdown the tunnel client, cleaning up all resources.
-   */
+  async initiateReconciliation(): Promise<ReconciliationResponse | null> {
+    if (this._state !== 'connected') return null;
+    if (!this.reconciliationProvider) return null;
+
+    this.setState('reconciling');
+    this.emitEvent({
+      type: 'reconciliation_started',
+      timestamp: new Date(),
+    });
+
+    const sessionStates = this.reconciliationProvider.getSessionStates();
+    const lastAcked = this.reconciliationProvider.getLastAckedGlobalSequence();
+    const thumbprint = this.authProvider?.getCertificateThumbprint() ?? '';
+    const signedAt = new Date();
+
+    const basePayload = {
+      deviceId: this.config.deviceId,
+      gatewayId: this.config.gatewayId,
+      lastAckedGlobalSequence: lastAcked,
+      sessionStates,
+      certificateThumbprint: thumbprint,
+      signedAt: signedAt.toISOString(),
+    };
+
+    const signature = this.authProvider
+      ? this.authProvider.sign(JSON.stringify(basePayload))
+      : '';
+
+    const request: ReconciliationRequest = {
+      ...basePayload,
+      signedAt,
+      signature,
+    };
+
+    const correlationId = `rec_${randomBytes(8).toString('hex')}`;
+    this.send('reconciliation_request', request, correlationId);
+    return null;
+  }
+
+  private async handleReconciliationResponse(response: ReconciliationResponse): Promise<void> {
+    if (!this.reconciliationProvider) return;
+
+    try {
+      const { sessionUpdates, replayEvents, globalGapInfo } = response;
+
+      if (globalGapInfo) {
+        this.reconciliationProvider.recordUnrecoverableGap(
+          null,
+          globalGapInfo.from,
+          globalGapInfo.to,
+          globalGapInfo.reason,
+        );
+      }
+
+      if (replayEvents && replayEvents.length > 0) {
+        for (const { sequence, event } of replayEvents) {
+          try {
+            await this.reconciliationProvider.replayEvent(sequence, event);
+          } catch {
+            // continue with next event
+          }
+        }
+      }
+
+      if (sessionUpdates && sessionUpdates.length > 0) {
+        await this.reconciliationProvider.applySessionUpdates(sessionUpdates);
+      }
+
+      if (typeof response.newAckBaseline === 'number') {
+        this.stats.globalSequenceAcked = Math.max(
+          this.stats.globalSequenceAcked,
+          response.newAckBaseline,
+        );
+      }
+
+      this.emitEvent({
+        type: 'reconciliation_complete',
+        timestamp: new Date(),
+        payload: {
+          replayedCount: replayEvents?.length ?? 0,
+          updatesCount: sessionUpdates?.length ?? 0,
+          newAckBaseline: response.newAckBaseline,
+          hasGlobalGap: !!globalGapInfo,
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.emitEvent({
+        type: 'error',
+        timestamp: new Date(),
+        message: `Reconciliation failed: ${message}`,
+      });
+    } finally {
+      this.setState('connected');
+    }
+  }
+
   async shutdown(): Promise<void> {
     if (this.shuttingDown) return;
     this.shuttingDown = true;
 
     this.stopHeartbeat();
     this.stopReconnect();
+    this.stopAuthTimeout();
 
-    if (this._state !== 'idle' && this._state !== 'disconnected') {
-      await this.disconnect();
+    if (this.ws && this.ws.readyState !== WS_CLOSED && this.ws.readyState !== WS_CLOSING) {
+      try {
+        this.ws.close(1000, 'Shutdown');
+      } catch { /* ignore */ }
     }
+    this.ws = null;
 
     this.messageQueue = [];
     this.listeners.clear();
+    this._state = 'idle';
   }
 
-  /**
-   * Initiate reconnection with exponential backoff.
-   */
-  private async reconnect(): Promise<void> {
+  private async reconnect(explicitDelayMs?: number): Promise<void> {
     if (this.shuttingDown) return;
     if (this.reconnectAttempts >= this.config.maxReconnectAttempts) {
       this.emitEvent({
@@ -302,21 +963,25 @@ export class TunnelClient {
       message: `Reconnect attempt ${this.reconnectAttempts}/${this.config.maxReconnectAttempts}`,
     });
 
-    // Exponential backoff with jitter
-    const baseDelay = this.config.reconnectBaseMs * Math.pow(2, this.reconnectAttempts - 1);
-    const delay = Math.min(baseDelay, this.config.reconnectMaxMs) + Math.random() * 1000;
+    const baseDelay = explicitDelayMs ?? (
+      this.config.reconnectBaseMs * Math.pow(2, Math.max(0, this.reconnectAttempts - 1))
+    );
+    const delay = Math.min(baseDelay, this.config.reconnectMaxMs) + Math.random() * 500;
 
     this.reconnectTimer = setTimeout(async () => {
       try {
-        // Phase 2: attempt actual reconnection
         await this.connect();
-        this.emitEvent({
-          type: 'reconnect_success',
-          timestamp: new Date(),
-          message: `Reconnected after ${this.reconnectAttempts} attempts`,
-        });
-        // Flush queued messages after successful reconnect
-        await this.flushQueue();
+        if (this._state === 'connected') {
+          this.emitEvent({
+            type: 'reconnect_success',
+            timestamp: new Date(),
+            message: `Reconnected after ${this.reconnectAttempts} attempts`,
+          });
+          await this.initiateReconciliation();
+          await this.flushQueue();
+        } else {
+          throw new Error('Connection did not reach connected state');
+        }
       } catch {
         this.emitEvent({
           type: 'error',
@@ -326,7 +991,9 @@ export class TunnelClient {
         void this.reconnect();
       }
     }, delay);
-    this.reconnectTimer.unref?.();
+    if (typeof this.reconnectTimer.unref === 'function') {
+      this.reconnectTimer.unref();
+    }
   }
 
   private stopReconnect(): void {
@@ -337,14 +1004,50 @@ export class TunnelClient {
   }
 
   private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.stats.missedHeartbeats = 0;
+
     if (this.config.heartbeatIntervalMs <= 0) return;
 
     this.heartbeatTimer = setInterval(() => {
       if (this._state === 'connected') {
-        this.send('heartbeat', { timestamp: new Date() });
+        this.sendHeartbeat();
       }
     }, this.config.heartbeatIntervalMs);
-    this.heartbeatTimer.unref?.();
+    if (typeof this.heartbeatTimer.unref === 'function') {
+      this.heartbeatTimer.unref();
+    }
+  }
+
+  private sendHeartbeat(): void {
+    const payload = {
+      timestamp: new Date(),
+      sequence: this.stats.globalSequenceSent,
+    };
+    this.send('heartbeat', payload);
+    this.stats.lastHeartbeatSentAt = new Date();
+    this.stats.missedHeartbeats++;
+
+    if (this.config.heartbeatTimeoutMs > 0) {
+      if (this.heartbeatTimeoutTimer) {
+        clearTimeout(this.heartbeatTimeoutTimer);
+      }
+      this.heartbeatTimeoutTimer = setTimeout(() => {
+        if (this.stats.missedHeartbeats >= 3) {
+          this.emitEvent({
+            type: 'heartbeat_timeout',
+            timestamp: new Date(),
+            message: `Missed ${this.stats.missedHeartbeats} consecutive heartbeats`,
+          });
+          try {
+            this.ws?.close(4002, 'Heartbeat timeout');
+          } catch { /* ignore */ }
+        }
+      }, this.config.heartbeatTimeoutMs);
+      if (typeof this.heartbeatTimeoutTimer.unref === 'function') {
+        this.heartbeatTimeoutTimer.unref();
+      }
+    }
   }
 
   private stopHeartbeat(): void {
@@ -352,12 +1055,15 @@ export class TunnelClient {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = undefined;
     }
+    if (this.heartbeatTimeoutTimer) {
+      clearTimeout(this.heartbeatTimeoutTimer);
+      this.heartbeatTimeoutTimer = undefined;
+    }
   }
 
   private setState(state: TunnelState): void {
     const previous = this._state;
     if (previous === state) return;
-
     this._state = state;
     this.emitEvent({
       type: 'state_change',

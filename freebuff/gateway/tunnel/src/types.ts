@@ -1,151 +1,147 @@
-/**
- * Tunnel Client Types
- *
- * Stub framework for outbound-only connections from the Gateway to the
- * Control Plane. The gateway NEVER opens inbound ports — it initiates
- * all connections outbound.
- *
- * This is the Phase 2 foundation. In Phase 1, this provides:
- * - Connection state machine (idle → connecting → connected → reconnecting)
- * - Outbound WebSocket stub with reconnect logic
- * - Message queue for offline buffering
- * - Authentication state tracking
- *
- * Phase 2 will add:
- * - TLS + device certificate authentication
- * - Full reconnect with sequence reconciliation
- * - Event replay
- */
+import type { DeviceCertificate, EventEnvelope } from '@freebuff/protocol';
 
 export type TunnelState =
   | 'idle'
   | 'connecting'
+  | 'authenticating'
   | 'connected'
   | 'disconnecting'
   | 'disconnected'
   | 'reconnecting'
   | 'reconciling'
+  | 'degraded'
   | 'error';
 
 export type TunnelMessageType =
-  | 'event'           // Forward event to control plane
-  | 'command'         // Receive command from control plane
-  | 'heartbeat'       // Bidirectional heartbeat
-  | 'ack'             // Acknowledge receipt
-  | 'replay'          // Replay missed events
-  | 'auth'            // Authentication handshake
-  | 'error';          // Error notification
+  | 'event'
+  | 'command'
+  | 'heartbeat'
+  | 'ack'
+  | 'replay'
+  | 'auth'
+  | 'auth_challenge'
+  | 'auth_success'
+  | 'auth_failure'
+  | 'reconciliation_request'
+  | 'reconciliation_response'
+  | 'replay_event'
+  | 'disconnect'
+  | 'error';
 
 export interface TunnelMessage {
-  /** Unique message ID */
   id: string;
-
-  /** Message type */
   type: TunnelMessageType;
-
-  /** Sequence number within the tunnel */
   sequence: number;
-
-  /** Timestamp */
   timestamp: Date;
-
-  /** Payload */
   payload: unknown;
-
-  /** Correlation ID for request/response matching */
   correlationId?: string;
+  signature?: string;
+  certificateThumbprint?: string;
+}
+
+export interface AuthPayload {
+  deviceId: string;
+  gatewayId: string;
+  nonce: string;
+  timestamp: Date;
+  publicKeyJwk: Record<string, unknown>;
+  certificateThumbprint?: string;
+  signature: string;
+}
+
+export interface AuthChallengePayload {
+  challenge: string;
+  issuedAt: Date;
+  expiresAt: Date;
+  serverNonce: string;
+}
+
+export interface AuthSuccessPayload {
+  sessionId: string;
+  assignedGlobalSequence: number;
+  serverTimestamp: Date;
+  capabilities: string[];
+}
+
+export interface AuthFailurePayload {
+  reason: string;
+  code: string;
+  retryable: boolean;
+  retryAfterMs?: number;
+  deviceStatus?: string;
 }
 
 export interface TunnelConfig {
-  /** Control plane WebSocket URL (e.g., wss://control.example.com/tunnel) */
   controlPlaneUrl: string;
-
-  /** Device ID for authentication */
   deviceId: string;
-
-  /** Gateway ID */
   gatewayId: string;
-
-  /** Authentication token (JWT or device certificate) */
   authToken?: string;
-
-  /** Reconnect interval base in ms */
+  tlsOptions?: {
+    caCertPem?: string;
+    clientCertPem?: string;
+    clientKeyPem?: string;
+    rejectUnauthorized?: boolean;
+    serverName?: string;
+  };
   reconnectBaseMs?: number;
-
-  /** Reconnect interval max in ms */
   reconnectMaxMs?: number;
-
-  /** Maximum reconnect attempts before giving up */
   maxReconnectAttempts?: number;
-
-  /** Heartbeat interval in ms (0 = disabled) */
   heartbeatIntervalMs?: number;
-
-  /** Message queue size limit */
+  heartbeatTimeoutMs?: number;
   maxQueueSize?: number;
-
-  /** Connection timeout in ms */
   connectTimeoutMs?: number;
+  authTimeoutMs?: number;
+  wsOptions?: {
+    userAgent?: string;
+    origin?: string;
+    headers?: Record<string, string>;
+  };
+  signMessages?: boolean;
+  autoReconnect?: boolean;
 }
 
 export const DEFAULT_TUNNEL_CONFIG: Required<
-  Pick<
+  Omit<
     TunnelConfig,
-    | 'reconnectBaseMs'
-    | 'reconnectMaxMs'
-    | 'maxReconnectAttempts'
-    | 'heartbeatIntervalMs'
-    | 'maxQueueSize'
-    | 'connectTimeoutMs'
-  >
+    'authToken' | 'tlsOptions' | 'wsOptions' | 'controlPlaneUrl'
+  > &
+    Pick<TunnelConfig, 'controlPlaneUrl'>
 > = {
+  controlPlaneUrl: '',
+  deviceId: '',
+  gatewayId: '',
   reconnectBaseMs: 1000,
   reconnectMaxMs: 30000,
   maxReconnectAttempts: 10,
   heartbeatIntervalMs: 15000,
+  heartbeatTimeoutMs: 5000,
   maxQueueSize: 10000,
   connectTimeoutMs: 10000,
+  authTimeoutMs: 5000,
+  signMessages: true,
+  autoReconnect: true,
 };
 
 export interface TunnelStats {
-  /** Current state */
   state: TunnelState;
-
-  /** Total messages sent */
   messagesSent: number;
-
-  /** Total messages received */
   messagesReceived: number;
-
-  /** Messages currently queued (not yet sent) */
   messagesQueued: number;
-
-  /** Total reconnect attempts */
   reconnectAttempts: number;
-
-  /** Total bytes sent */
   bytesSent: number;
-
-  /** Total bytes received */
   bytesReceived: number;
-
-  /** When the tunnel was first connected */
   connectedAt?: Date;
-
-  /** When the tunnel was last disconnected */
   lastDisconnectedAt?: Date;
-
-  /** When the last message was sent */
   lastSentAt?: Date;
-
-  /** When the last message was received */
   lastReceivedAt?: Date;
-
-  /** Connection uptime in ms */
   uptimeMs: number;
-
-  /** Total time disconnected in ms */
   disconnectedTimeMs: number;
+  lastHeartbeatSentAt?: Date;
+  lastHeartbeatReceivedAt?: Date;
+  missedHeartbeats: number;
+  authFailures: number;
+  globalSequenceAcked: number;
+  globalSequenceSent: number;
 }
 
 export interface TunnelEvent {
@@ -156,12 +152,59 @@ export interface TunnelEvent {
     | 'reconnect_attempt'
     | 'reconnect_success'
     | 'reconnect_failed'
+    | 'auth_started'
+    | 'auth_success'
+    | 'auth_failure'
+    | 'heartbeat_timeout'
+    | 'reconciliation_started'
+    | 'reconciliation_complete'
+    | 'certificate_warning'
     | 'error';
   timestamp: Date;
   state?: TunnelState;
   previousState?: TunnelState;
   message?: string;
   error?: Error;
+  payload?: unknown;
 }
 
 export type TunnelEventListener = (event: TunnelEvent) => void;
+
+export interface CommandPayload {
+  commandId: string;
+  commandType: string;
+  sessionId?: string;
+  arguments: Record<string, unknown>;
+  issuedAt: Date;
+  signedBy: string;
+  signature: string;
+}
+
+export interface EventForwardPayload {
+  envelope: EventEnvelope;
+}
+
+export interface ReplayEventPayload {
+  sequence: number;
+  envelope: EventEnvelope;
+}
+
+export interface DisconnectPayload {
+  reason: string;
+  code: number;
+  willReconnect: boolean;
+  serverInitiated: boolean;
+}
+
+export interface HeartbeatPayload {
+  timestamp: Date;
+  sequence: number;
+  load?: {
+    activeSessions: number;
+    pendingApprovals: number;
+    cpuPercent: number;
+    memoryMb: number;
+  };
+}
+
+export { type DeviceCertificate };

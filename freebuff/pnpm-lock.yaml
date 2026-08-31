@@ -61,6 +61,31 @@ importers:
         specifier: ^1.5.0
         version: 1.6.1(@types/node@20.19.43)
 
+  gateway/certificate:
+    dependencies:
+      '@freebuff/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@freebuff/identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@freebuff/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      '@freebuff/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
+    devDependencies:
+      '@types/node':
+        specifier: ^20.12.0
+        version: 20.19.43
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.5.0
+        version: 1.6.1(@types/node@20.19.43)
+
   gateway/checkpoint:
     dependencies:
       '@freebuff/config':
@@ -114,6 +139,75 @@ importers:
       '@types/node':
         specifier: ^20.12.0
         version: 20.19.43
+      vitest:
+        specifier: ^1.5.0
+        version: 1.6.1(@types/node@20.19.43)
+
+  gateway/identity:
+    dependencies:
+      '@freebuff/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@freebuff/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      '@freebuff/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
+    devDependencies:
+      '@types/node':
+        specifier: ^20.12.0
+        version: 20.19.43
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.5.0
+        version: 1.6.1(@types/node@20.19.43)
+
+  gateway/pairing:
+    dependencies:
+      '@freebuff/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@freebuff/identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@freebuff/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      '@freebuff/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
+    devDependencies:
+      '@types/node':
+        specifier: ^20.12.0
+        version: 20.19.43
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.5.0
+        version: 1.6.1(@types/node@20.19.43)
+
+  gateway/reconciliation:
+    dependencies:
+      '@freebuff/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@freebuff/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      '@freebuff/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
+    devDependencies:
+      '@types/node':
+        specifier: ^20.12.0
+        version: 20.19.43
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
       vitest:
         specifier: ^1.5.0
         version: 1.6.1(@types/node@20.19.43)
