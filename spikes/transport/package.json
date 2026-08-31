@@ -1,0 +1,33 @@
+{
+  "name": "@freebuff/transport-spike",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WebSocket transport with reconnect spike",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "server": "ts-node src/ws-server.ts",
+    "test:basic": "ts-node test-scenarios/basic-connection.ts",
+    "test:reconnect": "ts-node test-scenarios/network-drop.ts",
+    "test:ordering": "ts-node test-scenarios/message-ordering.ts",
+    "test:auth": "ts-node test-scenarios/auth-recovery.ts",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "ws": "^8.16.0",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "@types/ws": "^8.5.10",
+    "@types/uuid": "^9.0.0",
+    "typescript": "^5.4.0",
+    "ts-node": "^10.9.0",
+    "vitest": "^1.5.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "name": "@freebuff/integration-harness",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Disposable integration test harness for AI coding agents",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/index.ts",
+    "test": "vitest run",
+    "test:mock": "ts-node src/index.ts run --agent mock --scenario basic-session",
+    "test:opencode": "ts-node src/index.ts run --agent opencode --scenario basic-session",
+    "test:multi-prompt": "ts-node src/index.ts run --agent mock --scenario multi-prompt",
+    "test:crash": "ts-node src/index.ts run --agent mock --scenario crash-recovery",
+    "clean": "rm -rf dist",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "commander": "^12.0.0",
+    "uuid": "^9.0.0",
+    "yaml": "^2.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "@types/uuid": "^9.0.0",
+    "typescript": "^5.4.0",
+    "ts-node": "^10.9.0",
+    "vitest": "^1.5.0",
+    "eslint": "^8.57.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

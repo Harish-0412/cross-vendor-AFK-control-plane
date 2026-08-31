@@ -1,0 +1,29 @@
+{
+  "name": "@freebuff/sandbox-poc",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cross-platform sandbox proof of concept",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:filesystem": "vitest run test-cases/filesystem-isolation.test.ts",
+    "test:process": "vitest run test-cases/process-isolation.test.ts",
+    "test:network": "vitest run test-cases/network-isolation.test.ts",
+    "test:resources": "vitest run test-cases/resource-limits.test.ts",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "@types/uuid": "^9.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.5.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
