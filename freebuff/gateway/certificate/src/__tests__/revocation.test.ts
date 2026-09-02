@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
 import {
-  RevocationStore,
-  RevocationChecker,
+  type RevocationStore,
+  type RevocationChecker,
   createRevocationStore,
   createRevocationChecker,
-  RevocationEntry,
+  type RevocationEntry,
 } from '../revocation';
 
 describe('RevocationStore', () => {
@@ -75,14 +76,42 @@ describe('RevocationStore', () => {
   it('should respect max entries limit', () => {
     const smallStore = createRevocationStore({ maxEntries: 3 });
 
-    smallStore.add({ deviceId: 'd1', revokedAt: new Date(), reason: 'user_initiated', revokedBy: 'u', affectedCertificates: [], effectiveImmediately: true });
-    smallStore.add({ deviceId: 'd2', revokedAt: new Date(), reason: 'user_initiated', revokedBy: 'u', affectedCertificates: [], effectiveImmediately: true });
-    smallStore.add({ deviceId: 'd3', revokedAt: new Date(), reason: 'user_initiated', revokedBy: 'u', affectedCertificates: [], effectiveImmediately: true });
+    smallStore.add({
+      deviceId: 'd1',
+      revokedAt: new Date(),
+      reason: 'user_initiated',
+      revokedBy: 'u',
+      affectedCertificates: [],
+      effectiveImmediately: true,
+    });
+    smallStore.add({
+      deviceId: 'd2',
+      revokedAt: new Date(),
+      reason: 'user_initiated',
+      revokedBy: 'u',
+      affectedCertificates: [],
+      effectiveImmediately: true,
+    });
+    smallStore.add({
+      deviceId: 'd3',
+      revokedAt: new Date(),
+      reason: 'user_initiated',
+      revokedBy: 'u',
+      affectedCertificates: [],
+      effectiveImmediately: true,
+    });
 
     expect(smallStore.size()).toBe(3);
 
     // Adding 4th should evict oldest
-    smallStore.add({ deviceId: 'd4', revokedAt: new Date(), reason: 'user_initiated', revokedBy: 'u', affectedCertificates: [], effectiveImmediately: true });
+    smallStore.add({
+      deviceId: 'd4',
+      revokedAt: new Date(),
+      reason: 'user_initiated',
+      revokedBy: 'u',
+      affectedCertificates: [],
+      effectiveImmediately: true,
+    });
     expect(smallStore.size()).toBe(3);
   });
 
@@ -96,9 +125,30 @@ describe('RevocationStore', () => {
 
   it('should import batches', () => {
     const entries: RevocationEntry[] = [
-      { deviceId: 'd1', revokedAt: new Date(), reason: 'user_initiated', revokedBy: 'u', affectedCertificates: [], effectiveImmediately: true },
-      { deviceId: 'd2', revokedAt: new Date(), reason: 'user_initiated', revokedBy: 'u', affectedCertificates: [], effectiveImmediately: true },
-      { deviceId: 'd3', revokedAt: new Date(), reason: 'user_initiated', revokedBy: 'u', affectedCertificates: [], effectiveImmediately: true },
+      {
+        deviceId: 'd1',
+        revokedAt: new Date(),
+        reason: 'user_initiated',
+        revokedBy: 'u',
+        affectedCertificates: [],
+        effectiveImmediately: true,
+      },
+      {
+        deviceId: 'd2',
+        revokedAt: new Date(),
+        reason: 'user_initiated',
+        revokedBy: 'u',
+        affectedCertificates: [],
+        effectiveImmediately: true,
+      },
+      {
+        deviceId: 'd3',
+        revokedAt: new Date(),
+        reason: 'user_initiated',
+        revokedBy: 'u',
+        affectedCertificates: [],
+        effectiveImmediately: true,
+      },
     ];
 
     const added = store.importBatch(entries);
@@ -129,7 +179,14 @@ describe('RevocationStore', () => {
   });
 
   it('should clear all entries', () => {
-    store.add({ deviceId: 'd1', revokedAt: new Date(), reason: 'user_initiated', revokedBy: 'u', affectedCertificates: [], effectiveImmediately: true });
+    store.add({
+      deviceId: 'd1',
+      revokedAt: new Date(),
+      reason: 'user_initiated',
+      revokedBy: 'u',
+      affectedCertificates: [],
+      effectiveImmediately: true,
+    });
     store.clear();
     expect(store.size()).toBe(0);
     expect(store.needsRefresh()).toBe(true);
@@ -166,7 +223,9 @@ describe('RevocationChecker', () => {
 
   it('should refresh from remote source', async () => {
     const mockClient = {
-      checkRevocation: vi.fn().mockResolvedValue({ deviceId: 'dev_remote', revoked: false, affectedCertificates: [] }),
+      checkRevocation: vi
+        .fn()
+        .mockResolvedValue({ deviceId: 'dev_remote', revoked: false, affectedCertificates: [] }),
       fetchRevocationList: vi.fn().mockResolvedValue([]),
     };
     checker.setClient(mockClient);

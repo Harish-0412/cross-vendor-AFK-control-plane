@@ -1,7 +1,8 @@
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 import * as os from 'node:os';
-import { DeviceKeyMaterial, KeyAlgorithm } from '@freebuff/protocol';
+import * as path from 'node:path';
+
+import { type DeviceKeyMaterial } from '@freebuff/protocol';
 
 export interface KeyStorageOptions {
   storageDir?: string;
@@ -10,7 +11,8 @@ export interface KeyStorageOptions {
   usePlatformKeychain?: boolean;
 }
 
-export const DEFAULT_KEY_STORAGE_OPTIONS: Required<Omit<KeyStorageOptions, 'usePlatformKeychain'>> & Pick<KeyStorageOptions, 'usePlatformKeychain'> = {
+export const DEFAULT_KEY_STORAGE_OPTIONS: Required<Omit<KeyStorageOptions, 'usePlatformKeychain'>> &
+  Pick<KeyStorageOptions, 'usePlatformKeychain'> = {
   storageDir: path.join(os.homedir(), '.freebuff'),
   keyFileName: 'device-keys.json',
   filePermissions: 0o600,

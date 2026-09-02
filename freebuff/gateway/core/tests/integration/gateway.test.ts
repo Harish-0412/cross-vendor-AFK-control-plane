@@ -1,7 +1,7 @@
+import type { GatewayOptions, SessionConfig, EventEnvelope } from '@freebuff/protocol';
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 
-import { createGateway, GatewayImpl } from '../../src/gateway';
-import type { GatewayOptions, SessionConfig, EventEnvelope } from '@freebuff/protocol';
+import { createGateway, type GatewayImpl } from '../../src/gateway';
 
 describe('GatewayImpl (Integration)', () => {
   let gateway: GatewayImpl;
@@ -45,7 +45,9 @@ describe('GatewayImpl (Integration)', () => {
     const before = await gateway.listAgents();
     const after = await gateway.detectAgents();
     expect(after.length).toBe(before.length);
-    expect(after[0]!.lastDetectedAt.getTime()).toBeGreaterThanOrEqual(before[0]!.lastDetectedAt.getTime());
+    expect(after[0]!.lastDetectedAt.getTime()).toBeGreaterThanOrEqual(
+      before[0]!.lastDetectedAt.getTime(),
+    );
   });
 
   test('getAgent returns single agent info', async () => {
@@ -145,7 +147,11 @@ describe('GatewayImpl (Integration)', () => {
       const check = setInterval(async () => {
         try {
           const s = await gateway.getSession(session.id);
-          if (s.state === 'cancelled' || received.some((r) => r.eventType === 'session.cancelled') || received.length >= 4) {
+          if (
+            s.state === 'cancelled' ||
+            received.some((r) => r.eventType === 'session.cancelled') ||
+            received.length >= 4
+          ) {
             clearInterval(check);
             resolve();
           }
@@ -253,7 +259,11 @@ describe('GatewayImpl (Integration)', () => {
     });
     await gateway.shutdown(true, 500);
     const status = await gateway.getStatus().catch(() => null);
-    expect(status === null || status.activeSessions === 0 || (gateway as unknown as { shuttingDown: boolean }).shuttingDown).toBe(true);
+    expect(
+      status === null ||
+        status.activeSessions === 0 ||
+        (gateway as unknown as { shuttingDown: boolean }).shuttingDown,
+    ).toBe(true);
   });
 
   test('onGatewayEvent receives lifecycle events', async () => {

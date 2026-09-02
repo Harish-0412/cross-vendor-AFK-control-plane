@@ -27,10 +27,10 @@ export interface ComponentHealth {
   durationMs: number;
 
   /** Check-specific metrics */
-  metrics?: Record<string, unknown>;
+  metrics?: Record<string, unknown> | undefined;
 
   /** Any issues detected */
-  issues?: string[];
+  issues?: string[] | undefined;
 }
 
 export interface ResourceSnapshot {
@@ -103,7 +103,7 @@ export interface HealthReport {
   heartbeatOverdue: boolean;
 
   /** Any global issues */
-  issues?: string[];
+  issues?: string[] | undefined;
 }
 
 export interface HealthCheckFn {

@@ -1,10 +1,10 @@
 import { randomBytes } from 'node:crypto';
 
-import { SESSION_ID_PREFIX, SESSION_ID_LENGTH } from './types/session';
-import { EVENT_ID_PREFIX, EVENT_ID_LENGTH } from './types/events';
 import { COMMAND_ID_PREFIX, COMMAND_ID_LENGTH } from './types/commands';
+import { EVENT_ID_PREFIX, EVENT_ID_LENGTH } from './types/events';
 import { PROJECT_ID_PREFIX, PROJECT_ID_LENGTH } from './types/project';
 import { SANDBOX_ID_PREFIX, SANDBOX_ID_LENGTH } from './types/sandbox';
+import { SESSION_ID_PREFIX, SESSION_ID_LENGTH } from './types/session';
 
 export function generateId(prefix: string, length: number): string {
   const bytes = randomBytes(Math.ceil(length / 2));

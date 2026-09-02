@@ -1,9 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import {
-  GapDetector,
-  createGapDetector,
-} from '../gap-detector';
 import type { EventEnvelope } from '@freebuff/protocol';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+import { type GapDetector, createGapDetector } from '../gap-detector';
 
 describe('GapDetector', () => {
   let detector: GapDetector;
@@ -86,9 +84,7 @@ describe('GapDetector', () => {
 
   it('should find replayable window when no gaps', () => {
     const globalAnalysis = detector.analyzeSequences(1, 5, [1, 2, 3, 4, 5]);
-    const perSession = new Map([
-      ['s1', detector.analyzeSequences(1, 5, [1, 2, 3, 4, 5])],
-    ]);
+    const perSession = new Map([['s1', detector.analyzeSequences(1, 5, [1, 2, 3, 4, 5])]]);
     const window = detector.findReplayableWindow(perSession, globalAnalysis);
     expect(window.canReplayGlobally).toBe(true);
     expect(window.firstGapAt).toBeNull();
@@ -104,15 +100,28 @@ describe('GapDetector', () => {
   });
 
   it('should merge gaps from global and per-session', () => {
-    const globalGaps = [{
-      sessionId: null, fromSequence: 1, toSequence: 2,
-      reason: 'test', reportedAt: new Date(),
-    }];
+    const globalGaps = [
+      {
+        sessionId: null,
+        fromSequence: 1,
+        toSequence: 2,
+        reason: 'test',
+        reportedAt: new Date(),
+      },
+    ];
     const perSessionGaps = new Map([
-      ['s1', [{
-        sessionId: 's1', fromSequence: 5, toSequence: 7,
-        reason: 'test', reportedAt: new Date(),
-      }]],
+      [
+        's1',
+        [
+          {
+            sessionId: 's1',
+            fromSequence: 5,
+            toSequence: 7,
+            reason: 'test',
+            reportedAt: new Date(),
+          },
+        ],
+      ],
     ]);
     const merged = detector.mergeGaps(globalGaps, perSessionGaps);
     expect(merged).toHaveLength(2);

@@ -1,8 +1,9 @@
+import { execFile } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
+import { PROJECT_ACCESS_TTL_MS } from '@freebuff/config';
 import type {
   ProjectInfo,
   ProjectValidation,
@@ -11,15 +12,7 @@ import type {
   ProjectStats,
   NetworkCapabilities,
 } from '@freebuff/protocol';
-
-import {
-  generateProjectId,
-  deriveProjectName,
-  DEFAULT_DENIED_PATHS,
-} from '@freebuff/protocol';
-import {
-  PROJECT_ACCESS_TTL_MS,
-} from '@freebuff/config';
+import { generateProjectId, deriveProjectName, DEFAULT_DENIED_PATHS } from '@freebuff/protocol';
 
 const execFileAsync = promisify(execFile);
 
@@ -41,7 +34,9 @@ export class ProjectManager {
             void this.registerProject({ root, autoDetectGit: true });
           }
         })
-        .catch(() => { /* ignore validation errors for initial roots */ });
+        .catch(() => {
+          /* ignore validation errors for initial roots */
+        });
     }
   }
 
@@ -67,10 +62,22 @@ export class ProjectManager {
     try {
       rootStat = await fs.lstat(resolvedRoot);
     } catch {
-      return this.makeValidation(projectRoot, resolvedRoot, false, [...errors, `Project root does not exist: ${resolvedRoot}`], warnings);
+      return this.makeValidation(
+        projectRoot,
+        resolvedRoot,
+        false,
+        [...errors, `Project root does not exist: ${resolvedRoot}`],
+        warnings,
+      );
     }
     if (!rootStat.isDirectory()) {
-      return this.makeValidation(projectRoot, resolvedRoot, false, [...errors, `Project root is not a directory: ${resolvedRoot}`], warnings);
+      return this.makeValidation(
+        projectRoot,
+        resolvedRoot,
+        false,
+        [...errors, `Project root is not a directory: ${resolvedRoot}`],
+        warnings,
+      );
     }
 
     if (rootStat.isSymbolicLink()) {
@@ -129,11 +136,7 @@ export class ProjectManager {
         }
       }
 
-      const commit = await this.safeGitExec(resolvedRoot, [
-        'log',
-        '-1',
-        '--format=%H%x09%ct',
-      ]);
+      const commit = await this.safeGitExec(resolvedRoot, ['log', '-1', '--format=%H%x09%ct']);
       if (commit.success) {
         const [hash, unixTime] = commit.stdout.trim().split('\t');
         if (hash) lastCommitHash = hash;
@@ -144,7 +147,20 @@ export class ProjectManager {
     }
 
     const homeDir = this.getHomeDir();
-    const standardWriteChildren = ['src', 'lib', 'test', 'tests', '__tests__', 'docs', 'public', 'assets', 'tmp', 'temp', 'dist', 'build'];
+    const standardWriteChildren = [
+      'src',
+      'lib',
+      'test',
+      'tests',
+      '__tests__',
+      'docs',
+      'public',
+      'assets',
+      'tmp',
+      'temp',
+      'dist',
+      'build',
+    ];
     for (const child of standardWriteChildren) {
       const childPath = path.join(resolvedRoot, child);
       try {
@@ -158,9 +174,7 @@ export class ProjectManager {
     }
 
     for (const denyPattern of DEFAULT_DENIED_PATHS) {
-      const expanded = denyPattern
-        .replace(/^~/, homeDir)
-        .replace(/\$\{home\}/gi, homeDir);
+      const expanded = denyPattern.replace(/^~/, homeDir).replace(/\$\{home\}/gi, homeDir);
       try {
         const resolvedDeny = path.resolve(resolvedRoot, expanded);
         if (resolvedDeny.startsWith(resolvedRoot)) {
@@ -187,6 +201,8 @@ export class ProjectManager {
       isGitRepo,
       defaultBranch,
       currentBranch,
+      lastCommitHash,
+      lastCommitAt,
       writablePaths,
       readablePaths,
       deniedPaths,
@@ -201,9 +217,7 @@ export class ProjectManager {
   async registerProject(options: ProjectRegistrationOptions): Promise<ProjectInfo> {
     const validation = await this.validateProject(options.root);
     if (!validation.valid) {
-      throw new Error(
-        `Project validation failed: ${validation.errors.join(', ')}`,
-      );
+      throw new Error(`Project validation failed: ${validation.errors.join(', ')}`);
     }
 
     const existing = this.findByRoot(validation.resolvedRoot);
@@ -226,8 +240,8 @@ export class ProjectManager {
       vcs: validation.isGitRepo ? 'git' : 'none',
       defaultBranch: validation.defaultBranch,
       currentBranch: validation.currentBranch,
-      lastCommitHash: undefined,
-      lastCommitAt: undefined,
+      lastCommitHash: validation.lastCommitHash,
+      lastCommitAt: validation.lastCommitAt,
       createdAt: now,
       lastAccessedAt: now,
       metadata: {},
@@ -260,13 +274,12 @@ export class ProjectManager {
 
   listProjects(): ProjectInfo[] {
     const now = Date.now();
-    return Array.from(this.projects.values())
-      .map((r) => {
-        if (now - r.info.lastAccessedAt.getTime() > PROJECT_ACCESS_TTL_MS) {
-          r.info.lastAccessedAt = new Date();
-        }
-        return { ...r.info };
-      });
+    return Array.from(this.projects.values()).map((r) => {
+      if (now - r.info.lastAccessedAt.getTime() > PROJECT_ACCESS_TTL_MS) {
+        r.info.lastAccessedAt = new Date();
+      }
+      return { ...r.info };
+    });
   }
 
   filterProjects(filter: ProjectFilter): ProjectInfo[] {

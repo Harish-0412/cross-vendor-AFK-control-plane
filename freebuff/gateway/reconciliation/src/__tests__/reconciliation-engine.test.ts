@@ -1,21 +1,25 @@
+import type { EventEnvelope } from '@freebuff/protocol';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import {
-  ReconciliationEngine,
-  createReconciliationEngine,
-} from '../reconciliation-engine';
+
+import { type ReconciliationEngine, createReconciliationEngine } from '../reconciliation-engine';
 import type {
   SessionStateProvider,
   SessionUpdateApplier,
   EventStore,
   ReconciliationEvent,
 } from '../types';
-import type { EventEnvelope } from '@freebuff/protocol';
 
 function createMockProviders() {
-  const sessions = new Map<string, {
-    sessionId: string; state: string; lastAckedSequence: number;
-    lastEventAt?: Date; lastEventType?: string;
-  }>();
+  const sessions = new Map<
+    string,
+    {
+      sessionId: string;
+      state: string;
+      lastAckedSequence: number;
+      lastEventAt?: Date;
+      lastEventType?: string;
+    }
+  >();
   let globalAck = 0;
 
   const stateProvider: SessionStateProvider = {
@@ -41,7 +45,13 @@ function createMockProviders() {
   };
 
   const events: Array<{ sessionId: string; envelope: EventEnvelope }> = [];
-  const gaps: Array<{ sessionId: string | null; fromSequence: number; toSequence: number; reason: string; reportedAt: Date }> = [];
+  const gaps: Array<{
+    sessionId: string | null;
+    fromSequence: number;
+    toSequence: number;
+    reason: string;
+    reportedAt: Date;
+  }> = [];
 
   const eventStore: EventStore = {
     getEventsSince: vi.fn(async () => []),
@@ -56,9 +66,17 @@ function createMockProviders() {
   };
 
   return {
-    stateProvider, updateApplier, eventStore,
-    sessions, updatedStates, approvals, events, gaps,
-    setGlobalAck: (n: number) => { globalAck = n; },
+    stateProvider,
+    updateApplier,
+    eventStore,
+    sessions,
+    updatedStates,
+    approvals,
+    events,
+    gaps,
+    setGlobalAck: (n: number) => {
+      globalAck = n;
+    },
     addSession: (s: { sessionId: string; state: string; lastAckedSequence: number }) => {
       sessions.set(s.sessionId, s);
     },
@@ -71,11 +89,7 @@ describe('ReconciliationEngine', () => {
 
   beforeEach(() => {
     mocks = createMockProviders();
-    engine = createReconciliationEngine(
-      mocks.stateProvider,
-      mocks.updateApplier,
-      mocks.eventStore,
-    );
+    engine = createReconciliationEngine(mocks.stateProvider, mocks.updateApplier, mocks.eventStore);
   });
 
   it('should initialize in idle state', () => {
@@ -91,8 +105,8 @@ describe('ReconciliationEngine', () => {
 
     const states = engine.collectSessionStates();
     expect(states).toHaveLength(2);
-    expect(states.find(s => s.sessionId === 's1')?.state).toBe('running');
-    expect(states.find(s => s.sessionId === 's2')?.lastAckedSequence).toBe(3);
+    expect(states.find((s) => s.sessionId === 's1')?.state).toBe('running');
+    expect(states.find((s) => s.sessionId === 's2')?.lastAckedSequence).toBe(3);
   });
 
   it('should build reconciliation request', () => {
@@ -100,7 +114,9 @@ describe('ReconciliationEngine', () => {
     mocks.setGlobalAck(10);
 
     const { request, signatureBase } = engine.buildReconciliationRequest(
-      'dev_abc', 'gw_abc', 'thumb123',
+      'dev_abc',
+      'gw_abc',
+      'thumb123',
     );
 
     expect(request.deviceId).toBe('dev_abc');
@@ -113,9 +129,7 @@ describe('ReconciliationEngine', () => {
 
   it('should sign request when signFn provided', () => {
     const signFn = vi.fn().mockReturnValue('signed-data');
-    const { request } = engine.buildReconciliationRequest(
-      'dev_abc', 'gw_abc', 'thumb123', signFn,
-    );
+    const { request } = engine.buildReconciliationRequest('dev_abc', 'gw_abc', 'thumb123', signFn);
     expect(signFn).toHaveBeenCalled();
     expect(request.signature).toBe('signed-data');
   });
@@ -230,9 +244,9 @@ describe('ReconciliationEngine', () => {
     };
 
     await engine.processReconciliationResponse(response);
-    expect(events.some(e => e.type === 'step_changed')).toBe(true);
-    expect(events.some(e => e.type === 'update_applied')).toBe(true);
-    expect(events.some(e => e.type === 'run_completed')).toBe(true);
+    expect(events.some((e) => e.type === 'step_changed')).toBe(true);
+    expect(events.some((e) => e.type === 'update_applied')).toBe(true);
+    expect(events.some((e) => e.type === 'run_completed')).toBe(true);
   });
 
   it('should handle replay errors gracefully', async () => {
@@ -244,8 +258,11 @@ describe('ReconciliationEngine', () => {
         {
           sequence: 1,
           event: {
-            eventId: 'evt-1', sessionId: 's1', eventType: 'session.created',
-            sequence: 1, occurredAt: new Date(),
+            eventId: 'evt-1',
+            sessionId: 's1',
+            eventType: 'session.created',
+            sequence: 1,
+            occurredAt: new Date(),
           } as EventEnvelope,
         },
       ],
@@ -281,8 +298,11 @@ describe('ReconciliationEngine', () => {
     const unsub = engine.onEvent((e) => events.push(e));
 
     const response = {
-      deviceId: 'dev_abc', replayEvents: [], sessionUpdates: [],
-      reconciledAt: new Date(), newAckBaseline: 0,
+      deviceId: 'dev_abc',
+      replayEvents: [],
+      sessionUpdates: [],
+      reconciledAt: new Date(),
+      newAckBaseline: 0,
     };
 
     await engine.processReconciliationResponse(response);

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "_comment": [
+    "Type-aware linting needs a program that contains every file ESLint visits,",
+    "including test files. The per-package build configs deliberately exclude",
+    "tests, and the root tsconfig.json is a solution file with `files: []`, so",
+    "neither can serve that purpose."
+  ],
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": true,
+    "paths": {
+      "@freebuff/protocol": ["./packages/protocol/src/index.ts"],
+      "@freebuff/schemas": ["./packages/schemas/src/index.ts"],
+      "@freebuff/config": ["./packages/config/src/index.ts"],
+      "@freebuff/mock-adapter": ["./gateway/adapters/mock/src/index.ts"],
+      "@freebuff/checkpoint": ["./gateway/checkpoint/src/index.ts"],
+      "@freebuff/health": ["./gateway/health/src/index.ts"],
+      "@freebuff/sandbox": ["./gateway/sandbox/src/index.ts"],
+      "@freebuff/tunnel": ["./gateway/tunnel/src/index.ts"],
+      "@freebuff/identity": ["./gateway/identity/src/index.ts"],
+      "@freebuff/pairing": ["./gateway/pairing/src/index.ts"],
+      "@freebuff/certificate": ["./gateway/certificate/src/index.ts"],
+      "@freebuff/reconciliation": ["./gateway/reconciliation/src/index.ts"],
+      "@freebuff/gateway-core": ["./gateway/core/src/index.ts"]
+    }
+  },
+  "include": [
+    "packages/*/src/**/*.ts",
+    "gateway/*/src/**/*.ts",
+    "gateway/*/tests/**/*.ts",
+    "gateway/adapters/*/src/**/*.ts",
+    "gateway/adapters/*/tests/**/*.ts"
+  ],
+  "exclude": ["node_modules", "dist"]
+}

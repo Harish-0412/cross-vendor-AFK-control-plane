@@ -5,16 +5,23 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./src/index.ts"
+    }
   },
-  "files": ["dist", "src"],
+  "files": [
+    "dist",
+    "src"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc --build",
     "dev": "tsc --watch",
-    "typecheck": "tsc --noEmit",
-    "test:unit": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc --build --dry",
     "lint": "eslint src --ext .ts",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "uuid": "^9.0.0"

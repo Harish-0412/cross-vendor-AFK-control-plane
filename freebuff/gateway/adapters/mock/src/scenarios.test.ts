@@ -61,14 +61,17 @@ describe('Scenario builder', () => {
 
   test('multi_turn scenario includes user message', () => {
     const events = buildScenario({ ...baseConfig, scenario: 'multi_turn' });
-    const messages = events.filter(
-      (e) => e.type === 'session.message',
-    );
+    const messages = events.filter((e) => e.type === 'session.message');
     expect(messages.length).toBeGreaterThanOrEqual(3);
   });
 
   test('crash_midway truncates events', () => {
-    const full = buildScenario({ ...baseConfig, scenario: 'simple', messageCount: 5, toolCallCount: 3 });
+    const full = buildScenario({
+      ...baseConfig,
+      scenario: 'simple',
+      messageCount: 5,
+      toolCallCount: 3,
+    });
     const crashed = buildScenario({
       ...baseConfig,
       scenario: 'crash_midway',

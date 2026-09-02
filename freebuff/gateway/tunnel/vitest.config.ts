@@ -1,10 +1,7 @@
 import { defineConfig } from 'vitest/config';
+import { workspaceAliases, sharedTestConfig } from '../../vitest.shared';
 
 export default defineConfig({
-  test: {
-    environment: 'node',
-    globals: true,
-    include: ['src/**/*.test.ts'],
-    testTimeout: 15000,
-  },
+  test: { ...sharedTestConfig },
+  resolve: { alias: workspaceAliases },
 });

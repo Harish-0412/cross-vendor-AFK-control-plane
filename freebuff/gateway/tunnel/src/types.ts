@@ -34,9 +34,9 @@ export interface TunnelMessage {
   sequence: number;
   timestamp: Date;
   payload: unknown;
-  correlationId?: string;
+  correlationId?: string | undefined;
   signature?: string;
-  certificateThumbprint?: string;
+  certificateThumbprint?: string | undefined;
 }
 
 export interface AuthPayload {
@@ -45,7 +45,7 @@ export interface AuthPayload {
   nonce: string;
   timestamp: Date;
   publicKeyJwk: Record<string, unknown>;
-  certificateThumbprint?: string;
+  certificateThumbprint?: string | undefined;
   signature: string;
 }
 
@@ -101,10 +101,7 @@ export interface TunnelConfig {
 }
 
 export const DEFAULT_TUNNEL_CONFIG: Required<
-  Omit<
-    TunnelConfig,
-    'authToken' | 'tlsOptions' | 'wsOptions' | 'controlPlaneUrl'
-  > &
+  Omit<TunnelConfig, 'authToken' | 'tlsOptions' | 'wsOptions' | 'controlPlaneUrl'> &
     Pick<TunnelConfig, 'controlPlaneUrl'>
 > = {
   controlPlaneUrl: '',
@@ -130,14 +127,14 @@ export interface TunnelStats {
   reconnectAttempts: number;
   bytesSent: number;
   bytesReceived: number;
-  connectedAt?: Date;
-  lastDisconnectedAt?: Date;
-  lastSentAt?: Date;
-  lastReceivedAt?: Date;
+  connectedAt?: Date | undefined;
+  lastDisconnectedAt?: Date | undefined;
+  lastSentAt?: Date | undefined;
+  lastReceivedAt?: Date | undefined;
   uptimeMs: number;
   disconnectedTimeMs: number;
-  lastHeartbeatSentAt?: Date;
-  lastHeartbeatReceivedAt?: Date;
+  lastHeartbeatSentAt?: Date | undefined;
+  lastHeartbeatReceivedAt?: Date | undefined;
   missedHeartbeats: number;
   authFailures: number;
   globalSequenceAcked: number;

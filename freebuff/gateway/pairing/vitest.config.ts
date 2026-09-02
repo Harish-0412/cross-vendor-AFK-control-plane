@@ -1,15 +1,7 @@
 import { defineConfig } from 'vitest/config';
-import tsconfigPaths from 'vite-tsconfig-paths';
+import { workspaceAliases, sharedTestConfig } from '../../vitest.shared';
 
 export default defineConfig({
-  plugins: [tsconfigPaths()],
-  test: {
-    globals: true,
-    environment: 'node',
-    include: ['src/**/*.test.ts'],
-    coverage: {
-      provider: 'v8',
-      reporter: ['text', 'json', 'html'],
-    },
-  },
+  test: { ...sharedTestConfig },
+  resolve: { alias: workspaceAliases },
 });

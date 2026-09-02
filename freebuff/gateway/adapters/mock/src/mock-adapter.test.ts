@@ -1,7 +1,7 @@
+import type { EventEnvelope, SessionConfig } from '@freebuff/protocol';
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 
-import { createMockAdapter, MockAdapter } from '../src/mock-adapter';
-import type { EventEnvelope, SessionConfig } from '@freebuff/protocol';
+import { createMockAdapter, type MockAdapter } from '../src/mock-adapter';
 
 describe('MockAdapter', () => {
   let adapter: MockAdapter;
@@ -195,7 +195,12 @@ describe('MockAdapter', () => {
 
     const approvalPayload = approvalEvents[0]!.payload as { approvalId: string };
     expect(approvalPayload.approvalId).toBeDefined();
-    await adapter.submitApprovalDecision(sessionId, approvalPayload.approvalId, true, 'test approval');
+    await adapter.submitApprovalDecision(
+      sessionId,
+      approvalPayload.approvalId,
+      true,
+      'test approval',
+    );
 
     await new Promise<void>((resolve) => {
       const check = setInterval(async () => {
@@ -222,7 +227,9 @@ describe('MockAdapter', () => {
     await new Promise((r) => setTimeout(r, 300));
 
     await adapter.resumeSession(sessionId);
-    expect(['running', 'completed', 'failed', 'cancelled']).toContain(await adapter.getState(sessionId));
+    expect(['running', 'completed', 'failed', 'cancelled']).toContain(
+      await adapter.getState(sessionId),
+    );
   });
 
   test('checkpointSession creates checkpoint event', async () => {

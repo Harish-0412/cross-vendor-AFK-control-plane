@@ -1,3 +1,4 @@
+import { AGENT_DETECTION_CACHE_TTL_MS } from '@freebuff/config';
 import type {
   AgentAdapter,
   AgentInfo,
@@ -5,16 +6,14 @@ import type {
   AgentInstallationResult,
   AgentValidationResult,
 } from '@freebuff/protocol';
-
 import { createDefaultAgentHealth } from '@freebuff/protocol';
-import { AGENT_DETECTION_CACHE_TTL_MS } from '@freebuff/config';
 
 interface AgentRecord {
   adapter: AgentAdapter;
   info: AgentInfo;
   lastDetectedAt: Date;
   cacheExpiresAt: Date;
-  pendingDetection?: Promise<AgentInfo>;
+  pendingDetection?: Promise<AgentInfo> | undefined;
 }
 
 export class AgentManager {
@@ -214,6 +213,8 @@ export class AgentManager {
   }
 }
 
-export function createAgentManager(options?: ConstructorParameters<typeof AgentManager>[0]): AgentManager {
+export function createAgentManager(
+  options?: ConstructorParameters<typeof AgentManager>[0],
+): AgentManager {
   return new AgentManager(options);
 }

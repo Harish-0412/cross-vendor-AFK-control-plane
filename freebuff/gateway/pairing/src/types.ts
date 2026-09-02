@@ -28,13 +28,13 @@ export interface PairingSession {
   ttlMs: number;
   retryCount: number;
   maxRetries: number;
-  controlPlaneEndpoint?: string;
+  controlPlaneEndpoint?: string | undefined;
 }
 
 export interface PairingStartOptions {
   ttlMs?: number;
   maxRetries?: number;
-  controlPlaneEndpoint?: string;
+  controlPlaneEndpoint?: string | undefined;
   userIdHint?: string;
 }
 
@@ -67,7 +67,7 @@ export interface ControlPlanePairingResponse {
   expiresInSeconds?: string;
   message: string;
   error?: string;
-  sessionId?: string;
+  sessionId?: string | undefined;
 }
 
 export interface FingerprintConfirmationData {

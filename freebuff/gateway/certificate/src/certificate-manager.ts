@@ -1,26 +1,28 @@
 import { randomBytes } from 'node:crypto';
+
+import { type DeviceIdentityManager } from '@freebuff/identity';
 import {
-  DeviceCertificate,
+  type DeviceCertificate,
   isCertificateValid,
   shouldRenewCertificate,
   DEFAULT_CERT_VALIDITY_MS,
   DEFAULT_CERT_RENEW_AT_MS,
 } from '@freebuff/protocol';
-import { DeviceIdentityManager } from '@freebuff/identity';
+
 import {
-  CertificateAuthority,
-  CertificateSigningRequest,
+  type CertificateAuthority,
+  type CertificateSigningRequest,
   createCertificateAuthority,
   generateCAKeyMaterial,
   DEFAULT_ROOT_CA_CONFIG,
   DEFAULT_INTERMEDIATE_CA_CONFIG,
 } from './ca';
 import {
-  RevocationStore,
-  RevocationChecker,
+  type RevocationStore,
+  type RevocationChecker,
   createRevocationStore,
   createRevocationChecker,
-  RevocationEntry,
+  type RevocationEntry,
 } from './revocation';
 
 export interface CertificateManagerOptions {
@@ -37,10 +39,7 @@ export type CertificateRenewalListener = (
   newCert: DeviceCertificate,
 ) => void;
 
-export type CertificateRevocationListener = (
-  deviceId: string,
-  entry: RevocationEntry,
-) => void;
+export type CertificateRevocationListener = (deviceId: string, entry: RevocationEntry) => void;
 
 export interface SessionInvalidator {
   pauseAllSessions(deviceId: string, reason: string): Promise<void>;
@@ -193,7 +192,9 @@ export class CertificateManager {
     } else if (this.renewalClient) {
       cert = await this.renewalClient.requestInitialCertificate(csr);
     } else {
-      throw new Error('No CA available for issuing certificate. Configure embedded CA or renewal client.');
+      throw new Error(
+        'No CA available for issuing certificate. Configure embedded CA or renewal client.',
+      );
     }
 
     this.currentCertificate = cert;
@@ -297,9 +298,12 @@ export class CertificateManager {
     } catch {
       // Retry with shorter delay (5 minutes)
       this.clearRenewalTimer();
-      this.renewalTimer = setTimeout(() => {
-        void this.autoRenewInternal();
-      }, 5 * 60 * 1000);
+      this.renewalTimer = setTimeout(
+        () => {
+          void this.autoRenewInternal();
+        },
+        5 * 60 * 1000,
+      );
       if (typeof this.renewalTimer.unref === 'function') {
         this.renewalTimer.unref();
       }

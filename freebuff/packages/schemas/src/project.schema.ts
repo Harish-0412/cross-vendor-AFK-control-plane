@@ -1,6 +1,5 @@
-import { z } from 'zod';
-
 import { PROJECT_ID_PREFIX, PROJECT_ID_LENGTH } from '@freebuff/protocol';
+import { z } from 'zod';
 
 export const VcsTypeSchema = z.enum(['git', 'none', 'unknown']);
 export const NetworkCapabilitiesSchema = z.enum(['none', 'restricted', 'full']);

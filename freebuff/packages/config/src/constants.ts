@@ -8,6 +8,22 @@ import {
   DEFAULT_DENIED_PATHS,
 } from '@freebuff/protocol';
 
+/**
+ * Re-exported from `@freebuff/protocol` so consumers can pull defaults and the
+ * config helpers that build on them from a single package. `export *` does not
+ * forward plain imports, so these have to be named explicitly — without this,
+ * `import { DEFAULT_API_HOST } from '@freebuff/config'` silently resolves to
+ * `undefined` at runtime and the API server binds to an undefined host/port.
+ */
+export {
+  DEFAULT_API_HOST,
+  DEFAULT_API_PORT,
+  DEFAULT_SHUTDOWN_TIMEOUT_MS,
+  DEFAULT_GATEWAY_FEATURES,
+  SANDBOX_PROFILE_DEFAULTS,
+  DEFAULT_DENIED_PATHS,
+} from '@freebuff/protocol';
+
 export const APP_NAME = 'freebuff';
 export const APP_DISPLAY_NAME = 'Freebuff AFK Control Plane';
 

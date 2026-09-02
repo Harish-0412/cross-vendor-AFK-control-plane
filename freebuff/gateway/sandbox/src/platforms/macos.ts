@@ -1,9 +1,9 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import type { SandboxCapabilities } from '@freebuff/protocol';
+import type { SandboxCapabilities, SandboxConfig } from '@freebuff/protocol';
+
 import { PlatformSandboxBase } from '../platform-base';
-import type { SandboxConfig } from '@freebuff/protocol';
 import { getProfile, resolveProfilePaths, getHomeDir } from '../profiles';
 
 const execFileAsync = promisify(execFile);
@@ -41,25 +41,25 @@ export class MacOSSandbox extends PlatformSandboxBase {
     const sandboxExists = await this.commandExists('sandbox-exec');
     if (sandboxExists) {
       const args = [
-        '-f', this.seatbeltProfilePath,
-        '-p', `(version 1) (allow default)`,
+        '-f',
+        this.seatbeltProfilePath,
+        '-p',
+        `(version 1) (allow default)`,
         this.config.agentBinary,
         ...this.config.agentArgs,
       ];
-      this.config.metadata = {
-        ...this.config.metadata ?? {},
+      this.recordIsolation({
         runtime: 'seatbelt',
         seatbeltProfile: this.seatbeltProfilePath,
         resolvedPaths: resolved,
-      };
+      });
       this.spawnProcess('sandbox-exec', args, this.buildEnv());
     } else {
-      this.config.metadata = {
-        ...this.config.metadata ?? {},
+      this.recordIsolation({
         runtime: 'direct',
         resolvedPaths: resolved,
         warning: 'sandbox-exec not available, using direct execution',
-      };
+      });
       this.spawnProcess(this.config.agentBinary, this.config.agentArgs, this.buildEnv());
     }
   }
@@ -129,7 +129,9 @@ export class MacOSSandbox extends PlatformSandboxBase {
   ): Promise<string> {
     const profile = this.config.profile;
     const workspace = this.config.projectRoot;
-    const deny = resolved.filesystem.denyPaths.map((p) => `(deny file-read* (literal "${p}"))`).join('\n');
+    const deny = resolved.filesystem.denyPaths
+      .map((p) => `(deny file-read* (literal "${p}"))`)
+      .join('\n');
     const allowWrites = resolved.filesystem.writePaths
       .filter((p) => !p.includes('$'))
       .map((p) => `(allow file-write* (subpath "${p}"))`)
@@ -138,10 +140,12 @@ export class MacOSSandbox extends PlatformSandboxBase {
       this.config.networkPolicy.mode === 'deny-all'
         ? '(deny network*)'
         : this.config.networkPolicy.mode === 'allow-list'
-        ? `(allow network-outbound (regex "(${
-            (this.config.networkPolicy.allowedHosts ?? ['localhost', '127.0.0.1']).map((h) => h.replace(/\./g, '\\.')).join('|')
-          })"))`
-        : '';
+          ? `(allow network-outbound (regex "(${(
+              this.config.networkPolicy.allowedHosts ?? ['localhost', '127.0.0.1']
+            )
+              .map((h) => h.replace(/\./g, '\\.'))
+              .join('|')})"))`
+          : '';
     const seatbelt = `
 (version 1)
 (debug deny)

@@ -1,4 +1,5 @@
 import * as os from 'node:os';
+
 import type {
   HealthReport,
   HealthStatus,
@@ -23,7 +24,7 @@ export class HealthModule {
   private readonly gatewayId: string;
   private readonly deviceId: string;
   private readonly startedAt: Date;
-  private heartbeatTimer?: NodeJS.Timeout;
+  private heartbeatTimer?: NodeJS.Timeout | undefined;
   private heartbeatSequence = 0;
   private lastHeartbeatAt?: Date;
   private heartbeatOverdueThresholdMs: number;
@@ -141,9 +142,7 @@ export class HealthModule {
       resources,
       activeSessions: 0, // provided by gateway integration
       totalEventsProcessed: this.totalEventsProcessed,
-      heartbeatIntervalMs: this.lastHeartbeatAt
-        ? this.getHeartbeatInterval()
-        : 0,
+      heartbeatIntervalMs: this.lastHeartbeatAt ? this.getHeartbeatInterval() : 0,
       heartbeatOverdue,
     };
   }
@@ -198,7 +197,7 @@ export class HealthModule {
    * Start the heartbeat timer.
    */
   private startHeartbeat(intervalMs: number): void {
-    this.heartbeatTimer = setInterval(async () => {
+    const beat = async (): Promise<void> => {
       if (this.shuttingDown) return;
       this.heartbeatSequence++;
       this.lastHeartbeatAt = new Date();
@@ -215,6 +214,10 @@ export class HealthModule {
       } catch {
         // swallow heartbeat errors
       }
+    };
+
+    this.heartbeatTimer = setInterval(() => {
+      void beat();
     }, intervalMs);
 
     this.heartbeatTimer.unref?.();
@@ -241,7 +244,7 @@ export class HealthModule {
     const cpus = os.cpus();
     const cpuPercent = Math.min(
       100,
-      Math.round((loadAvg[0] ?? 0) / Math.max(1, cpus.length) * 100),
+      Math.round(((loadAvg[0] ?? 0) / Math.max(1, cpus.length)) * 100),
     );
     const memoryUsedPercent = Math.round((usedMem / totalMem) * 100);
 
@@ -330,6 +333,7 @@ export class HealthModule {
   /**
    * Shutdown the health module, stopping the heartbeat timer.
    */
+  // eslint-disable-next-line @typescript-eslint/require-await -- async signature is part of the module contract; teardown is synchronous
   async shutdown(): Promise<void> {
     if (this.shuttingDown) return;
     this.shuttingDown = true;

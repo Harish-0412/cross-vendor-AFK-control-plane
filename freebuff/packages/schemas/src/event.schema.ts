@@ -1,6 +1,5 @@
-import { z } from 'zod';
-
 import { EVENT_ID_PREFIX, EVENT_ID_LENGTH, EVENT_VERSION } from '@freebuff/protocol';
+import { z } from 'zod';
 
 const EventTypeValues = [
   'session.created',

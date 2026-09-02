@@ -1,3 +1,4 @@
+import { SANDBOX_CLEANUP_INTERVAL_MS, DEFAULT_SANDBOX_PROFILE } from '@freebuff/config';
 import type {
   SandboxManager as ISandboxManager,
   Sandbox,
@@ -7,22 +8,16 @@ import type {
   SandboxCleanupReport,
   Platform,
 } from '@freebuff/protocol';
-
 import {
   isTerminalSandboxState,
   SANDBOX_PROFILE_DEFAULTS,
   DEFAULT_DENIED_PATHS,
 } from '@freebuff/protocol';
 
-import {
-  SANDBOX_CLEANUP_INTERVAL_MS,
-  DEFAULT_SANDBOX_PROFILE,
-} from '@freebuff/config';
-
 import type { PlatformSandboxBase } from './platform-base';
-import { createWindowsSandbox } from './platforms/windows';
 import { createLinuxSandbox } from './platforms/linux';
 import { createMacOSSandbox } from './platforms/macos';
+import { createWindowsSandbox } from './platforms/windows';
 import { getPlatform, getProfile } from './profiles';
 
 export { getProfile, getPlatform, listProfiles } from './profiles';
@@ -38,14 +33,16 @@ export class SandboxManager implements ISandboxManager {
   private readonly platform: Platform;
   private capabilitiesCache?: SandboxCapabilities;
   private supportedCache?: boolean;
-  private cleanupTimer?: NodeJS.Timeout;
+  private cleanupTimer?: NodeJS.Timeout | undefined;
   private shuttingDown = false;
 
   constructor() {
     this.platform = getPlatform();
   }
 
-  async create(config: Partial<SandboxConfig> & Pick<SandboxConfig, 'projectRoot'>): Promise<Sandbox> {
+  async create(
+    config: Partial<SandboxConfig> & Pick<SandboxConfig, 'projectRoot'>,
+  ): Promise<Sandbox> {
     if (this.shuttingDown) {
       throw new Error('SandboxManager is shutting down');
     }
@@ -66,7 +63,9 @@ export class SandboxManager implements ISandboxManager {
     }
 
     if (!sandbox) {
-      throw new Error(`Sandbox creation failed: no platform implementation available for ${this.platform}`);
+      throw new Error(
+        `Sandbox creation failed: no platform implementation available for ${this.platform}`,
+      );
     }
 
     this.sandboxes.set(sandbox.id, sandbox);
@@ -130,13 +129,25 @@ export class SandboxManager implements ISandboxManager {
     };
     switch (this.platform) {
       case 'linux':
-        Object.assign(caps, (createLinuxSandbox as unknown as { capabilities?: SandboxCapabilities }).capabilities ?? caps);
+        Object.assign(
+          caps,
+          (createLinuxSandbox as unknown as { capabilities?: SandboxCapabilities }).capabilities ??
+            caps,
+        );
         break;
       case 'darwin':
-        Object.assign(caps, (createMacOSSandbox as unknown as { capabilities?: SandboxCapabilities }).capabilities ?? caps);
+        Object.assign(
+          caps,
+          (createMacOSSandbox as unknown as { capabilities?: SandboxCapabilities }).capabilities ??
+            caps,
+        );
         break;
       case 'win32':
-        Object.assign(caps, (createWindowsSandbox as unknown as { capabilities?: SandboxCapabilities }).capabilities ?? caps);
+        Object.assign(
+          caps,
+          (createWindowsSandbox as unknown as { capabilities?: SandboxCapabilities })
+            .capabilities ?? caps,
+        );
         break;
     }
     this.capabilitiesCache = caps;
@@ -205,7 +216,11 @@ export class SandboxManager implements ISandboxManager {
     if (this.sandboxes.size > 0) {
       const remaining = Array.from(this.sandboxes.values());
       for (const sb of remaining) {
-        try { await sb.kill(); } catch { /* swallow */ }
+        try {
+          await sb.kill();
+        } catch {
+          /* swallow */
+        }
       }
       this.sandboxes.clear();
     }
@@ -220,7 +235,9 @@ export class SandboxManager implements ISandboxManager {
     };
   }
 
-  private normalizeConfig(partial: Partial<SandboxConfig> & Pick<SandboxConfig, 'projectRoot'>): SandboxConfig {
+  private normalizeConfig(
+    partial: Partial<SandboxConfig> & Pick<SandboxConfig, 'projectRoot'>,
+  ): SandboxConfig {
     const profile = partial.profile ?? DEFAULT_SANDBOX_PROFILE;
     const defaults = SANDBOX_PROFILE_DEFAULTS[profile];
     const profileInfo = getProfile(profile);
@@ -243,7 +260,11 @@ export class SandboxManager implements ISandboxManager {
       },
       writablePaths: partial.writablePaths ?? profileInfo.filesystem.writePaths,
       readablePaths: partial.readablePaths ?? profileInfo.filesystem.readPaths,
-      deniedPaths: [...(partial.deniedPaths ?? []), ...profileInfo.filesystem.denyPaths, ...DEFAULT_DENIED_PATHS],
+      deniedPaths: [
+        ...(partial.deniedPaths ?? []),
+        ...profileInfo.filesystem.denyPaths,
+        ...DEFAULT_DENIED_PATHS,
+      ],
       profile,
       labels: partial.labels,
     };

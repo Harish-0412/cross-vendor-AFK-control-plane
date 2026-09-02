@@ -4,6 +4,8 @@ import type {
   ReconciliationRequest,
   ReconciliationResponse,
 } from '@freebuff/protocol';
+
+import { type GapDetector, createGapDetector } from './gap-detector';
 import type {
   ReconciliationStep,
   UnrecoverableGap,
@@ -16,7 +18,6 @@ import type {
   ReconciliationEvent,
 } from './types';
 import { DEFAULT_REPLAY_OPTIONS } from './types';
-import { GapDetector, createGapDetector } from './gap-detector';
 
 export interface ReconciliationEngineOptions {
   maxRetryOnReplayError?: number;
@@ -131,15 +132,19 @@ export class ReconciliationEngine {
 
     const opts: Required<ReplayOptions> = { ...DEFAULT_REPLAY_OPTIONS, ...replayOptions };
     const warnings: string[] = [];
-    const allGaps: UnrecoverableGap[] = [...response.sessionUpdates
-      .map((u) => (u.unrecoverableGaps ?? []).map((g) => ({
-        sessionId: u.sessionId,
-        fromSequence: g.from,
-        toSequence: g.to,
-        reason: g.reason,
-        reportedAt: new Date(),
-      })))
-      .flat()];
+    const allGaps: UnrecoverableGap[] = [
+      ...response.sessionUpdates
+        .map((u) =>
+          (u.unrecoverableGaps ?? []).map((g) => ({
+            sessionId: u.sessionId,
+            fromSequence: g.from,
+            toSequence: g.to,
+            reason: g.reason,
+            reportedAt: new Date(),
+          })),
+        )
+        .flat(),
+    ];
     if (response.globalGapInfo) {
       allGaps.push({
         sessionId: null,
@@ -222,7 +227,7 @@ export class ReconciliationEngine {
       return 0;
     }
 
-    let sorted = [...response.replayEvents];
+    const sorted = [...response.replayEvents];
     switch (opts.orderingKey) {
       case 'sequence':
         sorted.sort((a, b) => a.sequence - b.sequence);
@@ -256,7 +261,9 @@ export class ReconciliationEngine {
         const env = item.event as EventEnvelope | undefined;
         if (!env) {
           if (opts.haltOnError) {
-            throw new Error(`Replay item at sequence ${item.sequence} is not a valid EventEnvelope`);
+            throw new Error(
+              `Replay item at sequence ${item.sequence} is not a valid EventEnvelope`,
+            );
           }
           continue;
         }
@@ -303,9 +310,7 @@ export class ReconciliationEngine {
     return replayed;
   }
 
-  private async applySessionUpdates(
-    response: ReconciliationResponse,
-  ): Promise<number> {
+  private async applySessionUpdates(response: ReconciliationResponse): Promise<number> {
     let applied = 0;
     if (!response.sessionUpdates || response.sessionUpdates.length === 0) {
       return 0;

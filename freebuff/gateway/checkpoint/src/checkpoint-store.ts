@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+
 import type {
   SessionCheckpoint,
   CheckpointStoreStats,
@@ -24,7 +25,7 @@ import { DEFAULT_CHECKPOINT_OPTIONS } from './types';
 export class CheckpointStore {
   private checkpoints: Map<string, SessionCheckpoint> = new Map();
   private options: Required<CheckpointStoreOptions>;
-  private persistTimer?: NodeJS.Timeout;
+  private persistTimer?: NodeJS.Timeout | undefined;
   private shuttingDown = false;
 
   constructor(options: CheckpointStoreOptions = {}) {
@@ -51,10 +52,7 @@ export class CheckpointStore {
       for (const file of files) {
         if (!file.endsWith('.checkpoint.json')) continue;
         try {
-          const content = await fs.readFile(
-            path.join(this.options.persistDir, file),
-            'utf-8',
-          );
+          const content = await fs.readFile(path.join(this.options.persistDir, file), 'utf-8');
           const data = JSON.parse(content) as SessionCheckpoint;
           // Revive dates
           data.createdAt = new Date(data.createdAt);
@@ -152,16 +150,9 @@ export class CheckpointStore {
   /**
    * Record that a specific event type was seen at a given sequence.
    */
-  updateEventTypeOffset(
-    sessionId: string,
-    eventType: string,
-    sequence: number,
-  ): SessionCheckpoint {
+  updateEventTypeOffset(sessionId: string, eventType: string, sequence: number): SessionCheckpoint {
     const cp = this.getOrThrow(sessionId);
-    cp.eventTypeOffsets[eventType] = Math.max(
-      cp.eventTypeOffsets[eventType] ?? -1,
-      sequence,
-    );
+    cp.eventTypeOffsets[eventType] = Math.max(cp.eventTypeOffsets[eventType] ?? -1, sequence);
     cp.lastPersistedAt = new Date();
     return cp;
   }
@@ -403,9 +394,7 @@ export class CheckpointStore {
         this.checkpoints.delete(id);
         if (this.options.persistDir) {
           try {
-            await fs.unlink(
-              path.join(this.options.persistDir, `${id}.checkpoint.json`),
-            );
+            await fs.unlink(path.join(this.options.persistDir, `${id}.checkpoint.json`));
           } catch {
             // ignore
           }

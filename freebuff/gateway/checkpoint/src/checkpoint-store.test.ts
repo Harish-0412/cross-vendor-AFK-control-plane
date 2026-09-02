@@ -1,9 +1,10 @@
-import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import * as os from 'node:os';
+import * as path from 'node:path';
 
-import { createCheckpointStore, CheckpointStore } from '../src/checkpoint-store';
+import { describe, test, expect, beforeEach, afterEach } from 'vitest';
+
+import { createCheckpointStore, type CheckpointStore } from '../src/checkpoint-store';
 
 describe('CheckpointStore', () => {
   let store: CheckpointStore;
@@ -368,7 +369,12 @@ describe('CheckpointStore - File Persistence', () => {
     store = createCheckpointStore({ persistDir: tempDir, autoPersistIntervalMs: 0 });
     await store.initialize();
 
-    store.create({ sessionId: 'sess_persist1', gatewayId: 'gw_1', adapterId: 'mock', projectId: 'proj_1' });
+    store.create({
+      sessionId: 'sess_persist1',
+      gatewayId: 'gw_1',
+      adapterId: 'mock',
+      projectId: 'proj_1',
+    });
     store.updateSessionState('sess_persist1', 'running');
     await store.persistAll();
 
@@ -388,12 +394,17 @@ describe('CheckpointStore - File Persistence', () => {
     store = createCheckpointStore({ persistDir: tempDir, autoPersistIntervalMs: 0 });
     await store.initialize();
 
-    store.create({ sessionId: 'sess_test', gatewayId: 'gw_1', adapterId: 'mock', projectId: 'proj_1' });
+    store.create({
+      sessionId: 'sess_test',
+      gatewayId: 'gw_1',
+      adapterId: 'mock',
+      projectId: 'proj_1',
+    });
     await store.persistOne('sess_test');
 
     const filename = path.join(tempDir, 'sess_test.checkpoint.json');
     const content = await fs.readFile(filename, 'utf-8');
-    const data = JSON.parse(content);
+    const data = JSON.parse(content) as { sessionId: string; gatewayId: string };
     expect(data.sessionId).toBe('sess_test');
     expect(data.gatewayId).toBe('gw_1');
   });

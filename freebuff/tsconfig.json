@@ -1,34 +1,24 @@
 {
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "lib": ["ES2022", "DOM"],
-    "strict": true,
-    "noImplicitAny": true,
-    "noImplicitThis": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true,
-    "exactOptionalPropertyTypes": true,
-    "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true,
-    "allowSyntheticDefaultImports": true,
-    "esModuleInterop": true,
-    "resolveJsonModule": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "isolatedModules": true,
-    "baseUrl": ".",
-    "paths": {
-      "@freebuff/protocol": ["./packages/protocol/src/index.ts"],
-      "@freebuff/schemas": ["./packages/schemas/src/index.ts"],
-      "@freebuff/config": ["./packages/config/src/index.ts"]
-    }
-  },
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "_comment": [
+    "Solution-style root config. It compiles nothing itself; `tsc --build` walks",
+    "these references and builds each package in dependency order.",
+    "Shared compiler options live in tsconfig.base.json."
+  ],
+  "files": [],
+  "references": [
+    { "path": "./packages/protocol" },
+    { "path": "./packages/schemas" },
+    { "path": "./packages/config" },
+    { "path": "./gateway/adapters/mock" },
+    { "path": "./gateway/checkpoint" },
+    { "path": "./gateway/health" },
+    { "path": "./gateway/sandbox" },
+    { "path": "./gateway/tunnel" },
+    { "path": "./gateway/identity" },
+    { "path": "./gateway/pairing" },
+    { "path": "./gateway/certificate" },
+    { "path": "./gateway/reconciliation" },
+    { "path": "./gateway/core" }
+  ]
 }

@@ -1,6 +1,11 @@
 import type { AgentInfo } from './agent';
 import type { EventSubscriber } from './commands';
-import type { ProjectInfo, ProjectStats } from './project';
+import type {
+  ProjectInfo,
+  ProjectStats,
+  ProjectValidation,
+  ProjectRegistrationOptions,
+} from './project';
 import type { Session, SessionConfig, SessionFilter, SessionSummary } from './session';
 
 export interface GatewayStatus {
@@ -55,10 +60,8 @@ export interface GatewayCore {
 
   listProjects(): Promise<ProjectInfo[]>;
   getProject(projectId: string): Promise<ProjectInfo>;
-  validateProject(projectRoot: string): Promise<import('./project').ProjectValidation>;
-  registerProject(
-    options: import('./project').ProjectRegistrationOptions,
-  ): Promise<ProjectInfo>;
+  validateProject(projectRoot: string): Promise<ProjectValidation>;
+  registerProject(options: ProjectRegistrationOptions): Promise<ProjectInfo>;
   removeProject(projectId: string): Promise<void>;
   getProjectStats(): Promise<ProjectStats>;
 
@@ -79,10 +82,7 @@ export interface GatewayCore {
   cleanupSession(sessionId: string): Promise<void>;
 
   subscribeToEvents(subscriber: EventSubscriber): () => void;
-  subscribeToSessionEvents(
-    sessionId: string,
-    subscriber: EventSubscriber,
-  ): () => void;
+  subscribeToSessionEvents(sessionId: string, subscriber: EventSubscriber): () => void;
 
   getGatewayId(): string;
   getDeviceId(): string;

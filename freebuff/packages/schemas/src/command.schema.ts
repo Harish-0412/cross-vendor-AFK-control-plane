@@ -1,6 +1,5 @@
-import { z } from 'zod';
-
 import { COMMAND_ID_PREFIX, COMMAND_ID_LENGTH, COMMAND_VERSION } from '@freebuff/protocol';
+import { z } from 'zod';
 
 export const CommandTypeSchema = z.enum([
   'session.start',

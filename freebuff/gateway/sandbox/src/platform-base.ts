@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { EventEmitter } from 'node:events';
 import { createInterface, type Interface } from 'node:readline';
 
 import type {
@@ -12,7 +12,6 @@ import type {
   SandboxResourceUsage,
   SandboxCapabilities,
 } from '@freebuff/protocol';
-
 import {
   generateSandboxId,
   DEFAULT_SANDBOX_TIMEOUT_MS,
@@ -51,6 +50,28 @@ export abstract class PlatformSandboxBase implements ISandbox {
   protected readlineStderr: Interface | null = null;
   protected exitPromise: Promise<SandboxExitInfo> | null = null;
   protected exitResolver: ((info: SandboxExitInfo) => void) | null = null;
+
+  /**
+   * Isolation details recorded by the platform implementation as it applies
+   * them — which runtime was used, which limits were requested, how paths
+   * resolved. Write-only from the platform's side and surfaced through
+   * `diagnostics` for logging and audit.
+   *
+   * Platforms previously wrote this onto the caller's `SandboxConfig`, which
+   * both mutated an input the caller still owned and set a property that did
+   * not exist on the type.
+   */
+  protected readonly appliedIsolation: Record<string, unknown> = {};
+
+  /** Isolation details recorded during setup. Safe to log or audit. */
+  get diagnostics(): Readonly<Record<string, unknown>> {
+    return { ...this.appliedIsolation };
+  }
+
+  /** Merge a set of isolation details into the diagnostics record. */
+  protected recordIsolation(details: Record<string, unknown>): void {
+    Object.assign(this.appliedIsolation, details);
+  }
 
   constructor(config: SandboxConfig) {
     this.id = generateSandboxId();
@@ -106,7 +127,11 @@ export abstract class PlatformSandboxBase implements ISandbox {
 
     const killedBeforeDeadline = new Promise<number | null>((resolve) => {
       const timer = setTimeout(() => {
-        try { proc.kill('SIGKILL'); } catch { /* swallow */ }
+        try {
+          proc.kill('SIGKILL');
+        } catch {
+          /* swallow */
+        }
         setTimeout(() => resolve(this.exitInfo?.exitCode ?? null), 100);
       }, timeoutMs);
 
@@ -122,7 +147,11 @@ export abstract class PlatformSandboxBase implements ISandbox {
           proc.kill('SIGTERM');
         }
       } catch {
-        try { proc.kill('SIGKILL'); } catch { /* swallow */ }
+        try {
+          proc.kill('SIGKILL');
+        } catch {
+          /* swallow */
+        }
       }
     });
 
@@ -131,11 +160,16 @@ export abstract class PlatformSandboxBase implements ISandbox {
 
   async kill(signal?: string): Promise<void> {
     if (!this.process) return;
-    const sig = (signal as NodeJS.Signals) ?? (process.platform === 'win32' ? undefined : 'SIGKILL');
+    const sig =
+      (signal as NodeJS.Signals) ?? (process.platform === 'win32' ? undefined : 'SIGKILL');
     try {
       this.process.kill(sig);
     } catch {
-      try { this.process.kill('SIGKILL'); } catch { /* swallow */ }
+      try {
+        this.process.kill('SIGKILL');
+      } catch {
+        /* swallow */
+      }
     }
     this.setState('stopped');
     this.stoppedAt = new Date();
@@ -147,7 +181,11 @@ export abstract class PlatformSandboxBase implements ISandbox {
       throw new Error(`Cannot pause sandbox in state: ${this.state}`);
     }
     if (process.platform !== 'win32') {
-      try { this.process.kill('SIGSTOP'); } catch { /* swallow */ }
+      try {
+        this.process.kill('SIGSTOP');
+      } catch {
+        /* swallow */
+      }
     }
     this.setState('paused');
   }
@@ -157,7 +195,11 @@ export abstract class PlatformSandboxBase implements ISandbox {
       throw new Error(`Cannot resume sandbox in state: ${this.state}`);
     }
     if (process.platform !== 'win32') {
-      try { this.process.kill('SIGCONT'); } catch { /* swallow */ }
+      try {
+        this.process.kill('SIGCONT');
+      } catch {
+        /* swallow */
+      }
     }
     this.setState('running');
   }
@@ -241,7 +283,9 @@ export abstract class PlatformSandboxBase implements ISandbox {
   }
 
   waitForExit(): Promise<{ exitCode: number | null; signal: string | null }> {
-    const mapInfo = (info: SandboxExitInfo): { exitCode: number | null; signal: string | null } => ({
+    const mapInfo = (
+      info: SandboxExitInfo,
+    ): { exitCode: number | null; signal: string | null } => ({
       exitCode: info.exitCode,
       signal: info.signal,
     });
@@ -274,7 +318,11 @@ export abstract class PlatformSandboxBase implements ISandbox {
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
       shell: false,
-      windowsVerbatimArguments: process.platform === 'win32',
+      // Never pass arguments verbatim on Windows. Verbatim mode skips Node's
+      // quoting, so any argument containing a space (file paths, prompt text)
+      // is split into multiple argv entries, and an argument containing quotes
+      // can inject additional arguments into the child command line.
+      windowsVerbatimArguments: false,
     });
 
     this.process = child;

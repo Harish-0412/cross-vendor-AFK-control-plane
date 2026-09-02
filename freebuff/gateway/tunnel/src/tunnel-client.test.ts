@@ -1,6 +1,6 @@
 import { describe, test, expect, afterEach } from 'vitest';
 
-import { createTunnelClient, TunnelClient } from '../src/tunnel-client';
+import { createTunnelClient, type TunnelClient } from '../src/tunnel-client';
 import type { TunnelEvent, TunnelState } from '../src/types';
 
 describe('TunnelClient', () => {
@@ -101,15 +101,42 @@ describe('TunnelClient', () => {
 
     expect(client.getQueuedMessages()).toHaveLength(3);
 
-    // Connect and flush
+    // Connecting drains the backlog on its own — that is what the queue is for.
     await client.connect();
-    const flushed = await client.flushQueue();
 
-    expect(flushed).toBe(3);
     expect(client.getQueuedMessages()).toHaveLength(0);
+    expect(client.getStats().messagesSent).toBe(3);
 
-    const stats = client.getStats();
-    expect(stats.messagesSent).toBe(3);
+    // Nothing is left, so an explicit flush is a no-op rather than a resend.
+    await expect(client.flushQueue()).resolves.toBe(0);
+    expect(client.getStats().messagesSent).toBe(3);
+  });
+
+  test('flushQueue terminates when connected without a usable socket', async () => {
+    // Regression: flushQueue used to shift a message off the queue and
+    // sendMessageOverWire pushed it straight back whenever the socket was not
+    // open, so the loop never terminated. That state — marked connected, no
+    // usable socket — is precisely the degraded window this client has to
+    // survive, and hitting it pinned a core and hung the process.
+    client = createTunnelClient(baseConfig);
+    await client.connect();
+
+    // Force the "connected but nothing to write to" condition.
+    (client as unknown as { ws: unknown }).ws = { readyState: 3, send() {}, close() {} };
+    (client as unknown as { WebSocketImpl: unknown }).WebSocketImpl = class {};
+
+    client.send('event', { data: 'stuck' });
+
+    const flushed = await Promise.race([
+      client.flushQueue(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('flushQueue did not terminate')), 2000),
+      ),
+    ]);
+
+    expect(flushed).toBe(0);
+    // The message is retained rather than dropped or infinitely retried.
+    expect(client.getQueuedMessages()).toHaveLength(1);
   });
 
   test('flushQueue returns 0 when disconnected', async () => {

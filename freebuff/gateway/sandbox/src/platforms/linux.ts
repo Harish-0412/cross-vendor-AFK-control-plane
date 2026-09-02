@@ -1,11 +1,11 @@
 import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
+import { promisify } from 'node:util';
 
-import type { SandboxCapabilities } from '@freebuff/protocol';
+import type { SandboxCapabilities, SandboxConfig } from '@freebuff/protocol';
+
 import { PlatformSandboxBase } from '../platform-base';
-import type { SandboxConfig } from '@freebuff/protocol';
 import { getProfile, resolveProfilePaths, getHomeDir } from '../profiles';
 
 const execFileAsync = promisify(execFile);
@@ -57,7 +57,6 @@ export class LinuxSandbox extends PlatformSandboxBase {
       const status = await fs.readFile(`/proc/${this.pid}/status`, 'utf8').catch(() => '');
 
       if (stat) {
-        const parts = stat.split(' ');
         const vmPeakMatch = status.match(/VmRSS:\s+(\d+)/);
         const rssKb = vmPeakMatch ? Number(vmPeakMatch[1]) : 0;
         const memoryMb = Math.round(rssKb / 1024);
@@ -107,23 +106,37 @@ export class LinuxSandbox extends PlatformSandboxBase {
       'run',
       '--rm',
       '--interactive',
-      '--network', this.config.networkPolicy.mode === 'deny-all' ? 'none' : 'bridge',
-      '--memory', memory,
-      '--cpus', `${(this.config.resourceLimits.cpuPercent ?? 100) / 100}`,
-      '--cpu-quota', String(cpuQuota),
+      '--network',
+      this.config.networkPolicy.mode === 'deny-all' ? 'none' : 'bridge',
+      '--memory',
+      memory,
+      '--cpus',
+      `${(this.config.resourceLimits.cpuPercent ?? 100) / 100}`,
+      '--cpu-quota',
+      String(cpuQuota),
       '--read-only',
-      '--tmpfs', '/tmp:size=100m',
-      '--mount', `type=bind,src=${this.config.projectRoot},dst=/workspace,rw`,
-      '--workdir', '/workspace',
-      '--pids-limit', String(this.config.resourceLimits.maxProcesses ?? 20),
-      '--env', 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+      '--tmpfs',
+      '/tmp:size=100m',
+      '--mount',
+      `type=bind,src=${this.config.projectRoot},dst=/workspace,rw`,
+      '--workdir',
+      '/workspace',
+      '--pids-limit',
+      String(this.config.resourceLimits.maxProcesses ?? 20),
+      '--env',
+      'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
       ...this.buildEnvFlags(this.config.env),
       'node:20-slim',
       this.config.agentBinary,
       ...this.config.agentArgs,
     ];
 
-    this.config.metadata = { ...this.config.metadata ?? {}, runtime: 'docker', networkMode: this.config.networkPolicy.mode, readonlyRootfs: true, resolvedPaths: resolved };
+    this.recordIsolation({
+      runtime: 'docker',
+      networkMode: this.config.networkPolicy.mode,
+      readonlyRootfs: true,
+      resolvedPaths: resolved,
+    });
     this.spawnProcess('docker', args, {}, os.tmpdir());
   }
 
@@ -142,14 +155,13 @@ export class LinuxSandbox extends PlatformSandboxBase {
     } catch {
       // swallow
     }
-    this.config.metadata = {
-      ...this.config.metadata ?? {},
+    this.recordIsolation({
       runtime: 'lightweight',
       unshare: false,
       cgroupV2: this.cgroupPath !== undefined,
       processLimits: profile.process.maxProcesses,
       resolvedPaths: resolved,
-    };
+    });
     this.spawnProcess(this.config.agentBinary, this.config.agentArgs, env);
   }
 

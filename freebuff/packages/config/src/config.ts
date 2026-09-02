@@ -1,8 +1,11 @@
 import type { GatewayOptions, ResourceLimits } from '@freebuff/protocol';
-import { DEFAULT_GATEWAY_OPTIONS, ENV_VAR_NAMES } from './constants';
 import { validateGatewayOptions } from '@freebuff/schemas';
 
-export function loadEnvOptions(env: Record<string, string | undefined> = process.env): Partial<GatewayOptions> {
+import { DEFAULT_GATEWAY_OPTIONS, ENV_VAR_NAMES } from './constants';
+
+export function loadEnvOptions(
+  env: Record<string, string | undefined> = process.env,
+): Partial<GatewayOptions> {
   const options: Partial<GatewayOptions> = {};
 
   const gatewayId = env[ENV_VAR_NAMES.GATEWAY_ID];
@@ -47,7 +50,9 @@ export function loadEnvOptions(env: Record<string, string | undefined> = process
   return options;
 }
 
-export function mergeGatewayOptions(...options: Array<Partial<GatewayOptions> | undefined>): GatewayOptions {
+export function mergeGatewayOptions(
+  ...options: Array<Partial<GatewayOptions> | undefined>
+): GatewayOptions {
   const sandboxEnabled: boolean = DEFAULT_GATEWAY_OPTIONS.sandboxEnabled;
   const logLevel: 'error' | 'warn' | 'info' | 'debug' | 'trace' = DEFAULT_GATEWAY_OPTIONS.logLevel;
   const shutdownTimeoutMs: number = DEFAULT_GATEWAY_OPTIONS.shutdownTimeoutMs;

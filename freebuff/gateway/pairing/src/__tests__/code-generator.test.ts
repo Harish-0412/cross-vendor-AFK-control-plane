@@ -1,17 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
 import {
   generatePairingCode,
   createPairingCode,
   validatePairingCodeFormat,
-  PairingRateLimiter,
+  type PairingRateLimiter,
   createPairingRateLimiter,
   DEFAULT_RATE_LIMITER_CONFIG,
 } from '../code-generator';
-import {
-  PAIRING_CODE_LENGTH,
-  PAIRING_CODE_CHARSET,
-  DEFAULT_PAIRING_TTL_MS,
-} from '../types';
+import { PAIRING_CODE_LENGTH, PAIRING_CODE_CHARSET, DEFAULT_PAIRING_TTL_MS } from '../types';
 
 describe('generatePairingCode', () => {
   it('should generate a code of the default length', () => {

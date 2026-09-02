@@ -51,10 +51,7 @@ export class EventBus {
     };
   }
 
-  subscribeTypes(
-    types: EventType[],
-    subscriber: Partial<EventSubscriber>,
-  ): () => void {
+  subscribeTypes(types: EventType[], subscriber: Partial<EventSubscriber>): () => void {
     const filter = subscriber.filter;
     const wrapped: Partial<EventSubscriber> = {
       ...subscriber,
@@ -130,7 +127,11 @@ export class EventBus {
         const error = err instanceof Error ? err : new Error(String(err));
         entry.subscriber.onError?.(error);
         for (const handler of this.errorHandlers) {
-          try { handler(error); } catch { /* swallow */ }
+          try {
+            handler(error);
+          } catch {
+            /* swallow */
+          }
         }
       }
     }

@@ -1,5 +1,9 @@
 import * as os from 'node:os';
 
+import { type CheckpointStore, createCheckpointStore } from '@freebuff/checkpoint';
+import { DEFAULT_SHUTDOWN_TIMEOUT_MS, mergeGatewayOptions } from '@freebuff/config';
+import { type HealthModule, createHealthModule } from '@freebuff/health';
+import { createMockAdapter } from '@freebuff/mock-adapter';
 import type {
   GatewayCore,
   GatewayOptions,
@@ -18,31 +22,20 @@ import type {
   GatewayEvent,
   EventEnvelope,
 } from '@freebuff/protocol';
-
 import {
   generateGatewayId,
   generateDeviceId,
   generateSessionId,
   generateEventId,
   GATEWAY_VERSION,
+  DEFAULT_GATEWAY_FEATURES,
 } from '@freebuff/protocol';
+import { type TunnelClient, createTunnelClient } from '@freebuff/tunnel';
 
-import {
-  DEFAULT_API_HOST,
-  DEFAULT_API_PORT,
-  DEFAULT_SHUTDOWN_TIMEOUT_MS,
-  mergeGatewayOptions,
-} from '@freebuff/config';
-import { DEFAULT_GATEWAY_FEATURES } from '@freebuff/protocol';
-
-import { SessionRegistry, createSessionRegistry } from './session-registry';
-import { ProjectManager, createProjectManager } from './project-manager';
-import { AgentManager, createAgentManager } from './agent-manager';
-import { EventBus, createEventBus } from './event-bus';
-import { createMockAdapter } from '@freebuff/mock-adapter';
-import { CheckpointStore, createCheckpointStore } from '@freebuff/checkpoint';
-import { HealthModule, createHealthModule } from '@freebuff/health';
-import { TunnelClient, createTunnelClient } from '@freebuff/tunnel';
+import { type AgentManager, createAgentManager } from './agent-manager';
+import { type EventBus, createEventBus } from './event-bus';
+import { type ProjectManager, createProjectManager } from './project-manager';
+import { type SessionRegistry, createSessionRegistry } from './session-registry';
 
 export type { GatewayOptions } from '@freebuff/protocol';
 
@@ -128,16 +121,18 @@ export class GatewayImpl implements GatewayCore {
       message: `${this.checkpointStore.getStats().totalCheckpoints} checkpoints`,
       lastCheckedAt: new Date(),
       durationMs: 0,
-      metrics: this.checkpointStore.getStats(),
+      metrics: { ...this.checkpointStore.getStats() } as unknown as Record<string, unknown>,
     }));
 
     this.healthModule.registerCheck('tunnel-client', () => ({
       name: 'tunnel-client',
       status: this.tunnelClient.isConnected() ? 'healthy' : 'degraded',
-      message: this.tunnelClient.isConnected() ? 'Tunnel connected' : 'Tunnel not connected (Phase 2)',
+      message: this.tunnelClient.isConnected()
+        ? 'Tunnel connected'
+        : 'Tunnel not connected (Phase 2)',
       lastCheckedAt: new Date(),
       durationMs: 0,
-      metrics: this.tunnelClient.getStats(),
+      metrics: { ...this.tunnelClient.getStats() } as unknown as Record<string, unknown>,
     }));
 
     this.agents.register(createMockAdapter());
@@ -335,7 +330,12 @@ export class GatewayImpl implements GatewayCore {
 
     const adapter = this.agents.get(config.adapter);
     if (!adapter) {
-      throw new Error(`Unknown adapter: ${config.adapter}. Available: ${this.agents.list().map((a) => a.metadata().id).join(', ')}`);
+      throw new Error(
+        `Unknown adapter: ${config.adapter}. Available: ${this.agents
+          .list()
+          .map((a) => a.metadata().id)
+          .join(', ')}`,
+      );
     }
 
     const validation = await this.validateProject(config.projectRoot);
@@ -424,7 +424,11 @@ export class GatewayImpl implements GatewayCore {
     return record.adapterSessionId ?? record.id;
   }
 
-  async stopSession(sessionId: string, reason = 'User requested stop', force = false): Promise<void> {
+  async stopSession(
+    sessionId: string,
+    reason = 'User requested stop',
+    force = false,
+  ): Promise<void> {
     const record = this.registry.getOrThrow(sessionId);
     const adapterSid = this.getAdapterSessionId(record);
     await record.adapter.abortSession(adapterSid, reason, force);
@@ -512,7 +516,11 @@ export class GatewayImpl implements GatewayCore {
     return () => this.gatewayListeners.delete(listener);
   }
 
-  private wireAdapterEvents(gatewaySessionId: string, adapter: import('@freebuff/protocol').AgentAdapter, adapterSessionId?: string): void {
+  private wireAdapterEvents(
+    gatewaySessionId: string,
+    adapter: import('@freebuff/protocol').AgentAdapter,
+    adapterSessionId?: string,
+  ): void {
     const effectiveId = adapterSessionId ?? gatewaySessionId;
     const stream = adapter.streamEvents(effectiveId);
     const wire = async () => {
@@ -526,13 +534,26 @@ export class GatewayImpl implements GatewayCore {
 
           // Track event in checkpoint store and health module
           this.checkpointStore.updateReceivedSequence(gatewaySessionId, event.sequence);
-          this.checkpointStore.updateEventTypeOffset(gatewaySessionId, event.eventType, event.sequence);
+          this.checkpointStore.updateEventTypeOffset(
+            gatewaySessionId,
+            event.eventType,
+            event.sequence,
+          );
           this.healthModule.recordEvent();
 
           if (event.eventType === 'session.status_changed') {
             const payload = event.payload as { state?: string };
             if (payload?.state) {
-              const validStates = ['initializing', 'running', 'waiting_for_approval', 'paused', 'completed', 'failed', 'cancelled', 'crashed'];
+              const validStates = [
+                'initializing',
+                'running',
+                'waiting_for_approval',
+                'paused',
+                'completed',
+                'failed',
+                'cancelled',
+                'crashed',
+              ];
               if (validStates.includes(payload.state)) {
                 this.registry.updateState(gatewaySessionId, payload.state as any);
               }
@@ -604,7 +625,11 @@ export class GatewayImpl implements GatewayCore {
 
   private emitGatewayEvent(event: GatewayEvent): void {
     for (const listener of this.gatewayListeners) {
-      try { listener(event); } catch { /* swallow */ }
+      try {
+        listener(event);
+      } catch {
+        /* swallow */
+      }
     }
   }
 
@@ -614,10 +639,15 @@ export class GatewayImpl implements GatewayCore {
     const usedMem = totalMem - freeMem;
     const loadAvg = os.loadavg();
     const cpus = os.cpus();
-    const cpuPercent = Math.min(100, Math.round((loadAvg[0] ?? 0) / Math.max(1, cpus.length) * 100));
+    const cpuPercent = Math.min(
+      100,
+      Math.round(((loadAvg[0] ?? 0) / Math.max(1, cpus.length)) * 100),
+    );
     const processList = process;
     const nodeUsage = processList.memoryUsage?.();
-    const memoryMb = nodeUsage ? Math.round(nodeUsage.rss / 1024 / 1024) : Math.round(usedMem / 1024 / 1024);
+    const memoryMb = nodeUsage
+      ? Math.round(nodeUsage.rss / 1024 / 1024)
+      : Math.round(usedMem / 1024 / 1024);
 
     return {
       cpuPercent,

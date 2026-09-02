@@ -1,15 +1,16 @@
 import { createHash } from 'node:crypto';
-import { getWord } from './wordlist';
+
 import {
-  DeviceFingerprint,
+  type DeviceFingerprint,
   FINGERPRINT_WORD_COUNT,
   FINGERPRINT_SHORT_CODE_LENGTH,
 } from '@freebuff/protocol';
 
+import { getWord } from './wordlist';
+
 function hashPublicKey(publicKeyDer: string | Buffer): Buffer {
-  const derBuffer = typeof publicKeyDer === 'string'
-    ? Buffer.from(publicKeyDer, 'base64')
-    : publicKeyDer;
+  const derBuffer =
+    typeof publicKeyDer === 'string' ? Buffer.from(publicKeyDer, 'base64') : publicKeyDer;
   return createHash('sha256').update(derBuffer).digest();
 }
 
@@ -21,7 +22,7 @@ function bytesToWords(bytes: Buffer, wordCount: number): string[] {
   const words: string[] = [];
   for (let i = 0; i < wordCount; i++) {
     const byte1 = bytes[i * 2] ?? 0;
-    const byte2 = bytes[(i * 2) + 1] ?? 0;
+    const byte2 = bytes[i * 2 + 1] ?? 0;
     const index = ((byte1 << 8) | byte2) & 0x7ff;
     words.push(getWord(index));
   }
@@ -30,10 +31,15 @@ function bytesToWords(bytes: Buffer, wordCount: number): string[] {
 
 function bytesToShortCode(bytes: Buffer, length: number): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  if (bytes.length === 0) {
+    // Guarded rather than asserted: an empty digest here would otherwise wrap
+    // to NaN and silently produce a constant code for every device.
+    throw new Error('bytesToShortCode requires a non-empty byte buffer');
+  }
   let result = '';
   for (let i = 0; i < length; i++) {
-    const byte = bytes[i % bytes.length];
-    result += chars[byte % chars.length];
+    const byte = bytes[i % bytes.length] as number;
+    result += chars[byte % chars.length] as string;
   }
   return result;
 }
@@ -50,7 +56,10 @@ export function createFingerprint(publicKeyDer: string | Buffer): DeviceFingerpr
   };
 }
 
-export function formatFingerprintForDisplay(fp: DeviceFingerprint, style: 'words' | 'colon' | 'short' = 'words'): string {
+export function formatFingerprintForDisplay(
+  fp: DeviceFingerprint,
+  style: 'words' | 'colon' | 'short' = 'words',
+): string {
   switch (style) {
     case 'words':
       return fp.words.join(' ');

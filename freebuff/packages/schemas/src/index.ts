@@ -10,8 +10,7 @@ export * from './device.schema';
 import type { z } from 'zod';
 
 export type ParseResult<T> =
-  | { success: true; data: T }
-  | { success: false; errors: Array<{ path: string; message: string }> };
+  { success: true; data: T } | { success: false; errors: Array<{ path: string; message: string }> };
 
 export function toParseResult<T>(result: z.SafeParseReturnType<unknown, T>): ParseResult<T> {
   if (result.success) {

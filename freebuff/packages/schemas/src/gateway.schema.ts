@@ -1,6 +1,10 @@
+import {
+  DEFAULT_API_HOST,
+  DEFAULT_API_PORT,
+  DEFAULT_SHUTDOWN_TIMEOUT_MS,
+  GATEWAY_VERSION,
+} from '@freebuff/protocol';
 import { z } from 'zod';
-
-import { DEFAULT_API_HOST, DEFAULT_API_PORT, DEFAULT_SHUTDOWN_TIMEOUT_MS, GATEWAY_VERSION } from '@freebuff/protocol';
 
 export const LogLevelSchema = z.enum(['error', 'warn', 'info', 'debug', 'trace']);
 

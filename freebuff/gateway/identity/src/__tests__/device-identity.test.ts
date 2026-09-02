@@ -1,9 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+
+import { FINGERPRINT_WORD_COUNT, FINGERPRINT_SHORT_CODE_LENGTH } from '@freebuff/protocol';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
 import {
-  DeviceIdentityManager,
+  type DeviceIdentityManager,
   createDeviceIdentityManager,
   createFingerprint,
   formatFingerprintForDisplay,
@@ -11,7 +14,6 @@ import {
   fingerprintToQrPayload,
   parseQrPayload,
 } from '../index';
-import { FINGERPRINT_WORD_COUNT, FINGERPRINT_SHORT_CODE_LENGTH } from '@freebuff/protocol';
 
 describe('DeviceIdentityManager', () => {
   let tmpDir: string;
@@ -57,7 +59,10 @@ describe('DeviceIdentityManager', () => {
   });
 
   it('should use pre-provided deviceId and gatewayId', async () => {
-    const manager = createManager('dev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'gw_bbbbbbbbbbbbbbbbbbbbbbbb');
+    const manager = createManager(
+      'dev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      'gw_bbbbbbbbbbbbbbbbbbbbbbbb',
+    );
     const identity = await manager.initialize();
     expect(identity.deviceId).toBe('dev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
     expect(identity.gatewayId).toBe('gw_bbbbbbbbbbbbbbbbbbbbbbbb');
@@ -196,7 +201,11 @@ describe('fingerprint helpers', () => {
 
   it('should round-trip QR payloads', () => {
     const fp = createFingerprint(Buffer.from('qr-test-der'));
-    const payload = fingerprintToQrPayload(fp, 'dev_1234567890abcdef1234567890abcdef', 'gw_abcdef1234567890abcdef');
+    const payload = fingerprintToQrPayload(
+      fp,
+      'dev_1234567890abcdef1234567890abcdef',
+      'gw_abcdef1234567890abcdef',
+    );
     expect(typeof payload).toBe('string');
     expect(payload.length > 0).toBe(true);
 

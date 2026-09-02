@@ -1,17 +1,16 @@
 import { randomBytes } from 'node:crypto';
-import {
-  PAIRING_CODE_CHARSET,
-  PAIRING_CODE_LENGTH,
-  DEFAULT_PAIRING_TTL_MS,
-} from './types';
-import { PairingCode, isPairingCodeExpired } from '@freebuff/protocol';
+
+import { type PairingCode, isPairingCodeExpired } from '@freebuff/protocol';
+
+import { PAIRING_CODE_CHARSET, PAIRING_CODE_LENGTH, DEFAULT_PAIRING_TTL_MS } from './types';
 
 export function generatePairingCode(length: number = PAIRING_CODE_LENGTH): string {
   let result = '';
   const charset = PAIRING_CODE_CHARSET;
   const random = randomBytes(length);
   for (let i = 0; i < length; i++) {
-    result += charset[random[i] % charset.length];
+    // randomBytes(length) guarantees an entry for every i < length.
+    result += charset[(random[i] as number) % charset.length] as string;
   }
   return result;
 }
@@ -31,7 +30,10 @@ export function createPairingCode(
   };
 }
 
-export function validatePairingCodeFormat(code: string, expectedLength: number = PAIRING_CODE_LENGTH): boolean {
+export function validatePairingCodeFormat(
+  code: string,
+  expectedLength: number = PAIRING_CODE_LENGTH,
+): boolean {
   if (typeof code !== 'string') return false;
   if (code.length !== expectedLength) return false;
   const pattern = new RegExp(`^[${PAIRING_CODE_CHARSET}]+$`);
@@ -103,9 +105,7 @@ export class PairingRateLimiter {
   }
 }
 
-export function createPairingRateLimiter(
-  config?: Partial<RateLimiterConfig>,
-): PairingRateLimiter {
+export function createPairingRateLimiter(config?: Partial<RateLimiterConfig>): PairingRateLimiter {
   return new PairingRateLimiter(config);
 }
 

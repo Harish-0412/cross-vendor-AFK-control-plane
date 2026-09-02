@@ -1,33 +1,30 @@
 import { randomBytes } from 'node:crypto';
+
 import {
-  DeviceIdentity,
-  PairingCode,
-  SignedHandshake,
-  DeviceCertificate,
-  isPairingCodeExpired,
-} from '@freebuff/protocol';
-import { DeviceIdentityManager } from '@freebuff/identity';
-import {
-  createFingerprint,
+  type DeviceIdentityManager,
   formatFingerprintForDisplay,
   fingerprintToQrPayload,
 } from '@freebuff/identity';
 import {
+  type DeviceIdentity,
+  type PairingCode,
+  type DeviceCertificate,
+  isPairingCodeExpired,
+} from '@freebuff/protocol';
+
+import {
   createPairingCode,
-  generatePairingCode,
-  validatePairingCodeFormat,
-  PairingRateLimiter,
+  type PairingRateLimiter,
   createPairingRateLimiter,
 } from './code-generator';
 import {
-  PairingSession,
-  PairingState,
-  PairingStartOptions,
-  PairingConfirmation,
-  ControlPlanePairingRequest,
-  ControlPlanePairingResponse,
-  FingerprintConfirmationData,
-  PairingCompleteResult,
+  type PairingSession,
+  type PairingState,
+  type PairingStartOptions,
+  type PairingConfirmation,
+  type ControlPlanePairingRequest,
+  type ControlPlanePairingResponse,
+  type PairingCompleteResult,
   DEFAULT_PAIRING_TTL_MS,
   DEFAULT_MAX_RETRIES,
   PAIRING_POLL_INTERVAL_MS,
@@ -58,7 +55,7 @@ export interface PairingEvent {
     | 'session_cancelled'
     | 'error';
   timestamp: Date;
-  sessionId?: string;
+  sessionId?: string | undefined;
   payload?: unknown;
   error?: string;
 }
@@ -113,21 +110,32 @@ export class PairingManager {
       throw new Error('Pairing manager is shutting down');
     }
 
-    if (this.currentSession && this.currentSession.state !== 'expired' && this.currentSession.state !== 'cancelled' && this.currentSession.state !== 'error') {
-      if (!isPairingCodeExpired({
-        code: this.currentSession.code,
-        issuedAt: this.currentSession.createdAt,
-        expiresAt: this.currentSession.expiresAt,
-        deviceId: this.currentSession.deviceId,
-        publicKeyFingerprint: this.currentSession.fingerprintHex,
-      })) {
+    if (
+      this.currentSession &&
+      this.currentSession.state !== 'expired' &&
+      this.currentSession.state !== 'cancelled' &&
+      this.currentSession.state !== 'error'
+    ) {
+      if (
+        !isPairingCodeExpired({
+          code: this.currentSession.code,
+          issuedAt: this.currentSession.createdAt,
+          expiresAt: this.currentSession.expiresAt,
+          deviceId: this.currentSession.deviceId,
+          publicKeyFingerprint: this.currentSession.fingerprintHex,
+        })
+      ) {
         return this.buildConfirmation(this.currentSession);
       }
       await this.cancelPairing('Expired pairing replaced');
     }
 
     if (!this.rateLimiter.canGenerateCode()) {
-      this.emitEvent({ type: 'error', timestamp: new Date(), error: 'Rate limit exceeded for pairing code generation' });
+      this.emitEvent({
+        type: 'error',
+        timestamp: new Date(),
+        error: 'Rate limit exceeded for pairing code generation',
+      });
       throw new Error('Too many pairing code attempts. Please wait and try again.');
     }
 
@@ -154,7 +162,11 @@ export class PairingManager {
       fingerprintHex: identity.fingerprint.hex,
       fingerprintWords: identity.fingerprint.words,
       fingerprintShort: identity.fingerprint.shortCode,
-      qrPayload: fingerprintToQrPayload(identity.fingerprint, identity.deviceId, identity.gatewayId),
+      qrPayload: fingerprintToQrPayload(
+        identity.fingerprint,
+        identity.deviceId,
+        identity.gatewayId,
+      ),
       createdAt: pairingCode.issuedAt,
       expiresAt: pairingCode.expiresAt,
       ttlMs,
@@ -244,13 +256,15 @@ export class PairingManager {
 
     this.pollAttempts++;
 
-    if (isPairingCodeExpired({
-      code: this.currentSession.code,
-      issuedAt: this.currentSession.createdAt,
-      expiresAt: this.currentSession.expiresAt,
-      deviceId: this.currentSession.deviceId,
-      publicKeyFingerprint: this.currentSession.fingerprintHex,
-    })) {
+    if (
+      isPairingCodeExpired({
+        code: this.currentSession.code,
+        issuedAt: this.currentSession.createdAt,
+        expiresAt: this.currentSession.expiresAt,
+        deviceId: this.currentSession.deviceId,
+        publicKeyFingerprint: this.currentSession.fingerprintHex,
+      })
+    ) {
       const sessionId = this.currentSession.id;
       this.currentSession.state = 'expired';
       this.emitEvent({ type: 'session_expired', timestamp: new Date(), sessionId });
@@ -321,14 +335,14 @@ export class PairingManager {
         this.emitEvent({
           type: 'error',
           timestamp: new Date(),
-          sessionId: this.currentSession.id,
+          sessionId: this.currentSession?.id,
           error: `Poll error: ${message}`,
         });
       }
     }
   }
 
-  private async handlePairingSuccess(response: ControlPlanePairingResponse): Promise<void> {
+  private async handlePairingSuccess(_response: ControlPlanePairingResponse): Promise<void> {
     if (!this.currentSession) return;
 
     this.stopPolling();
@@ -390,7 +404,10 @@ export class PairingManager {
     }
 
     const session = this.currentSession;
-    if (session.state !== 'awaiting_fingerprint_confirm' && session.state !== 'awaiting_user_input') {
+    if (
+      session.state !== 'awaiting_fingerprint_confirm' &&
+      session.state !== 'awaiting_user_input'
+    ) {
       return false;
     }
 

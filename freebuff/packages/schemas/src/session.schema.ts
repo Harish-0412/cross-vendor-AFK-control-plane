@@ -1,9 +1,5 @@
+import { SESSION_ID_PREFIX, SESSION_ID_LENGTH } from '@freebuff/protocol';
 import { z } from 'zod';
-
-import {
-  SESSION_ID_PREFIX,
-  SESSION_ID_LENGTH,
-} from '@freebuff/protocol';
 
 export const SessionStateSchema = z.enum([
   'initializing',

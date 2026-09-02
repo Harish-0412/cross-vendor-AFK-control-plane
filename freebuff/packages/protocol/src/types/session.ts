@@ -43,20 +43,20 @@ export interface Session {
   projectId: string;
   adapterId: string;
   state: SessionState;
-  processId?: number;
+  processId?: number | undefined;
   startTime: Date;
-  endTime?: Date;
-  sandboxId?: string;
+  endTime?: Date | undefined;
+  sandboxId?: string | undefined;
   sequenceNumber: number;
-  lastEventAt?: Date;
-  error?: SessionError;
+  lastEventAt?: Date | undefined;
+  error?: SessionError | undefined;
   metadata: Record<string, unknown>;
 }
 
 export interface SessionError {
   code: string;
   message: string;
-  stack?: string;
+  stack?: string | undefined;
   fatal: boolean;
   retryable: boolean;
 }
@@ -67,13 +67,13 @@ export interface SessionHandle {
 }
 
 export interface SessionFilter {
-  projectId?: string;
-  adapterId?: string;
-  state?: SessionState[];
+  projectId?: string | undefined;
+  adapterId?: string | undefined;
+  state?: SessionState[] | undefined;
   startedAfter?: Date;
   startedBefore?: Date;
-  limit?: number;
-  offset?: number;
+  limit?: number | undefined;
+  offset?: number | undefined;
 }
 
 export interface SessionSummary {
@@ -92,11 +92,15 @@ export const SESSION_ID_PREFIX = 'sess_';
 export const SESSION_ID_LENGTH = 24;
 
 export function isTerminalState(state: SessionState): boolean {
-  return state === 'completed' || state === 'failed' || state === 'cancelled' || state === 'crashed';
+  return (
+    state === 'completed' || state === 'failed' || state === 'cancelled' || state === 'crashed'
+  );
 }
 
 export function isValidSessionId(id: string): boolean {
-  return id.startsWith(SESSION_ID_PREFIX) && id.length === SESSION_ID_PREFIX.length + SESSION_ID_LENGTH;
+  return (
+    id.startsWith(SESSION_ID_PREFIX) && id.length === SESSION_ID_PREFIX.length + SESSION_ID_LENGTH
+  );
 }
 
 export function calculateDuration(session: Pick<Session, 'startTime' | 'endTime'>): number {

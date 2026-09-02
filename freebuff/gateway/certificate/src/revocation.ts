@@ -1,6 +1,6 @@
 import {
-  RevocationStatus,
-  RevocationReason,
+  type RevocationStatus,
+  type RevocationReason,
   DEFAULT_REVOCATION_CACHE_TTL_MS,
 } from '@freebuff/protocol';
 
@@ -9,7 +9,7 @@ export interface RevocationEntry {
   revokedAt: Date;
   reason: RevocationReason;
   revokedBy: string;
-  revocationNote?: string;
+  revocationNote?: string | undefined;
   affectedCertificates: string[];
   effectiveImmediately: boolean;
 }
@@ -154,7 +154,6 @@ export class RevocationChecker {
   private readonly store: RevocationStore;
   private client: RevocationCheckClient | null = null;
   private refreshTimer: NodeJS.Timeout | null = null;
-  private readonly sessionInvalidator: ((deviceId: string, reason: string) => Promise<void>) | null = null;
 
   constructor(
     store: RevocationStore,
@@ -163,7 +162,6 @@ export class RevocationChecker {
   ) {
     this.store = store;
     this.client = client ?? null;
-    this.sessionInvalidator = sessionInvalidator ?? null;
 
     if (sessionInvalidator) {
       store.onRevocation(async (entry) => {

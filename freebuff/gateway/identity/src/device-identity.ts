@@ -1,24 +1,24 @@
 import {
   generateKeyPairSync,
-  createSign,
-  createVerify,
   createPrivateKey,
   createPublicKey,
   randomBytes,
   sign,
   verify,
-  KeyObject,
+  type KeyObject,
 } from 'node:crypto';
+
 import {
-  DeviceIdentity,
-  DeviceKeyMaterial,
-  KeyAlgorithm,
-  SignedHandshake,
+  type DeviceIdentity,
+  type DeviceKeyMaterial,
+  type KeyAlgorithm,
+  type SignedHandshake,
   generateDeviceId,
   generateGatewayId,
 } from '@freebuff/protocol';
+
 import { createFingerprint } from './fingerprint';
-import { createKeyStorage, KeyStorage, KeyStorageOptions } from './key-storage';
+import { createKeyStorage, type KeyStorage, type KeyStorageOptions } from './key-storage';
 
 export interface DeviceIdentityManagerOptions {
   algorithm?: KeyAlgorithm;
@@ -29,7 +29,9 @@ export interface DeviceIdentityManagerOptions {
 }
 
 export class DeviceIdentityManager {
-  private readonly options: Required<Omit<DeviceIdentityManagerOptions, 'deviceId' | 'gatewayId' | 'storage' | 'metadata'>> &
+  private readonly options: Required<
+    Omit<DeviceIdentityManagerOptions, 'deviceId' | 'gatewayId' | 'storage' | 'metadata'>
+  > &
     Pick<DeviceIdentityManagerOptions, 'deviceId' | 'gatewayId' | 'metadata'> & {
       storage: KeyStorageOptions;
     };
@@ -221,8 +223,8 @@ export class DeviceIdentityManager {
       });
     }
 
-    const privateKeyPem = keyPair.privateKey as string;
-    const publicKeyPem = keyPair.publicKey as string;
+    const privateKeyPem = keyPair.privateKey;
+    const publicKeyPem = keyPair.publicKey;
 
     const privateKeyObj = createPrivateKey(privateKeyPem);
     const publicKeyObj = createPublicKey(publicKeyPem);
@@ -230,9 +232,7 @@ export class DeviceIdentityManager {
     const privateJwk = privateKeyObj.export({ format: 'jwk' }) as Record<string, unknown>;
     const publicJwk = publicKeyObj.export({ format: 'jwk' }) as Record<string, unknown>;
 
-    const publicDer = publicKeyObj
-      .export({ format: 'der', type: 'spki' })
-      .toString('base64');
+    const publicDer = publicKeyObj.export({ format: 'der', type: 'spki' }).toString('base64');
 
     return {
       algorithm,
@@ -243,7 +243,11 @@ export class DeviceIdentityManager {
     };
   }
 
-  private buildIdentity(keyMaterial: DeviceKeyMaterial, savedDeviceId?: string, savedGatewayId?: string): DeviceIdentity {
+  private buildIdentity(
+    keyMaterial: DeviceKeyMaterial,
+    savedDeviceId?: string,
+    savedGatewayId?: string,
+  ): DeviceIdentity {
     const fingerprint = createFingerprint(keyMaterial.publicKeyDer);
     const deviceId = this.options.deviceId ?? savedDeviceId ?? generateDeviceId();
     const gatewayId = this.options.gatewayId ?? savedGatewayId ?? generateGatewayId();

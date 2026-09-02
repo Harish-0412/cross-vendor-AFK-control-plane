@@ -7,10 +7,10 @@ export interface ProjectInfo {
   name: string;
   root: string;
   vcs: VcsType;
-  defaultBranch?: string;
-  currentBranch?: string;
-  lastCommitHash?: string;
-  lastCommitAt?: Date;
+  defaultBranch?: string | undefined;
+  currentBranch?: string | undefined;
+  lastCommitHash?: string | undefined;
+  lastCommitAt?: Date | undefined;
   createdAt: Date;
   lastAccessedAt: Date;
   metadata: Record<string, unknown>;
@@ -21,8 +21,12 @@ export interface ProjectValidation {
   projectRoot: string;
   resolvedRoot: string;
   isGitRepo: boolean;
-  defaultBranch?: string;
-  currentBranch?: string;
+  defaultBranch?: string | undefined;
+  currentBranch?: string | undefined;
+  /** HEAD commit hash, when the project root is a git repository. */
+  lastCommitHash?: string | undefined;
+  /** Author timestamp of the HEAD commit, when available. */
+  lastCommitAt?: Date | undefined;
   writablePaths: string[];
   readablePaths: string[];
   deniedPaths: string[];
@@ -92,7 +96,9 @@ export const DEFAULT_WRITABLE_CHILDREN: string[] = [
 ];
 
 export function isValidProjectId(id: string): boolean {
-  return id.startsWith(PROJECT_ID_PREFIX) && id.length === PROJECT_ID_PREFIX.length + PROJECT_ID_LENGTH;
+  return (
+    id.startsWith(PROJECT_ID_PREFIX) && id.length === PROJECT_ID_PREFIX.length + PROJECT_ID_LENGTH
+  );
 }
 
 export function deriveProjectName(root: string): string {

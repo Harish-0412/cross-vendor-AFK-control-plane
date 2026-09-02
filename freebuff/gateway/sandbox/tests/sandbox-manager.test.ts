@@ -1,11 +1,12 @@
-import { describe, test, expect, beforeEach, afterEach } from 'vitest';
-import * as os from 'node:os';
 import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { createSandboxManager, SandboxManager } from '../src/sandbox-manager';
-import { getProfile, listProfiles, getPlatform } from '../src/profiles';
 import type { SandboxConfig } from '@freebuff/protocol';
+import { describe, test, expect, beforeEach, afterEach } from 'vitest';
+
+import { getProfile, listProfiles, getPlatform } from '../src/profiles';
+import { createSandboxManager, type SandboxManager } from '../src/sandbox-manager';
 
 describe('SandboxManager', () => {
   let manager: SandboxManager;
@@ -18,7 +19,11 @@ describe('SandboxManager', () => {
 
   afterEach(async () => {
     await manager.shutdown(2000);
-    try { await fs.rm(tempDir, { recursive: true, force: true }); } catch { /* swallow */ }
+    try {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    } catch {
+      /* swallow */
+    }
   });
 
   test('isSupported returns true on current platform', async () => {
@@ -85,6 +90,37 @@ describe('SandboxManager', () => {
 
     await manager.destroy(sb.id);
     expect(manager.list()).toHaveLength(0);
+  });
+
+  test('arguments containing spaces and quotes reach the agent intact', async () => {
+    // Regression: spawning with windowsVerbatimArguments:true skipped Node's
+    // argument quoting, so any argument containing a space was split into
+    // several argv entries. Agent invocations routinely carry spaces (file
+    // paths, prompt text), so this must hold on every platform.
+    const outFile = path.join(tempDir, 'argv.json');
+    const script = `require("fs").writeFileSync(process.argv[1], JSON.stringify(process.argv.slice(2)))`;
+    const expectedArgs = ['hello sandbox', 'C:\\Program Files\\demo', 'quote"inside', 'trailing '];
+
+    const sb = await manager.create({
+      projectRoot: tempDir,
+      agentBinary: process.execPath,
+      agentArgs: ['-e', script, outFile, ...expectedArgs],
+      env: {},
+      resourceLimits: { cpuPercent: 50, memoryMb: 512, maxProcesses: 5, maxOpenFiles: 64 },
+      networkPolicy: { mode: 'deny-all' },
+      writablePaths: [tempDir],
+      readablePaths: [tempDir],
+      deniedPaths: [],
+      profile: 'standard',
+    });
+
+    const exit = await sb.waitForExit();
+    expect(exit.exitCode).toBe(0);
+
+    const received = JSON.parse(await fs.readFile(outFile, 'utf8')) as string[];
+    expect(received).toEqual(expectedArgs);
+
+    await manager.destroy(sb.id);
   });
 
   test('getStatus reflects lifecycle states', async () => {

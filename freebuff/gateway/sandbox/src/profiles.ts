@@ -1,13 +1,5 @@
-import type {
-  SandboxProfile,
-  NetworkPolicy,
-  ResourceLimits,
-  Platform,
-} from '@freebuff/protocol';
-import {
-  SANDBOX_PROFILE_DEFAULTS,
-  DEFAULT_DENIED_PATHS,
-} from '@freebuff/protocol';
+import type { SandboxProfile, NetworkPolicy, ResourceLimits, Platform } from '@freebuff/protocol';
+import { SANDBOX_PROFILE_DEFAULTS, DEFAULT_DENIED_PATHS } from '@freebuff/protocol';
 
 export { SANDBOX_PROFILE_DEFAULTS } from '@freebuff/protocol';
 
@@ -67,12 +59,15 @@ const BASE_DENY_PATHS = [
   '**/*.pfx',
 ];
 
-const PROFILES: Record<SandboxProfile, Omit<ResolvedSandboxProfile, 'filesystem' | 'process' | 'network' | 'resources'> & {
-  filesystem: Omit<ResolvedFilesystemRules, never>;
-  process: Omit<ResolvedProcessRules, never>;
-  network: Omit<ResolvedNetworkRules, never>;
-  resources: ResourceLimits;
-}> = {
+const PROFILES: Record<
+  SandboxProfile,
+  Omit<ResolvedSandboxProfile, 'filesystem' | 'process' | 'network' | 'resources'> & {
+    filesystem: Omit<ResolvedFilesystemRules, never>;
+    process: Omit<ResolvedProcessRules, never>;
+    network: Omit<ResolvedNetworkRules, never>;
+    resources: ResourceLimits;
+  }
+> = {
   strict: {
     name: 'strict',
     description: 'Maximum isolation for AFK/untrusted execution',
@@ -84,8 +79,38 @@ const PROFILES: Record<SandboxProfile, Omit<ResolvedSandboxProfile, 'filesystem'
       allowTmp: false,
     },
     process: {
-      allowList: ['git', 'npm', 'node', 'python3', 'python', 'cargo', 'go', 'bun', 'deno', 'pnpm', 'yarn'],
-      denyList: ['sudo', 'su', 'doas', 'systemctl', 'service', 'docker', 'podman', 'kubectl', 'helm', 'ssh', 'scp', 'rsync', 'nc', 'ncat', 'netcat', 'curl', 'wget'],
+      allowList: [
+        'git',
+        'npm',
+        'node',
+        'python3',
+        'python',
+        'cargo',
+        'go',
+        'bun',
+        'deno',
+        'pnpm',
+        'yarn',
+      ],
+      denyList: [
+        'sudo',
+        'su',
+        'doas',
+        'systemctl',
+        'service',
+        'docker',
+        'podman',
+        'kubectl',
+        'helm',
+        'ssh',
+        'scp',
+        'rsync',
+        'nc',
+        'ncat',
+        'netcat',
+        'curl',
+        'wget',
+      ],
       allowShell: false,
       maxProcesses: 10,
     },
@@ -108,8 +133,35 @@ const PROFILES: Record<SandboxProfile, Omit<ResolvedSandboxProfile, 'filesystem'
       allowTmp: true,
     },
     process: {
-      allowList: ['git', 'npm', 'node', 'python3', 'python', 'cargo', 'go', 'bun', 'deno', 'pnpm', 'yarn', 'make', 'cmake', 'jq', 'curl', 'wget'],
-      denyList: ['sudo', 'su', 'doas', 'systemctl', 'service', 'docker', 'podman', 'kubectl', 'helm'],
+      allowList: [
+        'git',
+        'npm',
+        'node',
+        'python3',
+        'python',
+        'cargo',
+        'go',
+        'bun',
+        'deno',
+        'pnpm',
+        'yarn',
+        'make',
+        'cmake',
+        'jq',
+        'curl',
+        'wget',
+      ],
+      denyList: [
+        'sudo',
+        'su',
+        'doas',
+        'systemctl',
+        'service',
+        'docker',
+        'podman',
+        'kubectl',
+        'helm',
+      ],
       allowShell: true,
       maxProcesses: 20,
     },
@@ -133,7 +185,19 @@ const PROFILES: Record<SandboxProfile, Omit<ResolvedSandboxProfile, 'filesystem'
     },
     process: {
       allowList: [],
-      denyList: ['sudo', 'su', 'doas', 'systemctl', 'service', 'docker', 'podman', 'kubectl', 'helm', 'mount', 'umount'],
+      denyList: [
+        'sudo',
+        'su',
+        'doas',
+        'systemctl',
+        'service',
+        'docker',
+        'podman',
+        'kubectl',
+        'helm',
+        'mount',
+        'umount',
+      ],
       allowShell: true,
       maxProcesses: 50,
     },
@@ -183,7 +247,10 @@ export function resolveProfilePaths(
       ...profile.filesystem,
       readPaths: profile.filesystem.readPaths.map(replacer),
       writePaths: profile.filesystem.writePaths.map(replacer),
-      denyPaths: [...profile.filesystem.denyPaths.map(replacer), ...DEFAULT_DENIED_PATHS.map(replacer)],
+      denyPaths: [
+        ...profile.filesystem.denyPaths.map(replacer),
+        ...DEFAULT_DENIED_PATHS.map(replacer),
+      ],
     },
   };
 }
@@ -209,7 +276,7 @@ export function getHomeDir(): string {
     process.env.HOME ??
     process.env.USERPROFILE ??
     (process.env.HOMEDRIVE && process.env.HOMEPATH
-      ? (process.env.HOMEDRIVE + process.env.HOMEPATH)
+      ? process.env.HOMEDRIVE + process.env.HOMEPATH
       : '/')
   );
 }

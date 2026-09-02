@@ -1,4 +1,12 @@
 import { randomBytes } from 'node:crypto';
+
+import type {
+  ReconciliationRequest,
+  ReconciliationResponse,
+  SessionReconciliationState,
+  EventEnvelope,
+} from '@freebuff/protocol';
+
 import type {
   TunnelConfig,
   TunnelState,
@@ -11,13 +19,11 @@ import type {
   AuthChallengePayload,
   AuthSuccessPayload,
   AuthFailurePayload,
-  ReconciliationRequest,
-  ReconciliationResponse,
-  SessionReconciliationState,
-  EventEnvelope,
-  DeviceCertificate,
 } from './types';
 import { DEFAULT_TUNNEL_CONFIG } from './types';
+// Reconciliation and event-envelope shapes are protocol-level contracts shared
+// with the Control Plane, so they come from the protocol package rather than
+// being redeclared per-transport.
 
 type WebSocketClass = new (
   url: string,
@@ -33,7 +39,6 @@ type WebSocketClass = new (
   close(code?: number, reason?: string): void;
 };
 
-const WS_CONNECTING = 0;
 const WS_OPEN = 1;
 const WS_CLOSING = 2;
 const WS_CLOSED = 3;
@@ -55,12 +60,7 @@ export interface TunnelReconciliationProvider {
   getEventsSince(
     fromSequence: number,
   ): Promise<Array<{ sequence: number; envelope: EventEnvelope }>>;
-  recordUnrecoverableGap(
-    sessionId: string | null,
-    from: number,
-    to: number,
-    reason: string,
-  ): void;
+  recordUnrecoverableGap(sessionId: string | null, from: number, to: number, reason: string): void;
 }
 
 export interface TunnelCommandHandler {
@@ -68,18 +68,16 @@ export interface TunnelCommandHandler {
 }
 
 export class TunnelClient {
-  private readonly config: Required<
-    Omit<TunnelConfig, 'authToken' | 'tlsOptions' | 'wsOptions'>
-  > &
+  private readonly config: Required<Omit<TunnelConfig, 'authToken' | 'tlsOptions' | 'wsOptions'>> &
     Pick<TunnelConfig, 'authToken' | 'tlsOptions' | 'wsOptions'>;
   private _state: TunnelState = 'idle';
   private messageQueue: TunnelMessage[] = [];
   private sequenceCounter = 0;
   private reconnectAttempts = 0;
-  private reconnectTimer?: NodeJS.Timeout;
-  private heartbeatTimer?: NodeJS.Timeout;
-  private heartbeatTimeoutTimer?: NodeJS.Timeout;
-  private authTimeoutTimer?: NodeJS.Timeout;
+  private reconnectTimer?: NodeJS.Timeout | undefined;
+  private heartbeatTimer?: NodeJS.Timeout | undefined;
+  private heartbeatTimeoutTimer?: NodeJS.Timeout | undefined;
+  private authTimeoutTimer?: NodeJS.Timeout | undefined;
   private stats: {
     messagesSent: number;
     messagesReceived: number;
@@ -114,11 +112,11 @@ export class TunnelClient {
   private authProvider: TunnelAuthProvider | null = null;
   private reconciliationProvider: TunnelReconciliationProvider | null = null;
   private commandHandler: TunnelCommandHandler | null = null;
-  private pendingAuthChallenge: AuthChallengePayload | null = null;
   private wsSessionId: string | null = null;
   private disconnectInitiatedByServer = false;
   private disconnectCode = 0;
   private disconnectReason = '';
+  private disconnectWasClean = true;
 
   constructor(config: TunnelConfig) {
     this.config = {
@@ -149,6 +147,28 @@ export class TunnelClient {
 
   getWsSessionId(): string | null {
     return this.wsSessionId;
+  }
+
+  /**
+   * Why the tunnel last dropped. The reconnect path moves through
+   * Reconnecting → Degraded → reconciliation without surfacing a reason on its
+   * own, so this is what tells an operator whether the Control Plane closed the
+   * socket deliberately (code >= 4000) or the connection died mid-flight.
+   */
+  getLastDisconnect(): {
+    initiatedByServer: boolean;
+    code: number;
+    reason: string;
+    wasClean: boolean;
+    at: Date | undefined;
+  } {
+    return {
+      initiatedByServer: this.disconnectInitiatedByServer,
+      code: this.disconnectCode,
+      reason: this.disconnectReason,
+      wasClean: this.disconnectWasClean,
+      at: this.stats.lastDisconnectedAt,
+    };
   }
 
   getStats(): TunnelStats {
@@ -183,7 +203,11 @@ export class TunnelClient {
 
   async connect(): Promise<void> {
     if (this.shuttingDown) return;
-    if (this._state === 'connected' || this._state === 'connecting' || this._state === 'authenticating') {
+    if (
+      this._state === 'connected' ||
+      this._state === 'connecting' ||
+      this._state === 'authenticating'
+    ) {
       return;
     }
 
@@ -220,7 +244,8 @@ export class TunnelClient {
         timestamp: new Date(),
         state: 'connected',
         previousState: 'connecting',
-        message: 'Phase 2 stub: No WebSocket implementation provided, simulating connection (use setWebSocketImplementation for real WS)',
+        message:
+          'Phase 2 stub: No WebSocket implementation provided, simulating connection (use setWebSocketImplementation for real WS)',
       });
       this.simulateConnection();
       return;
@@ -264,7 +289,11 @@ export class TunnelClient {
 
         connectTimer = setTimeout(() => {
           timedOut = true;
-          try { ws.close(4000, 'Connection timeout'); } catch { /* ignore */ }
+          try {
+            ws.close(4000, 'Connection timeout');
+          } catch {
+            /* ignore */
+          }
           reject(new Error(`Connection timed out after ${this.config.connectTimeoutMs}ms`));
         }, this.config.connectTimeoutMs);
 
@@ -382,13 +411,14 @@ export class TunnelClient {
   private stopAuthTimeout(): void {
     if (this.authTimeoutTimer) {
       clearTimeout(this.authTimeoutTimer);
-      this.authTimeoutTimer = null;
+      this.authTimeoutTimer = undefined;
     }
   }
 
   private handleWebSocketMessage(data: unknown): void {
     try {
-      const str = typeof data === 'string' ? data : Buffer.from(data as Uint8Array).toString('utf8');
+      const str =
+        typeof data === 'string' ? data : Buffer.from(data as Uint8Array).toString('utf8');
       const parsed = JSON.parse(str) as TunnelMessage;
       if (!parsed || typeof parsed !== 'object') throw new Error('Invalid message');
 
@@ -422,7 +452,9 @@ export class TunnelClient {
           this.handleAck(parsed.payload as { sequence: number });
           break;
         case 'disconnect':
-          this.handleServerDisconnect(parsed.payload as { reason: string; code: number; willReconnect: boolean });
+          this.handleServerDisconnect(
+            parsed.payload as { reason: string; code: number; willReconnect: boolean },
+          );
           break;
         case 'reconciliation_response':
           void this.handleReconciliationResponse(parsed.payload as ReconciliationResponse);
@@ -452,7 +484,6 @@ export class TunnelClient {
 
   private handleAuthChallenge(payload: AuthChallengePayload): void {
     if (!this.authProvider) return;
-    this.pendingAuthChallenge = payload;
 
     const signatureBase = JSON.stringify({
       challenge: payload.challenge,
@@ -476,7 +507,6 @@ export class TunnelClient {
     this.setState('connected');
     this.stats.connectedAt = new Date();
     this.reconnectAttempts = 0;
-    this.pendingAuthChallenge = null;
     this.emitEvent({
       type: 'auth_success',
       timestamp: new Date(),
@@ -508,7 +538,9 @@ export class TunnelClient {
   ): void {
     try {
       this.ws?.close(4001, `Auth failed: ${code}`);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     this.ws = null;
 
     if (!retryable) {
@@ -521,9 +553,8 @@ export class TunnelClient {
       return;
     }
 
-    const deviceStatus = (reason.toLowerCase().includes('revoke') || code.includes('REVOKED'))
-      ? 'revoked'
-      : undefined;
+    const deviceStatus =
+      reason.toLowerCase().includes('revoke') || code.includes('REVOKED') ? 'revoked' : undefined;
 
     if (deviceStatus === 'revoked') {
       this.emitEvent({
@@ -543,13 +574,10 @@ export class TunnelClient {
     this.stats.missedHeartbeats = 0;
     if (this.heartbeatTimeoutTimer) {
       clearTimeout(this.heartbeatTimeoutTimer);
-      this.heartbeatTimeoutTimer = null;
+      this.heartbeatTimeoutTimer = undefined;
     }
     if (payload.sequence !== undefined) {
-      this.stats.globalSequenceAcked = Math.max(
-        this.stats.globalSequenceAcked,
-        payload.sequence,
-      );
+      this.stats.globalSequenceAcked = Math.max(this.stats.globalSequenceAcked, payload.sequence);
     }
   }
 
@@ -580,14 +608,15 @@ export class TunnelClient {
 
   private handleAck(payload: { sequence: number }): void {
     if (payload && typeof payload.sequence === 'number') {
-      this.stats.globalSequenceAcked = Math.max(
-        this.stats.globalSequenceAcked,
-        payload.sequence,
-      );
+      this.stats.globalSequenceAcked = Math.max(this.stats.globalSequenceAcked, payload.sequence);
     }
   }
 
-  private handleServerDisconnect(payload: { reason: string; code: number; willReconnect: boolean }): void {
+  private handleServerDisconnect(payload: {
+    reason: string;
+    code: number;
+    willReconnect: boolean;
+  }): void {
     this.disconnectInitiatedByServer = true;
     this.disconnectCode = payload.code;
     this.disconnectReason = payload.reason;
@@ -606,14 +635,18 @@ export class TunnelClient {
     this.stopHeartbeat();
     this.stopAuthTimeout();
     this.wsSessionId = null;
-    this.pendingAuthChallenge = null;
 
     const prevConnectedAt = this.stats.connectedAt;
     if (prevConnectedAt) {
       this.stats.disconnectedTimeMs += now - prevConnectedAt.getTime();
     }
     this.stats.lastDisconnectedAt = new Date();
+    // Close codes at or above 4000 are application-defined, so the Control
+    // Plane closing the socket deliberately lands in that range.
     this.disconnectInitiatedByServer = code >= 4000;
+    this.disconnectCode = code;
+    this.disconnectReason = reason;
+    this.disconnectWasClean = wasClean;
 
     const state = this._state;
     if (state === 'disconnecting') {
@@ -647,7 +680,11 @@ export class TunnelClient {
   }
 
   async disconnect(): Promise<void> {
-    if (this._state === 'idle' || this._state === 'disconnected' || this._state === 'disconnecting') {
+    if (
+      this._state === 'idle' ||
+      this._state === 'disconnected' ||
+      this._state === 'disconnecting'
+    ) {
       return;
     }
 
@@ -664,10 +701,14 @@ export class TunnelClient {
           willReconnect: false,
           serverInitiated: false,
         });
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       try {
         this.ws.close(1000, 'Client shutdown');
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
     this.ws = null;
 
@@ -701,14 +742,10 @@ export class TunnelClient {
       message.signature = this.authProvider.sign(sigBase);
     }
 
-    if (this._state === 'connected' && this.ws && this.ws.readyState === WS_OPEN) {
-      this.sendMessageOverWire(message);
-    } else {
-      if (this.messageQueue.length >= this.config.maxQueueSize) {
-        const toRemove = this.messageQueue.length - this.config.maxQueueSize + 1;
-        this.messageQueue.splice(0, toRemove);
-      }
-      this.messageQueue.push(message);
+    // Try the wire first; anything that cannot go out right now waits in the
+    // queue for the next flush. sendMessageOverWire reports whether it went.
+    if (!this.sendMessageOverWire(message)) {
+      this.enqueueMessage(message);
     }
 
     this.emitEvent({
@@ -734,23 +771,38 @@ export class TunnelClient {
     return message;
   }
 
-  private sendMessageOverWire(message: TunnelMessage): void {
-    if (!this.ws || this.ws.readyState !== WS_OPEN) {
-      if (this.messageQueue.length < this.config.maxQueueSize) {
-        this.messageQueue.push(message);
-      }
-      return;
+  /**
+   * True when the client is "connected" without a real socket — the stub path
+   * taken when no WebSocket implementation has been supplied. Sends are
+   * accounted for but not transmitted.
+   */
+  private isSimulatedConnection(): boolean {
+    return this.WebSocketImpl === null && this._state === 'connected';
+  }
+
+  /** Attempts one send. Returns false when the message should stay queued. */
+  private sendMessageOverWire(message: TunnelMessage): boolean {
+    if (this.isSimulatedConnection()) {
+      const serialized = JSON.stringify(message);
+      this.stats.messagesSent++;
+      this.stats.bytesSent += serialized.length;
+      this.stats.lastSentAt = new Date();
+      this.stats.globalSequenceSent = Math.max(this.stats.globalSequenceSent, message.sequence);
+      return true;
     }
+
+    if (!this.ws || this.ws.readyState !== WS_OPEN) {
+      return false;
+    }
+
     try {
       const serialized = JSON.stringify(message);
       this.ws.send(serialized);
       this.stats.messagesSent++;
       this.stats.bytesSent += serialized.length;
       this.stats.lastSentAt = new Date();
-      this.stats.globalSequenceSent = Math.max(
-        this.stats.globalSequenceSent,
-        message.sequence,
-      );
+      this.stats.globalSequenceSent = Math.max(this.stats.globalSequenceSent, message.sequence);
+      return true;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.emitEvent({
@@ -758,22 +810,51 @@ export class TunnelClient {
         timestamp: new Date(),
         message: `Failed to send message: ${msg}`,
       });
-      if (this.messageQueue.length < this.config.maxQueueSize) {
-        this.messageQueue.push(message);
-      }
+      return false;
     }
   }
 
+  /** Queues a message, dropping the oldest once maxQueueSize is reached. */
+  private enqueueMessage(message: TunnelMessage, toFront = false): void {
+    if (toFront) {
+      this.messageQueue.unshift(message);
+    } else {
+      this.messageQueue.push(message);
+    }
+    while (this.messageQueue.length > this.config.maxQueueSize) {
+      this.messageQueue.shift();
+    }
+  }
+
+  /**
+   * Sends everything currently queued, keeping anything that could not go out.
+   *
+   * Drains a snapshot rather than looping on the live queue. The previous
+   * version shifted a message off, and `sendMessageOverWire` pushed it straight
+   * back whenever the socket was not open — so with the state marked
+   * `connected` but no usable socket (exactly the degraded window this client
+   * exists to survive) the loop span forever at 100% CPU and never yielded.
+   */
   async flushQueue(): Promise<number> {
     if (this._state !== 'connected') return 0;
+
+    const pending = this.messageQueue;
+    this.messageQueue = [];
+
     let flushed = 0;
-    while (this.messageQueue.length > 0 && this._state === 'connected') {
-      const msg = this.messageQueue.shift();
-      if (msg) {
-        this.sendMessageOverWire(msg);
-        flushed++;
+    for (let i = 0; i < pending.length; i++) {
+      const msg = pending[i] as TunnelMessage;
+      if (this._state !== 'connected' || !this.sendMessageOverWire(msg)) {
+        // Preserve ordering: this message and everything after it stay queued.
+        this.messageQueue = pending.slice(i).concat(this.messageQueue);
+        while (this.messageQueue.length > this.config.maxQueueSize) {
+          this.messageQueue.shift();
+        }
+        break;
       }
+      flushed++;
     }
+
     return flushed;
   }
 
@@ -810,7 +891,9 @@ export class TunnelClient {
   }
 
   isAuthenticated(): boolean {
-    return this._state === 'connected' && (this.wsSessionId !== null || this.WebSocketImpl === null);
+    return (
+      this._state === 'connected' && (this.wsSessionId !== null || this.WebSocketImpl === null)
+    );
   }
 
   getDeviceId(): string {
@@ -849,9 +932,7 @@ export class TunnelClient {
       signedAt: signedAt.toISOString(),
     };
 
-    const signature = this.authProvider
-      ? this.authProvider.sign(JSON.stringify(basePayload))
-      : '';
+    const signature = this.authProvider ? this.authProvider.sign(JSON.stringify(basePayload)) : '';
 
     const request: ReconciliationRequest = {
       ...basePayload,
@@ -933,7 +1014,9 @@ export class TunnelClient {
     if (this.ws && this.ws.readyState !== WS_CLOSED && this.ws.readyState !== WS_CLOSING) {
       try {
         this.ws.close(1000, 'Shutdown');
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
     this.ws = null;
 
@@ -963,9 +1046,9 @@ export class TunnelClient {
       message: `Reconnect attempt ${this.reconnectAttempts}/${this.config.maxReconnectAttempts}`,
     });
 
-    const baseDelay = explicitDelayMs ?? (
-      this.config.reconnectBaseMs * Math.pow(2, Math.max(0, this.reconnectAttempts - 1))
-    );
+    const baseDelay =
+      explicitDelayMs ??
+      this.config.reconnectBaseMs * Math.pow(2, Math.max(0, this.reconnectAttempts - 1));
     const delay = Math.min(baseDelay, this.config.reconnectMaxMs) + Math.random() * 500;
 
     this.reconnectTimer = setTimeout(async () => {
@@ -1041,7 +1124,9 @@ export class TunnelClient {
           });
           try {
             this.ws?.close(4002, 'Heartbeat timeout');
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
       }, this.config.heartbeatTimeoutMs);
       if (typeof this.heartbeatTimeoutTimer.unref === 'function') {

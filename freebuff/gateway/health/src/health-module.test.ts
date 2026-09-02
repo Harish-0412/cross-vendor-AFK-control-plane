@@ -1,6 +1,6 @@
-import { describe, test, expect, beforeEach, afterEach } from 'vitest';
+import { describe, test, expect, afterEach } from 'vitest';
 
-import { createHealthModule, HealthModule } from '../src/health-module';
+import { createHealthModule, type HealthModule } from '../src/health-module';
 import type { ComponentHealth, HealthReport } from '../src/types';
 
 describe('HealthModule', () => {
@@ -165,7 +165,7 @@ describe('HealthModule', () => {
       heartbeatIntervalMs: 0,
     });
 
-    health.registerCheck('async-check', async () => ({
+    health.registerCheck('async-check', () => ({
       name: 'async-check',
       status: 'healthy' as const,
       message: 'Async check passed',
@@ -189,7 +189,7 @@ describe('HealthModule', () => {
     health.onReport((r) => reports.push(r));
 
     await new Promise((r) => setTimeout(r, 350));
-    health.shutdown();
+    await health.shutdown();
 
     expect(reports.length).toBeGreaterThanOrEqual(2);
     expect(reports[0]!.heartbeatSequence).toBeGreaterThanOrEqual(1);
@@ -206,7 +206,7 @@ describe('HealthModule', () => {
     await new Promise((r) => setTimeout(r, 200));
     const seq = health.getHeartbeatSequence();
     expect(seq).toBeGreaterThan(0);
-    health.shutdown();
+    await health.shutdown();
   });
 
   test('getLastResourceSnapshot returns cached snapshot', () => {

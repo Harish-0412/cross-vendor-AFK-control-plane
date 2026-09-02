@@ -1,4 +1,14 @@
-import type { EventType, FileChangedPayload, SessionCompletedPayload, SessionFailedPayload, SessionMessagePayload, SessionThinkingPayload, ToolCallPayload, ToolResultPayload, ApprovalRequiredPayload } from '@freebuff/protocol';
+import type {
+  EventType,
+  FileChangedPayload,
+  SessionCompletedPayload,
+  SessionFailedPayload,
+  SessionMessagePayload,
+  SessionThinkingPayload,
+  ToolCallPayload,
+  ToolResultPayload,
+  ApprovalRequiredPayload,
+} from '@freebuff/protocol';
 
 export type ScenarioName =
   | 'simple'
@@ -43,7 +53,15 @@ export interface ScenarioConfig {
 }
 
 export const DEFAULT_SCENARIO_CONFIG: Required<
-  Pick<ScenarioConfig, 'baseDelayMs' | 'jitterMs' | 'approvalCount' | 'messageCount' | 'toolCallCount' | 'fileChangeCount'>
+  Pick<
+    ScenarioConfig,
+    | 'baseDelayMs'
+    | 'jitterMs'
+    | 'approvalCount'
+    | 'messageCount'
+    | 'toolCallCount'
+    | 'fileChangeCount'
+  >
 > = {
   baseDelayMs: 150,
   jitterMs: 50,
@@ -100,11 +118,21 @@ index 1234567..abcdefg 100644
 +- Zero dependencies`,
 };
 
-const sampleFiles = ['calculator.ts', 'calculator.test.ts', 'README.md', 'utils.ts', 'index.ts', 'types.ts'];
+const sampleFiles = [
+  'calculator.ts',
+  'calculator.test.ts',
+  'README.md',
+  'utils.ts',
+  'index.ts',
+  'types.ts',
+];
 
 export function buildSimpleScenario(config: ScenarioConfig): ScenarioEventTemplate[] {
   const delay = config.baseDelayMs ?? DEFAULT_SCENARIO_CONFIG.baseDelayMs;
-  const fileCount = Math.min(config.fileChangeCount ?? DEFAULT_SCENARIO_CONFIG.fileChangeCount, sampleFiles.length);
+  const fileCount = Math.min(
+    config.fileChangeCount ?? DEFAULT_SCENARIO_CONFIG.fileChangeCount,
+    sampleFiles.length,
+  );
   const toolCount = config.toolCallCount ?? DEFAULT_SCENARIO_CONFIG.toolCallCount;
   const messageCount = config.messageCount ?? DEFAULT_SCENARIO_CONFIG.messageCount;
 
@@ -114,10 +142,22 @@ export function buildSimpleScenario(config: ScenarioConfig): ScenarioEventTempla
   ];
 
   for (let i = 0; i < messageCount; i++) {
-    events.push({ type: 'session.message', delayMs: delay, payloadFactory: (ctx) => sampleAssistantMessage(ctx.turn) });
+    events.push({
+      type: 'session.message',
+      delayMs: delay,
+      payloadFactory: (ctx) => sampleAssistantMessage(ctx.turn),
+    });
     if (i < toolCount) {
-      events.push({ type: 'session.tool_call', delayMs: delay, payloadFactory: (ctx) => sampleToolCall(ctx.turn) });
-      events.push({ type: 'session.tool_result', delayMs: delay, payloadFactory: (ctx) => sampleToolResult(ctx.turn) });
+      events.push({
+        type: 'session.tool_call',
+        delayMs: delay,
+        payloadFactory: (ctx) => sampleToolCall(ctx.turn),
+      });
+      events.push({
+        type: 'session.tool_result',
+        delayMs: delay,
+        payloadFactory: (ctx) => sampleToolResult(ctx.turn),
+      });
     }
     if (i < fileCount) {
       events.push({
@@ -143,7 +183,11 @@ export function buildApprovalScenario(config: ScenarioConfig): ScenarioEventTemp
   const events: ScenarioEventTemplate[] = [
     { type: 'session.started', delayMs: delay },
     { type: 'session.thinking', delayMs: delay, payloadFactory: () => sampleThinking('analyzing') },
-    { type: 'session.message', delayMs: delay, payloadFactory: (ctx) => sampleAssistantMessage(ctx.turn) },
+    {
+      type: 'session.message',
+      delayMs: delay,
+      payloadFactory: (ctx) => sampleAssistantMessage(ctx.turn),
+    },
   ];
 
   for (let i = 0; i < approvalCount; i++) {
@@ -157,7 +201,11 @@ export function buildApprovalScenario(config: ScenarioConfig): ScenarioEventTemp
       delayMs: delay,
       payloadFactory: (ctx) => sampleApprovalRequired(i, ctx),
     });
-    events.push({ type: 'session.approval_granted', delayMs: delay * 3, payloadFactory: (ctx) => sampleApprovalDecision(i, true, ctx) });
+    events.push({
+      type: 'session.approval_granted',
+      delayMs: delay * 3,
+      payloadFactory: (ctx) => sampleApprovalDecision(i, true, ctx),
+    });
     events.push({
       type: 'session.tool_result',
       delayMs: delay,
@@ -184,8 +232,16 @@ export function buildFailedScenario(config: ScenarioConfig): ScenarioEventTempla
   return [
     { type: 'session.started', delayMs: delay },
     { type: 'session.thinking', delayMs: delay, payloadFactory: () => sampleThinking('planning') },
-    { type: 'session.message', delayMs: delay, payloadFactory: (ctx) => sampleAssistantMessage(ctx.turn) },
-    { type: 'session.tool_call', delayMs: delay, payloadFactory: (ctx) => sampleToolCall(ctx.turn) },
+    {
+      type: 'session.message',
+      delayMs: delay,
+      payloadFactory: (ctx) => sampleAssistantMessage(ctx.turn),
+    },
+    {
+      type: 'session.tool_call',
+      delayMs: delay,
+      payloadFactory: (ctx) => sampleToolCall(ctx.turn),
+    },
     {
       type: 'session.tool_error',
       delayMs: delay,
@@ -215,7 +271,11 @@ export function buildCancelledScenario(config: ScenarioConfig): ScenarioEventTem
   return [
     { type: 'session.started', delayMs: delay },
     { type: 'session.thinking', delayMs: delay, payloadFactory: () => sampleThinking('planning') },
-    { type: 'session.message', delayMs: delay, payloadFactory: (ctx) => sampleAssistantMessage(ctx.turn) },
+    {
+      type: 'session.message',
+      delayMs: delay,
+      payloadFactory: (ctx) => sampleAssistantMessage(ctx.turn),
+    },
     {
       type: 'session.cancelled',
       delayMs: delay,
@@ -236,7 +296,11 @@ export function buildLongTaskScenario(config: ScenarioConfig): ScenarioEventTemp
 
   const events: ScenarioEventTemplate[] = [
     { type: 'session.started', delayMs: delay },
-    { type: 'session.thinking', delayMs: delay, payloadFactory: () => sampleThinking('planning', 10) },
+    {
+      type: 'session.thinking',
+      delayMs: delay,
+      payloadFactory: () => sampleThinking('planning', 10),
+    },
   ];
 
   for (let i = 0; i < messageCount; i++) {
@@ -244,7 +308,8 @@ export function buildLongTaskScenario(config: ScenarioConfig): ScenarioEventTemp
       events.push({
         type: 'session.thinking',
         delayMs: delay,
-        payloadFactory: () => sampleThinking(i % 2 === 0 ? 'analyzing' : 'executing', (i / messageCount) * 100),
+        payloadFactory: () =>
+          sampleThinking(i % 2 === 0 ? 'analyzing' : 'executing', (i / messageCount) * 100),
       });
     }
     events.push({
@@ -294,7 +359,10 @@ export function buildMultiTurnScenario(config: ScenarioConfig): ScenarioEventTem
     {
       type: 'session.message',
       delayMs: delay,
-      payloadFactory: () => sampleAssistantMessageCustom('I will create a calculator module. Would you like unit tests included?'),
+      payloadFactory: () =>
+        sampleAssistantMessageCustom(
+          'I will create a calculator module. Would you like unit tests included?',
+        ),
     },
     {
       type: 'session.message',
@@ -305,18 +373,40 @@ export function buildMultiTurnScenario(config: ScenarioConfig): ScenarioEventTem
         turnNumber: 1,
       }),
     },
-    { type: 'session.thinking', delayMs: delay, payloadFactory: () => sampleThinking('deciding', 30) },
+    {
+      type: 'session.thinking',
+      delayMs: delay,
+      payloadFactory: () => sampleThinking('deciding', 30),
+    },
     {
       type: 'session.message',
       delayMs: delay,
       payloadFactory: () =>
-        sampleAssistantMessageCustom('Understood. Creating calculator.ts with add/subtract/multiply/divide plus Vitest tests.'),
+        sampleAssistantMessageCustom(
+          'Understood. Creating calculator.ts with add/subtract/multiply/divide plus Vitest tests.',
+        ),
     },
-    { type: 'session.tool_call', delayMs: delay, payloadFactory: (ctx) => sampleToolCall(ctx.turn, 'write_file') },
-    { type: 'session.tool_result', delayMs: delay, payloadFactory: (ctx) => sampleToolResult(ctx.turn) },
+    {
+      type: 'session.tool_call',
+      delayMs: delay,
+      payloadFactory: (ctx) => sampleToolCall(ctx.turn, 'write_file'),
+    },
+    {
+      type: 'session.tool_result',
+      delayMs: delay,
+      payloadFactory: (ctx) => sampleToolResult(ctx.turn),
+    },
     { type: 'session.file_changed', delayMs: delay, payloadFactory: () => sampleFileChanged(0) },
-    { type: 'session.tool_call', delayMs: delay, payloadFactory: (ctx) => sampleToolCall(ctx.turn, 'write_file') },
-    { type: 'session.tool_result', delayMs: delay, payloadFactory: (ctx) => sampleToolResult(ctx.turn) },
+    {
+      type: 'session.tool_call',
+      delayMs: delay,
+      payloadFactory: (ctx) => sampleToolCall(ctx.turn, 'write_file'),
+    },
+    {
+      type: 'session.tool_result',
+      delayMs: delay,
+      payloadFactory: (ctx) => sampleToolResult(ctx.turn),
+    },
     { type: 'session.file_changed', delayMs: delay, payloadFactory: () => sampleFileChanged(1) },
     {
       type: 'session.tool_call',
@@ -328,14 +418,20 @@ export function buildMultiTurnScenario(config: ScenarioConfig): ScenarioEventTem
       delayMs: delay,
       payloadFactory: (ctx) => ({
         ...sampleToolResult(ctx.turn),
-        output: { exitCode: 0, stdout: 'Test Files 2 passed (2)\nTests 8 passed (8)\n', stderr: '' },
+        output: {
+          exitCode: 0,
+          stdout: 'Test Files 2 passed (2)\nTests 8 passed (8)\n',
+          stderr: '',
+        },
       }),
     },
     {
       type: 'session.message',
       delayMs: delay,
       payloadFactory: () =>
-        sampleAssistantMessageCustom('All done! Created calculator.ts, calculator.test.ts. 8 tests passing with 100% coverage.'),
+        sampleAssistantMessageCustom(
+          'All done! Created calculator.ts, calculator.test.ts. 8 tests passing with 100% coverage.',
+        ),
     },
     {
       type: 'session.completed',
@@ -370,16 +466,15 @@ export function buildScenario(config: ScenarioConfig): ScenarioEventTemplate[] {
         ...Array.from({ length: 20 }, (_, i) => ({
           type: 'session.thinking' as EventType,
           delayMs: config.baseDelayMs ?? DEFAULT_SCENARIO_CONFIG.baseDelayMs,
-          payloadFactory: () => sampleThinking(i % 2 === 0 ? 'planning' : 'reflecting', (i / 20) * 100),
+          payloadFactory: () =>
+            sampleThinking(i % 2 === 0 ? 'planning' : 'reflecting', (i / 20) * 100),
         })),
         { type: 'session.completed', payloadFactory: (ctx) => sampleCompleted(ctx) },
       ];
     case 'file_edits': {
       const delay = config.baseDelayMs ?? DEFAULT_SCENARIO_CONFIG.baseDelayMs;
       const count = config.fileChangeCount ?? 6;
-      const evts: ScenarioEventTemplate[] = [
-        { type: 'session.started', delayMs: delay },
-      ];
+      const evts: ScenarioEventTemplate[] = [{ type: 'session.started', delayMs: delay }];
       for (let i = 0; i < count; i++) {
         evts.push({
           type: 'session.file_changed',
@@ -402,18 +497,58 @@ export function buildScenario(config: ScenarioConfig): ScenarioEventTemplate[] {
   }
 }
 
-export function listScenarios(): Array<{ name: ScenarioName; description: string; estimatedDurationMs: number }> {
+export function listScenarios(): Array<{
+  name: ScenarioName;
+  description: string;
+  estimatedDurationMs: number;
+}> {
   return [
-    { name: 'simple', description: 'Basic task: message → tool calls → file changes → completed', estimatedDurationMs: 1800 },
-    { name: 'with_approval', description: 'Requires approval before a protected tool can execute', estimatedDurationMs: 2500 },
-    { name: 'failed', description: 'Fails at tool execution with permission error', estimatedDurationMs: 900 },
+    {
+      name: 'simple',
+      description: 'Basic task: message → tool calls → file changes → completed',
+      estimatedDurationMs: 1800,
+    },
+    {
+      name: 'with_approval',
+      description: 'Requires approval before a protected tool can execute',
+      estimatedDurationMs: 2500,
+    },
+    {
+      name: 'failed',
+      description: 'Fails at tool execution with permission error',
+      estimatedDurationMs: 900,
+    },
     { name: 'cancelled', description: 'Cancelled by user mid-execution', estimatedDurationMs: 600 },
-    { name: 'long_task', description: 'Long-running task with many outputs, tools, and file ops', estimatedDurationMs: 8000 },
-    { name: 'multi_turn', description: 'Multi-turn conversation with user input and responses', estimatedDurationMs: 3500 },
-    { name: 'crash_midway', description: 'Process crashes midway through the event sequence', estimatedDurationMs: 1200 },
-    { name: 'thinking_only', description: 'Emits 20 thinking events without tool calls', estimatedDurationMs: 3200 },
-    { name: 'file_edits', description: 'Multiple file changes without other operations', estimatedDurationMs: 1500 },
-    { name: 'approvals_chain', description: 'Chain of multiple approval decisions', estimatedDurationMs: 4500 },
+    {
+      name: 'long_task',
+      description: 'Long-running task with many outputs, tools, and file ops',
+      estimatedDurationMs: 8000,
+    },
+    {
+      name: 'multi_turn',
+      description: 'Multi-turn conversation with user input and responses',
+      estimatedDurationMs: 3500,
+    },
+    {
+      name: 'crash_midway',
+      description: 'Process crashes midway through the event sequence',
+      estimatedDurationMs: 1200,
+    },
+    {
+      name: 'thinking_only',
+      description: 'Emits 20 thinking events without tool calls',
+      estimatedDurationMs: 3200,
+    },
+    {
+      name: 'file_edits',
+      description: 'Multiple file changes without other operations',
+      estimatedDurationMs: 1500,
+    },
+    {
+      name: 'approvals_chain',
+      description: 'Chain of multiple approval decisions',
+      estimatedDurationMs: 4500,
+    },
   ];
 }
 
@@ -474,7 +609,10 @@ function sampleToolCall(turn: number, overrideName?: string): ToolCallPayload {
       query: toolName === 'search_codebase' ? 'calculator utilities' : undefined,
       content:
         toolName === 'write_file'
-          ? sampleDiffs.calculator?.split('@@')[0]?.replace(/^diff.*$/gm, '').trim()
+          ? sampleDiffs.calculator
+              ?.split('@@')[0]
+              ?.replace(/^diff.*$/gm, '')
+              .trim()
           : undefined,
     },
     timestamp: new Date(),
@@ -499,9 +637,10 @@ function sampleToolResult(turn: number): ToolResultPayload {
 }
 
 function sampleFileChanged(index: number): FileChangedPayload {
-  const keys = Object.keys(sampleDiffs) as Array<keyof typeof sampleDiffs>;
+  const keys = Object.keys(sampleDiffs);
   const key = keys[index % keys.length]!;
-  const path = key === 'calculator' ? 'calculator.ts' : key === 'test' ? 'calculator.test.ts' : 'README.md';
+  const path =
+    key === 'calculator' ? 'calculator.ts' : key === 'test' ? 'calculator.test.ts' : 'README.md';
   const actions: Array<FileChangedPayload['action']> = ['created', 'modified', 'deleted'];
   const payload: FileChangedPayload = {
     path,
@@ -518,10 +657,30 @@ function sampleFileChanged(index: number): FileChangedPayload {
 
 function sampleApprovalRequired(index: number, ctx: ScenarioContext): ApprovalRequiredPayload {
   const items = [
-    { action: 'git_push', desc: 'Push changes to remote repository', risk: 'high' as const, scope: 'git:push' },
-    { action: 'npm_install', desc: 'Install external npm packages', risk: 'medium' as const, scope: 'filesystem:write' },
-    { action: 'bash_exec', desc: 'Execute shell command: sudo systemctl restart', risk: 'critical' as const, scope: 'system:admin' },
-    { action: 'env_read', desc: 'Read environment variable: AWS_SECRET_ACCESS_KEY', risk: 'high' as const, scope: 'secrets:read' },
+    {
+      action: 'git_push',
+      desc: 'Push changes to remote repository',
+      risk: 'high' as const,
+      scope: 'git:push',
+    },
+    {
+      action: 'npm_install',
+      desc: 'Install external npm packages',
+      risk: 'medium' as const,
+      scope: 'filesystem:write',
+    },
+    {
+      action: 'bash_exec',
+      desc: 'Execute shell command: sudo systemctl restart',
+      risk: 'critical' as const,
+      scope: 'system:admin',
+    },
+    {
+      action: 'env_read',
+      desc: 'Read environment variable: AWS_SECRET_ACCESS_KEY',
+      risk: 'high' as const,
+      scope: 'secrets:read',
+    },
   ];
   const item = items[index % items.length]!;
   const payload: ApprovalRequiredPayload = {
@@ -552,7 +711,8 @@ function sampleApprovalDecision(index: number, approved: boolean, ctx: ScenarioC
 
 function sampleCompleted(ctx: ScenarioContext, turnsOverride?: number): SessionCompletedPayload {
   const turns = turnsOverride ?? Math.max(1, ctx.turn);
-  const duration = ctx.totalEvents * ((ctx.config.baseDelayMs ?? DEFAULT_SCENARIO_CONFIG.baseDelayMs) + 30);
+  const duration =
+    ctx.totalEvents * ((ctx.config.baseDelayMs ?? DEFAULT_SCENARIO_CONFIG.baseDelayMs) + 30);
   return {
     exitCode: 0,
     signal: null,
@@ -564,9 +724,14 @@ function sampleCompleted(ctx: ScenarioContext, turnsOverride?: number): SessionC
       outputTokens: 540 + turns * 80,
       totalTokens: 860 + turns * 120,
       toolCalls: Math.min(ctx.config.toolCallCount ?? DEFAULT_SCENARIO_CONFIG.toolCallCount, turns),
-      fileOperations: Math.min(ctx.config.fileChangeCount ?? DEFAULT_SCENARIO_CONFIG.fileChangeCount, turns),
-      approvalsRequested: ctx.config.approvalCount ?? (ctx.config.scenario === 'with_approval' ? 1 : 0),
-      approvalsGranted: ctx.config.scenario === 'with_approval' ? (ctx.config.approvalCount ?? 1) : 0,
+      fileOperations: Math.min(
+        ctx.config.fileChangeCount ?? DEFAULT_SCENARIO_CONFIG.fileChangeCount,
+        turns,
+      ),
+      approvalsRequested:
+        ctx.config.approvalCount ?? (ctx.config.scenario === 'with_approval' ? 1 : 0),
+      approvalsGranted:
+        ctx.config.scenario === 'with_approval' ? (ctx.config.approvalCount ?? 1) : 0,
       approvalsDenied: 0,
       cacheHits: 0,
       cacheMisses: 0,

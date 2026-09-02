@@ -26,7 +26,7 @@ export interface SandboxConfig {
   readablePaths: string[];
   deniedPaths: string[];
   profile: SandboxProfile;
-  labels?: Record<string, string>;
+  labels?: Record<string, string> | undefined;
 }
 
 export interface SandboxStatus {
@@ -130,10 +130,13 @@ export const SANDBOX_ID_LENGTH = 24;
 export const DEFAULT_SANDBOX_TIMEOUT_MS = 5000;
 export const DEFAULT_FORCE_KILL_DELAY_MS = 2000;
 
-export const SANDBOX_PROFILE_DEFAULTS: Record<SandboxProfile, {
-  resourceLimits: ResourceLimits;
-  networkMode: NetworkPolicyMode;
-}> = {
+export const SANDBOX_PROFILE_DEFAULTS: Record<
+  SandboxProfile,
+  {
+    resourceLimits: ResourceLimits;
+    networkMode: NetworkPolicyMode;
+  }
+> = {
   strict: {
     resourceLimits: {
       cpuPercent: 50,
@@ -164,7 +167,9 @@ export const SANDBOX_PROFILE_DEFAULTS: Record<SandboxProfile, {
 };
 
 export function isValidSandboxId(id: string): boolean {
-  return id.startsWith(SANDBOX_ID_PREFIX) && id.length === SANDBOX_ID_PREFIX.length + SANDBOX_ID_LENGTH;
+  return (
+    id.startsWith(SANDBOX_ID_PREFIX) && id.length === SANDBOX_ID_PREFIX.length + SANDBOX_ID_LENGTH
+  );
 }
 
 export function isTerminalSandboxState(state: SandboxState): boolean {

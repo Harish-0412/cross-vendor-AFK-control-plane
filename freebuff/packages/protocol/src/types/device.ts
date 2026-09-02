@@ -27,12 +27,7 @@ export interface DeviceIdentity {
   metadata: Record<string, unknown>;
 }
 
-export type DeviceStatus =
-  | 'unpaired'
-  | 'pairing'
-  | 'trusted'
-  | 'suspended'
-  | 'revoked';
+export type DeviceStatus = 'unpaired' | 'pairing' | 'trusted' | 'suspended' | 'revoked';
 
 export interface DeviceCertificate {
   id: string;
@@ -70,7 +65,7 @@ export interface RevocationStatus {
   revokedAt?: Date;
   reason?: RevocationReason;
   revokedBy?: string;
-  revocationNote?: string;
+  revocationNote?: string | undefined;
   affectedCertificates: string[];
 }
 
@@ -89,15 +84,15 @@ export interface SignedHandshake {
   timestamp: Date;
   signature: string;
   publicKeyJwk: Record<string, unknown>;
-  certificateThumbprint?: string;
+  certificateThumbprint?: string | undefined;
 }
 
 export interface SessionReconciliationState {
   sessionId: string;
   lastAckedSequence: number;
-  lastEventAt?: Date;
+  lastEventAt?: Date | undefined;
   state: string;
-  lastEventType?: string;
+  lastEventType?: string | undefined;
 }
 
 export interface ReconciliationRequest {
@@ -144,7 +139,9 @@ export const FINGERPRINT_WORD_COUNT = 10;
 export const FINGERPRINT_SHORT_CODE_LENGTH = 8;
 
 export function isValidDeviceId(id: string): boolean {
-  return id.startsWith(DEVICE_ID_PREFIX) && id.length === DEVICE_ID_PREFIX.length + DEVICE_ID_LENGTH;
+  return (
+    id.startsWith(DEVICE_ID_PREFIX) && id.length === DEVICE_ID_PREFIX.length + DEVICE_ID_LENGTH
+  );
 }
 
 export function isCertificateValid(cert: DeviceCertificate, now: Date = new Date()): boolean {

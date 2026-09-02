@@ -1,6 +1,7 @@
 import * as http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
+import { DEFAULT_API_HOST, DEFAULT_API_PORT, DEFAULT_SHUTDOWN_TIMEOUT_MS } from '@freebuff/config';
 import type {
   GatewayCore,
   SessionConfig,
@@ -9,13 +10,15 @@ import type {
   EventEnvelope,
 } from '@freebuff/protocol';
 
-import { DEFAULT_API_HOST, DEFAULT_API_PORT, DEFAULT_SHUTDOWN_TIMEOUT_MS } from '@freebuff/config';
-
 export interface ApiServerOptions {
+  // These three stay plain-optional: the constructor fills each from a default,
+  // and `Required<...>` below relies on `?` alone to produce non-optional types.
+  // Adding `| undefined` here would survive `Required<>` and leak `undefined`
+  // into ApiServerStatus.
   host?: string;
   port?: number;
   allowRemote?: boolean;
-  corsOrigins?: string[];
+  corsOrigins?: string[] | undefined;
 }
 
 export interface ApiServerStatus {
@@ -23,7 +26,7 @@ export interface ApiServerStatus {
   host: string;
   port: number;
   url: string;
-  startedAt?: Date;
+  startedAt?: Date | undefined;
   requestsServed: number;
   connections: number;
 }
@@ -48,13 +51,14 @@ const JSON_RESPONSE_HEADERS: Record<string, string> = {
 };
 
 export class LocalApiServer {
-  private server?: http.Server;
+  private server?: http.Server | undefined;
   private gateway: GatewayCore;
-  private options: Required<Omit<ApiServerOptions, 'corsOrigins'>> & Pick<ApiServerOptions, 'corsOrigins'>;
+  private options: Required<Omit<ApiServerOptions, 'corsOrigins'>> &
+    Pick<ApiServerOptions, 'corsOrigins'>;
   private eventConnections: Map<string, http.ServerResponse> = new Map();
-  private startedAt?: Date;
+  private startedAt?: Date | undefined;
   private requestsServed = 0;
-  private unsubscribeGlobal?: () => void;
+  private unsubscribeGlobal?: (() => void) | undefined;
 
   constructor(gateway: GatewayCore, options: ApiServerOptions = {}) {
     this.gateway = gateway;
@@ -138,10 +142,17 @@ export class LocalApiServer {
         }
         resolve();
       });
-      const hardStop = setTimeout(() => {
-        try { server.closeAllConnections?.(); } catch { /* swallow */ }
-        resolve();
-      }, Math.max(0, deadline - Date.now()));
+      const hardStop = setTimeout(
+        () => {
+          try {
+            server.closeAllConnections?.();
+          } catch {
+            /* swallow */
+          }
+          resolve();
+        },
+        Math.max(0, deadline - Date.now()),
+      );
       hardStop.unref?.();
     });
   }
@@ -153,7 +164,11 @@ export class LocalApiServer {
       try {
         res.write(data);
       } catch {
-        try { res.end(); } catch { /* swallow */ }
+        try {
+          res.end();
+        } catch {
+          /* swallow */
+        }
         this.eventConnections.delete(id);
       }
     }
@@ -175,11 +190,20 @@ export class LocalApiServer {
 
       await this.route(parsed, res);
     } catch (err) {
-      this.sendError(res, 500, err instanceof Error ? err.message : 'Internal Server Error', requestId);
+      this.sendError(
+        res,
+        500,
+        err instanceof Error ? err.message : 'Internal Server Error',
+        requestId,
+      );
     }
   }
 
-  private checkCors(req: http.IncomingMessage, res: http.ServerResponse, _parsed: ParsedRequest): boolean {
+  private checkCors(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    _parsed: ParsedRequest,
+  ): boolean {
     const origin = req.headers['origin'];
     if (origin) {
       const origins = this.options.corsOrigins ?? [];
@@ -207,7 +231,9 @@ export class LocalApiServer {
   private async parseRequest(req: http.IncomingMessage, requestId: string): Promise<ParsedRequest> {
     const method = (req.method ?? 'GET').toUpperCase() as ParsedRequest['method'];
     const host = req.headers.host ?? `${this.options.host}:${this.options.port}`;
-    const protocol = (req.socket as unknown as { encrypted?: boolean }).encrypted ? 'https' : 'http';
+    const protocol = (req.socket as unknown as { encrypted?: boolean }).encrypted
+      ? 'https'
+      : 'http';
     const url = new URL(req.url ?? '/', `${protocol}://${host}`);
     const segments = url.pathname.split('/').filter(Boolean);
 
@@ -257,61 +283,120 @@ export class LocalApiServer {
 
   private async route(req: ParsedRequest, res: http.ServerResponse): Promise<void> {
     const { method, segments, query, body, requestId } = req;
-    const extraHeaders = { 'X-Request-ID': requestId, ...this.buildCorsHeaders(req as unknown as http.IncomingMessage) };
+    const extraHeaders = {
+      'X-Request-ID': requestId,
+      ...this.buildCorsHeaders(req as unknown as http.IncomingMessage),
+    };
 
     try {
       if (segments.length === 0) {
-        return this.sendJson(res, 200, {
-          name: 'Freebuff Gateway API',
-          version: '0.1.0',
-          gatewayId: this.gateway.getGatewayId(),
-          deviceId: this.gateway.getDeviceId(),
-          endpoints: this.listEndpoints(),
-        }, extraHeaders);
+        return this.sendJson(
+          res,
+          200,
+          {
+            name: 'Freebuff Gateway API',
+            version: '0.1.0',
+            gatewayId: this.gateway.getGatewayId(),
+            deviceId: this.gateway.getDeviceId(),
+            endpoints: this.listEndpoints(),
+          },
+          extraHeaders,
+        );
       }
 
       const resource = segments[0]!;
 
       if (resource === 'health') {
-        if (method !== 'GET') return this.sendError(res, 405, 'Method Not Allowed', requestId, extraHeaders);
-        return this.sendJson(res, 200, { status: 'ok', timestamp: new Date().toISOString(), gatewayId: this.gateway.getGatewayId() }, extraHeaders);
+        if (method !== 'GET')
+          return this.sendError(res, 405, 'Method Not Allowed', requestId, extraHeaders);
+        return this.sendJson(
+          res,
+          200,
+          {
+            status: 'ok',
+            timestamp: new Date().toISOString(),
+            gatewayId: this.gateway.getGatewayId(),
+          },
+          extraHeaders,
+        );
       }
 
       if (resource === 'status') {
-        if (method !== 'GET') return this.sendError(res, 405, 'Method Not Allowed', requestId, extraHeaders);
-        return this.sendJson(res, 200, this.sanitizeForJson(await this.gateway.getStatus()), extraHeaders);
+        if (method !== 'GET')
+          return this.sendError(res, 405, 'Method Not Allowed', requestId, extraHeaders);
+        return this.sendJson(
+          res,
+          200,
+          this.sanitizeForJson(await this.gateway.getStatus()),
+          extraHeaders,
+        );
       }
 
       if (resource === 'agents') {
         if (method === 'GET' && segments.length === 1) {
-          return this.sendJson(res, 200, this.sanitizeForJson(await this.gateway.listAgents()), extraHeaders);
+          return this.sendJson(
+            res,
+            200,
+            this.sanitizeForJson(await this.gateway.listAgents()),
+            extraHeaders,
+          );
         }
         if (method === 'POST' && segments.length === 2 && segments[1] === 'detect') {
-          return this.sendJson(res, 200, this.sanitizeForJson(await this.gateway.detectAgents()), extraHeaders);
+          return this.sendJson(
+            res,
+            200,
+            this.sanitizeForJson(await this.gateway.detectAgents()),
+            extraHeaders,
+          );
         }
         if (method === 'GET' && segments.length === 2) {
-          return this.sendJson(res, 200, this.sanitizeForJson(await this.gateway.getAgent(segments[1]!)), extraHeaders);
+          return this.sendJson(
+            res,
+            200,
+            this.sanitizeForJson(await this.gateway.getAgent(segments[1]!)),
+            extraHeaders,
+          );
         }
       }
 
       if (resource === 'projects') {
         if (method === 'GET' && segments.length === 1) {
-          return this.sendJson(res, 200, this.sanitizeForJson(await this.gateway.listProjects()), extraHeaders);
+          return this.sendJson(
+            res,
+            200,
+            this.sanitizeForJson(await this.gateway.listProjects()),
+            extraHeaders,
+          );
         }
         if (method === 'POST' && segments.length === 1) {
           const result = await this.gateway.registerProject(body as ProjectRegistrationOptions);
           return this.sendJson(res, 201, this.sanitizeForJson(result), extraHeaders);
         }
         if (method === 'POST' && segments.length === 2 && segments[1] === 'validate') {
-          const { root } = body as { root?: string } ?? {};
+          const { root } = (body as { root?: string }) ?? {};
           if (!root) return this.sendError(res, 400, '"root" is required', requestId, extraHeaders);
-          return this.sendJson(res, 200, this.sanitizeForJson(await this.gateway.validateProject(root)), extraHeaders);
+          return this.sendJson(
+            res,
+            200,
+            this.sanitizeForJson(await this.gateway.validateProject(root)),
+            extraHeaders,
+          );
         }
         if (method === 'GET' && segments.length === 2 && segments[1] === 'stats') {
-          return this.sendJson(res, 200, this.sanitizeForJson(await this.gateway.getProjectStats()), extraHeaders);
+          return this.sendJson(
+            res,
+            200,
+            this.sanitizeForJson(await this.gateway.getProjectStats()),
+            extraHeaders,
+          );
         }
         if (method === 'GET' && segments.length === 2) {
-          return this.sendJson(res, 200, this.sanitizeForJson(await this.gateway.getProject(segments[1]!)), extraHeaders);
+          return this.sendJson(
+            res,
+            200,
+            this.sanitizeForJson(await this.gateway.getProject(segments[1]!)),
+            extraHeaders,
+          );
         }
         if (method === 'DELETE' && segments.length === 2) {
           await this.gateway.removeProject(segments[1]!);
@@ -329,9 +414,19 @@ export class LocalApiServer {
             offset: query.offset ? parseInt(query.offset, 10) : undefined,
           };
           if (query.summaries === 'true') {
-            return this.sendJson(res, 200, this.sanitizeForJson(await this.gateway.listSessionSummaries(filter)), extraHeaders);
+            return this.sendJson(
+              res,
+              200,
+              this.sanitizeForJson(await this.gateway.listSessionSummaries(filter)),
+              extraHeaders,
+            );
           }
-          return this.sendJson(res, 200, this.sanitizeForJson(await this.gateway.listSessions(filter)), extraHeaders);
+          return this.sendJson(
+            res,
+            200,
+            this.sanitizeForJson(await this.gateway.listSessions(filter)),
+            extraHeaders,
+          );
         }
         if (method === 'POST' && segments.length === 1) {
           const result = await this.gateway.createSession(body as SessionConfig);
@@ -341,28 +436,53 @@ export class LocalApiServer {
           });
         }
         if (method === 'GET' && segments.length === 2) {
-          return this.sendJson(res, 200, this.sanitizeForJson(await this.gateway.getSession(segments[1]!)), extraHeaders);
+          return this.sendJson(
+            res,
+            200,
+            this.sanitizeForJson(await this.gateway.getSession(segments[1]!)),
+            extraHeaders,
+          );
         }
         if (method === 'DELETE' && segments.length === 2) {
-          const { reason, force } = body as { reason?: string; force?: boolean } ?? {};
+          const { reason, force } = (body as { reason?: string; force?: boolean }) ?? {};
           await this.gateway.stopSession(segments[1]!, reason, force);
           return this.sendJson(res, 204, null, extraHeaders);
         }
-        if (method === 'POST' && segments.length === 3 && segments[1] && segments[2] === 'messages') {
-          const { message } = body as { message?: string } ?? {};
-          if (!message) return this.sendError(res, 400, '"message" is required', requestId, extraHeaders);
+        if (
+          method === 'POST' &&
+          segments.length === 3 &&
+          segments[1] &&
+          segments[2] === 'messages'
+        ) {
+          const { message } = (body as { message?: string }) ?? {};
+          if (!message)
+            return this.sendError(res, 400, '"message" is required', requestId, extraHeaders);
           await this.gateway.sendMessage(segments[1], message);
           return this.sendJson(res, 202, { accepted: true }, extraHeaders);
         }
         if (method === 'POST' && segments.length === 3 && segments[1] && segments[2] === 'input') {
-          const { data } = body as { data?: string } ?? {};
-          if (data === undefined) return this.sendError(res, 400, '"data" is required', requestId, extraHeaders);
+          const { data } = (body as { data?: string }) ?? {};
+          if (data === undefined)
+            return this.sendError(res, 400, '"data" is required', requestId, extraHeaders);
           await this.gateway.sendInput(segments[1], data);
           return this.sendJson(res, 202, { accepted: true }, extraHeaders);
         }
-        if (method === 'POST' && segments.length === 3 && segments[1] && segments[2] === 'approvals') {
-          const { approvalId, approved, reason } = body as { approvalId?: string; approved?: boolean; reason?: string } ?? {};
-          if (!approvalId || approved === undefined) return this.sendError(res, 400, '"approvalId" and "approved" are required', requestId, extraHeaders);
+        if (
+          method === 'POST' &&
+          segments.length === 3 &&
+          segments[1] &&
+          segments[2] === 'approvals'
+        ) {
+          const { approvalId, approved, reason } =
+            (body as { approvalId?: string; approved?: boolean; reason?: string }) ?? {};
+          if (!approvalId || approved === undefined)
+            return this.sendError(
+              res,
+              400,
+              '"approvalId" and "approved" are required',
+              requestId,
+              extraHeaders,
+            );
           await this.gateway.submitApproval(segments[1], approvalId, approved, reason);
           return this.sendJson(res, 202, { accepted: true }, extraHeaders);
         }
@@ -370,7 +490,12 @@ export class LocalApiServer {
           const diff = await this.gateway.collectSessionDiff(segments[1]);
           return this.sendJson(res, 200, { diff }, extraHeaders);
         }
-        if (method === 'DELETE' && segments.length === 3 && segments[1] && segments[2] === 'cleanup') {
+        if (
+          method === 'DELETE' &&
+          segments.length === 3 &&
+          segments[1] &&
+          segments[2] === 'cleanup'
+        ) {
           await this.gateway.cleanupSession(segments[1]);
           return this.sendJson(res, 204, null, extraHeaders);
         }
@@ -390,7 +515,7 @@ export class LocalApiServer {
       }
 
       if (resource === 'shutdown' && method === 'POST') {
-        const { graceful, timeout } = body as { graceful?: boolean; timeout?: number } ?? {};
+        const { graceful, timeout } = (body as { graceful?: boolean; timeout?: number }) ?? {};
         await this.gateway.shutdown(graceful !== false, timeout);
         await this.stop(timeout);
         return this.sendJson(res, 202, { shutdownInitiated: true }, extraHeaders);
@@ -399,7 +524,12 @@ export class LocalApiServer {
       return this.sendError(res, 404, `Not Found: ${method} ${req.path}`, requestId, extraHeaders);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (message.startsWith('Session not found') || message.startsWith('Project not found') || message.startsWith('Agent not found') || message.startsWith('Unknown adapter')) {
+      if (
+        message.startsWith('Session not found') ||
+        message.startsWith('Project not found') ||
+        message.startsWith('Agent not found') ||
+        message.startsWith('Unknown adapter')
+      ) {
         return this.sendError(res, 404, message, requestId, extraHeaders);
       }
       if (message.startsWith('Invalid project root') || message.includes('is required')) {
@@ -409,17 +539,23 @@ export class LocalApiServer {
     }
   }
 
-  private handleEventStream(sessionId: string | undefined, res: http.ServerResponse, extraHeaders: Record<string, string>): void {
+  private handleEventStream(
+    sessionId: string | undefined,
+    res: http.ServerResponse,
+    extraHeaders: Record<string, string>,
+  ): void {
     res.writeHead(200, {
       ...extraHeaders,
       ...JSON_RESPONSE_HEADERS,
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Transfer-Encoding': 'chunked',
-      'Connection': 'keep-alive',
+      Connection: 'keep-alive',
       'Cache-Control': 'no-transform',
     });
     res.write(': ok\n\n');
-    res.write(`event: gateway\ndata: ${JSON.stringify({ connected: true, sessionId, timestamp: new Date().toISOString() })}\n\n`);
+    res.write(
+      `event: gateway\ndata: ${JSON.stringify({ connected: true, sessionId, timestamp: new Date().toISOString() })}\n\n`,
+    );
 
     const id = `sse_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     this.eventConnections.set(id, res);
@@ -428,19 +564,31 @@ export class LocalApiServer {
       ? this.gateway.subscribeToSessionEvents(sessionId, {
           onEvent: (event) => {
             try {
-              res.write(`event: ${event.eventType}\ndata: ${JSON.stringify(this.sanitizeForJson(event))}\n\n`);
-            } catch { /* swallow */ }
+              res.write(
+                `event: ${event.eventType}\ndata: ${JSON.stringify(this.sanitizeForJson(event))}\n\n`,
+              );
+            } catch {
+              /* swallow */
+            }
           },
           onClose: () => {
-            try { res.end(); } catch { /* swallow */ }
+            try {
+              res.end();
+            } catch {
+              /* swallow */
+            }
             this.eventConnections.delete(id);
           },
         })
       : this.gateway.subscribeToEvents({
           onEvent: (event) => {
             try {
-              res.write(`event: ${event.eventType}\ndata: ${JSON.stringify(this.sanitizeForJson(event))}\n\n`);
-            } catch { /* swallow */ }
+              res.write(
+                `event: ${event.eventType}\ndata: ${JSON.stringify(this.sanitizeForJson(event))}\n\n`,
+              );
+            } catch {
+              /* swallow */
+            }
           },
         });
 
@@ -473,7 +621,11 @@ export class LocalApiServer {
       { method: 'POST', path: '/sessions/{id}/approvals', description: 'Submit approval decision' },
       { method: 'GET', path: '/sessions/{id}/diff', description: 'Get session diff' },
       { method: 'DELETE', path: '/sessions/{id}/cleanup', description: 'Cleanup session' },
-      { method: 'GET', path: '/sessions/{id}/events', description: 'SSE event stream (per session)' },
+      {
+        method: 'GET',
+        path: '/sessions/{id}/events',
+        description: 'SSE event stream (per session)',
+      },
       { method: 'GET', path: '/events', description: 'SSE event stream (all sessions)' },
       { method: 'POST', path: '/shutdown', description: 'Initiate gateway shutdown' },
     ];
@@ -501,7 +653,12 @@ export class LocalApiServer {
     requestId: string,
     extraHeaders: Record<string, string> = {},
   ): void {
-    this.sendJson(res, status, { error: { status, message, requestId, timestamp: new Date().toISOString() } }, extraHeaders);
+    this.sendJson(
+      res,
+      status,
+      { error: { status, message, requestId, timestamp: new Date().toISOString() } },
+      extraHeaders,
+    );
   }
 
   private sanitizeForJson(value: unknown): unknown {

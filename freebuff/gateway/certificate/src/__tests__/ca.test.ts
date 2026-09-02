@@ -1,17 +1,19 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { mkdtempSync, rmSync } from 'node:fs';
+
+import { createDeviceIdentityManager } from '@freebuff/identity';
+import { DeviceIdentity } from '@freebuff/protocol';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
 import {
   generateCAKeyMaterial,
-  CertificateAuthority,
+  type CertificateAuthority,
   createCertificateAuthority,
   DEFAULT_ROOT_CA_CONFIG,
   DEFAULT_INTERMEDIATE_CA_CONFIG,
+  type CertificateSigningRequest,
 } from '../ca';
-import type { CertificateSigningRequest } from '../ca';
-import { createDeviceIdentityManager } from '@freebuff/identity';
-import { DeviceIdentity } from '@freebuff/protocol';
 
 describe('generateCAKeyMaterial', () => {
   it('should generate EC key material by default', () => {
@@ -49,8 +51,10 @@ describe('CertificateAuthority', () => {
     intermediateKey = generateCAKeyMaterial('EC', 'prime256v1');
     ca = createCertificateAuthority(rootKey, DEFAULT_ROOT_CA_CONFIG);
     twoLevelCA = createCertificateAuthority(
-      rootKey, DEFAULT_ROOT_CA_CONFIG,
-      intermediateKey, DEFAULT_INTERMEDIATE_CA_CONFIG,
+      rootKey,
+      DEFAULT_ROOT_CA_CONFIG,
+      intermediateKey,
+      DEFAULT_INTERMEDIATE_CA_CONFIG,
     );
   });
 

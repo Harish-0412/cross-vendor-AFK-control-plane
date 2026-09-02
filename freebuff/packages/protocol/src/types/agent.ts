@@ -31,8 +31,8 @@ export interface AgentMetadata {
 export interface AgentInfo {
   metadata: AgentMetadata;
   installed: boolean;
-  installPath?: string;
-  detectedVersion?: string;
+  installPath?: string | undefined;
+  detectedVersion?: string | undefined;
   health: AgentHealth;
   lastDetectedAt: Date;
 }

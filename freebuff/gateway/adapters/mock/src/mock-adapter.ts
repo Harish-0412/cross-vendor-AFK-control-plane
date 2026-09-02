@@ -10,12 +10,7 @@ import type {
   EventSubscriber,
   ApprovalAction,
 } from '@freebuff/protocol';
-
-import {
-  generateSessionId,
-  createDefaultAgentHealth,
-  ALL_PLATFORMS,
-} from '@freebuff/protocol';
+import { generateSessionId, createDefaultAgentHealth, ALL_PLATFORMS } from '@freebuff/protocol';
 
 import { MockEventStream } from './event-stream';
 import {
@@ -208,7 +203,9 @@ export class MockAdapter implements AgentAdapter {
 
     const template = events[internal.ctx.eventIndex]!;
     const delay =
-      (template.delayMs ?? internal.scenarioConfig.baseDelayMs ?? DEFAULT_SCENARIO_CONFIG.baseDelayMs) +
+      (template.delayMs ??
+        internal.scenarioConfig.baseDelayMs ??
+        DEFAULT_SCENARIO_CONFIG.baseDelayMs) +
       Math.random() * (internal.scenarioConfig.jitterMs ?? DEFAULT_SCENARIO_CONFIG.jitterMs);
 
     internal.generatorTimer = setTimeout(() => {
@@ -226,10 +223,7 @@ export class MockAdapter implements AgentAdapter {
         variables: internal.ctx.variables,
       });
 
-      if (
-        template.type === 'session.tool_call' ||
-        template.type === 'session.thinking'
-      ) {
+      if (template.type === 'session.tool_call' || template.type === 'session.thinking') {
         internal.ctx.turn++;
       }
 
@@ -245,7 +239,9 @@ export class MockAdapter implements AgentAdapter {
       });
 
       if (template.type === 'session.approval_required') {
-        const approvalId = (payload as { approvalId?: string })?.approvalId ?? `appr_${sessionId.slice(-6)}_${Date.now()}`;
+        const approvalId =
+          (payload as { approvalId?: string })?.approvalId ??
+          `appr_${sessionId.slice(-6)}_${Date.now()}`;
         internal.session.state = 'waiting_for_approval';
         this.handleAwaitingApproval(sessionId, approvalId, delay * 10);
       } else if (template.type === 'session.completed') {
@@ -419,14 +415,11 @@ export class MockAdapter implements AgentAdapter {
     });
 
     return new Promise((resolve) => {
-      const timeout = setTimeout(
-        () => {
-          internal.awaitingApproval.delete(approvalId);
-          internal.session.state = 'running';
-          resolve({ approved: true, reason: 'Mock adapter auto-approved after timeout' });
-        },
-        action.timeoutMs ?? 1000,
-      );
+      const timeout = setTimeout(() => {
+        internal.awaitingApproval.delete(approvalId);
+        internal.session.state = 'running';
+        resolve({ approved: true, reason: 'Mock adapter auto-approved after timeout' });
+      }, action.timeoutMs ?? 1000);
       internal.awaitingApproval.set(approvalId, {
         resolve: (approved) => {
           clearTimeout(timeout);

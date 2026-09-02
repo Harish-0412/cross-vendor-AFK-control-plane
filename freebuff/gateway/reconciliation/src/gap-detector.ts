@@ -1,25 +1,15 @@
 import type { EventEnvelope } from '@freebuff/protocol';
-import type {
-  UnrecoverableGap,
-  GapAnalysis,
-  DurableEventClassification,
-} from './types';
+
+import type { UnrecoverableGap, GapAnalysis, DurableEventClassification } from './types';
 import { DURABLE_EVENT_TYPES } from './types';
 
 export class GapDetector {
   private readonly durableEventTypes: Set<string>;
-  private readonly ephemeralToleranceWindowMs: number;
 
-  constructor(
-    durableClassifications: DurableEventClassification[] = DURABLE_EVENT_TYPES,
-    ephemeralToleranceWindowMs = 0,
-  ) {
+  constructor(durableClassifications: DurableEventClassification[] = DURABLE_EVENT_TYPES) {
     this.durableEventTypes = new Set(
-      durableClassifications
-        .filter((c) => c.durability === 'durable')
-        .map((c) => c.eventType),
+      durableClassifications.filter((c) => c.durability === 'durable').map((c) => c.eventType),
     );
-    this.ephemeralToleranceWindowMs = ephemeralToleranceWindowMs;
   }
 
   isDurable(eventType: string): boolean {
@@ -110,8 +100,10 @@ export class GapDetector {
     if (analysis.gaps.length === 0) {
       analysis.replayableRange = { from: expectedFrom, to: expectedTo };
     } else {
-      const firstGapFrom = analysis.gaps[0].fromSequence;
-      const lastGapTo = analysis.gaps[analysis.gaps.length - 1].toSequence;
+      // Reached only when gaps is non-empty, so first and last both exist.
+      const firstGapFrom = (analysis.gaps[0] as (typeof analysis.gaps)[number]).fromSequence;
+      const lastGapTo = (analysis.gaps[analysis.gaps.length - 1] as (typeof analysis.gaps)[number])
+        .toSequence;
       analysis.globalSequenceGap = { from: firstGapFrom, to: lastGapTo };
     }
 
@@ -131,7 +123,10 @@ export class GapDetector {
         info.expectedFrom,
         info.expectedTo,
         info.actual,
-        { onlyDurable, events: info.events },
+        // Only pass `events` when the caller supplied it; under
+        // exactOptionalPropertyTypes an explicit `undefined` is not the same as
+        // omitting the key.
+        info.events ? { onlyDurable, events: info.events } : { onlyDurable },
       );
       for (const gap of analysis.gaps) {
         gap.sessionId = sessionId;
@@ -178,9 +173,7 @@ export class GapDetector {
         merged.push(gap);
       }
     }
-    return merged.sort(
-      (a, b) => a.fromSequence - b.fromSequence,
-    );
+    return merged.sort((a, b) => a.fromSequence - b.fromSequence);
   }
 }
 

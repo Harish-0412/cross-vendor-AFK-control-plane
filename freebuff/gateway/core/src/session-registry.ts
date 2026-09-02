@@ -1,3 +1,4 @@
+import { EVENT_BUFFER_MAX_SIZE, SESSION_REGISTRY_MAX_SESSIONS } from '@freebuff/config';
 import type {
   Session,
   SessionState,
@@ -8,34 +9,26 @@ import type {
   AgentAdapter,
   ProjectInfo,
 } from '@freebuff/protocol';
-
-import {
-  createSessionSummary,
-  isTerminalState,
-} from '@freebuff/protocol';
-import {
-  EVENT_BUFFER_MAX_SIZE,
-  SESSION_REGISTRY_MAX_SESSIONS,
-} from '@freebuff/config';
+import { createSessionSummary, isTerminalState } from '@freebuff/protocol';
 
 export interface SessionRecord {
   id: string;
   /** The session ID used by the adapter (may differ from gateway ID) */
-  adapterSessionId?: string;
+  adapterSessionId?: string | undefined;
   project: ProjectInfo;
   adapter: AgentAdapter;
   config: SessionConfig;
   state: SessionState;
-  processId?: number;
+  processId?: number | undefined;
   startTime: Date;
-  endTime?: Date;
-  sandboxId?: string;
+  endTime?: Date | undefined;
+  sandboxId?: string | undefined;
   sequenceNumber: number;
   eventBuffer: EventEnvelope[];
   eventCount: number;
-  lastEventAt?: Date;
+  lastEventAt?: Date | undefined;
   lastEventType?: string;
-  error?: Session['error'];
+  error?: Session['error'] | undefined;
   metadata: Record<string, unknown>;
 }
 
@@ -53,9 +46,7 @@ export class SessionRegistry {
   private maxSessions: number;
   private maxEventBufferSize: number;
 
-  constructor(
-    options: { maxSessions?: number; maxEventBufferSize?: number } = {},
-  ) {
+  constructor(options: { maxSessions?: number; maxEventBufferSize?: number } = {}) {
     this.maxSessions = options.maxSessions ?? SESSION_REGISTRY_MAX_SESSIONS;
     this.maxEventBufferSize = options.maxEventBufferSize ?? EVENT_BUFFER_MAX_SIZE;
   }
@@ -64,9 +55,7 @@ export class SessionRegistry {
     if (this.sessions.size >= this.maxSessions) {
       this.evictOldestTerminal();
       if (this.sessions.size >= this.maxSessions) {
-        throw new Error(
-          `Session registry full (${this.maxSessions}). Cannot create new session.`,
-        );
+        throw new Error(`Session registry full (${this.maxSessions}). Cannot create new session.`);
       }
     }
 
@@ -193,11 +182,7 @@ export class SessionRegistry {
   }
 
   toSummary(record: SessionRecord): SessionSummary {
-    return createSessionSummary(
-      this.toSession(record),
-      record.eventCount,
-      record.lastEventType,
-    );
+    return createSessionSummary(this.toSession(record), record.eventCount, record.lastEventType);
   }
 
   getActiveCount(): number {
@@ -234,6 +219,8 @@ export class SessionRegistry {
   }
 }
 
-export function createSessionRegistry(options?: ConstructorParameters<typeof SessionRegistry>[0]): SessionRegistry {
+export function createSessionRegistry(
+  options?: ConstructorParameters<typeof SessionRegistry>[0],
+): SessionRegistry {
   return new SessionRegistry(options);
 }

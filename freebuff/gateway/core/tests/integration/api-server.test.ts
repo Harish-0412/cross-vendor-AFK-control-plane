@@ -1,8 +1,8 @@
+import type { GatewayOptions } from '@freebuff/protocol';
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 
-import { createGateway, GatewayImpl } from '../../src/gateway';
-import { createApiServer, LocalApiServer } from '../../src/api-server';
-import type { GatewayOptions } from '@freebuff/protocol';
+import { createApiServer, type LocalApiServer } from '../../src/api-server';
+import { createGateway, type GatewayImpl } from '../../src/gateway';
 
 describe('LocalApiServer (Integration)', () => {
   let gateway: GatewayImpl;
@@ -31,9 +31,18 @@ describe('LocalApiServer (Integration)', () => {
     const text = await res.text();
     let json: unknown = null;
     if (text) {
-      try { json = JSON.parse(text); } catch { /* ignore */ }
+      try {
+        json = JSON.parse(text);
+      } catch {
+        /* ignore */
+      }
     }
-    return { status: res.status, body: json, headers: Object.fromEntries(res.headers.entries()), text };
+    return {
+      status: res.status,
+      body: json,
+      headers: Object.fromEntries(res.headers.entries()),
+      text,
+    };
   }
 
   test('GET / returns API info', async () => {
@@ -232,7 +241,9 @@ describe('LocalApiServer (Integration)', () => {
   test('404 for unknown paths', async () => {
     const res = await fetchJson('/this-does-not-exist');
     expect(res.status).toBe(404);
-    expect(((res.body as { error?: { message: string } }).error?.message ?? '').toLowerCase()).toContain('not found');
+    expect(
+      ((res.body as { error?: { message: string } }).error?.message ?? '').toLowerCase(),
+    ).toContain('not found');
   });
 
   test('Unknown adapter returns 404 on session create', async () => {

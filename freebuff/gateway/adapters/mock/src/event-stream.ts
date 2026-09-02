@@ -22,11 +22,13 @@ export class MockEventStream implements AsyncIterable<EventEnvelope> {
     return this.buffer.length;
   }
 
-  publish(event: Omit<EventEnvelope, 'eventId' | 'eventVersion' | 'occurredAt'> & {
-    eventId?: string;
-    eventVersion?: number;
-    occurredAt?: Date;
-  }): void {
+  publish(
+    event: Omit<EventEnvelope, 'eventId' | 'eventVersion' | 'occurredAt'> & {
+      eventId?: string;
+      eventVersion?: number;
+      occurredAt?: Date;
+    },
+  ): void {
     if (this.closed) {
       throw new Error('Cannot publish to closed event stream');
     }

@@ -1,11 +1,6 @@
-import type {
-
-  AgentMetadata,
-  AgentInstallationResult,
-  AgentValidationResult,
-} from './agent';
-import type { Session, SessionConfig, SessionState } from './session';
+import type { AgentMetadata, AgentInstallationResult, AgentValidationResult } from './agent';
 import type { EventEnvelope } from './events';
+import type { Session, SessionConfig, SessionState } from './session';
 
 export type CommandType =
   | 'session.start'
@@ -137,5 +132,7 @@ export const COMMAND_ID_PREFIX = 'cmd_';
 export const COMMAND_ID_LENGTH = 24;
 
 export function isValidCommandId(id: string): boolean {
-  return id.startsWith(COMMAND_ID_PREFIX) && id.length === COMMAND_ID_PREFIX.length + COMMAND_ID_LENGTH;
+  return (
+    id.startsWith(COMMAND_ID_PREFIX) && id.length === COMMAND_ID_PREFIX.length + COMMAND_ID_LENGTH
+  );
 }

@@ -1,10 +1,10 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import type { SandboxCapabilities } from '@freebuff/protocol';
-import { PlatformSandboxBase } from './platform-base';
-import type { SandboxConfig } from '@freebuff/protocol';
-import { getProfile, resolveProfilePaths, getHomeDir } from './profiles';
+import type { SandboxCapabilities, SandboxConfig } from '@freebuff/protocol';
+
+import { PlatformSandboxBase } from '../platform-base';
+import { getProfile, resolveProfilePaths, getHomeDir } from '../profiles';
 
 const execFileAsync = promisify(execFile);
 
@@ -127,7 +127,7 @@ export class WindowsSandbox extends PlatformSandboxBase {
         MaxProcesses: maxProcesses,
         CpuLimit: this.config.resourceLimits.cpuPercent,
       };
-      this.config.metadata = { ...this.config.metadata ?? {}, jobLimitsApplied: limits, platform: 'win32' };
+      this.recordIsolation({ jobLimitsApplied: limits, platform: 'win32' });
     } catch {
       // Soft-fail: Job Objects require native bindings; document limits in metadata
     }
@@ -136,20 +136,18 @@ export class WindowsSandbox extends PlatformSandboxBase {
   private applyMemoryLimits(): void {
     // Memory limits enforced via Job Objects (native bindings required)
     // We document the intended values in metadata for observability
-    this.config.metadata = {
-      ...this.config.metadata ?? {},
+    this.recordIsolation({
       memoryLimitMb: this.config.resourceLimits.memoryMb,
       cpuLimitPercent: this.config.resourceLimits.cpuPercent,
-    };
+    });
   }
 
   private applyNetworkPolicy(): void {
     // Windows Firewall rules would be applied via netsh (requires admin)
     // We capture the intended policy in metadata
-    this.config.metadata = {
-      ...this.config.metadata ?? {},
+    this.recordIsolation({
       networkPolicy: this.config.networkPolicy,
-    };
+    });
   }
 }
 

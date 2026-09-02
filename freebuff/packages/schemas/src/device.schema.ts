@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import {
   DEVICE_ID_PREFIX,
   DEVICE_ID_LENGTH,
@@ -8,6 +7,7 @@ import {
   FINGERPRINT_WORD_COUNT,
   FINGERPRINT_SHORT_CODE_LENGTH,
 } from '@freebuff/protocol';
+import { z } from 'zod';
 
 export const KeyAlgorithmSchema = z.enum(['Ed25519', 'secp256r1']);
 
@@ -30,8 +30,14 @@ export const DeviceFingerprintSchema = z.object({
 });
 
 export const DeviceIdentitySchema = z.object({
-  deviceId: z.string().startsWith(DEVICE_ID_PREFIX).length(DEVICE_ID_PREFIX.length + DEVICE_ID_LENGTH),
-  gatewayId: z.string().startsWith('gw_').length(24 + 3),
+  deviceId: z
+    .string()
+    .startsWith(DEVICE_ID_PREFIX)
+    .length(DEVICE_ID_PREFIX.length + DEVICE_ID_LENGTH),
+  gatewayId: z
+    .string()
+    .startsWith('gw_')
+    .length(24 + 3),
   publicKeyJwk: JwkSchema,
   publicKeyPem: z.string().min(1),
   fingerprint: DeviceFingerprintSchema,
@@ -40,11 +46,23 @@ export const DeviceIdentitySchema = z.object({
   metadata: z.record(z.string(), z.unknown()).default({}),
 });
 
-export const DeviceStatusSchema = z.enum(['unpaired', 'pairing', 'trusted', 'suspended', 'revoked']);
+export const DeviceStatusSchema = z.enum([
+  'unpaired',
+  'pairing',
+  'trusted',
+  'suspended',
+  'revoked',
+]);
 
 export const DeviceCertificateSchema = z.object({
-  id: z.string().startsWith(CERT_ID_PREFIX).length(CERT_ID_PREFIX.length + CERT_ID_LENGTH),
-  deviceId: z.string().startsWith(DEVICE_ID_PREFIX).length(DEVICE_ID_PREFIX.length + DEVICE_ID_LENGTH),
+  id: z
+    .string()
+    .startsWith(CERT_ID_PREFIX)
+    .length(CERT_ID_PREFIX.length + CERT_ID_LENGTH),
+  deviceId: z
+    .string()
+    .startsWith(DEVICE_ID_PREFIX)
+    .length(DEVICE_ID_PREFIX.length + DEVICE_ID_LENGTH),
   certificatePem: z.string().min(1),
   serialNumber: z.string().min(1),
   issuedAt: z.coerce.date(),
@@ -74,7 +92,10 @@ export const RevocationReasonSchema = z.enum([
 ]);
 
 export const RevocationStatusSchema = z.object({
-  deviceId: z.string().startsWith(DEVICE_ID_PREFIX).length(DEVICE_ID_PREFIX.length + DEVICE_ID_LENGTH),
+  deviceId: z
+    .string()
+    .startsWith(DEVICE_ID_PREFIX)
+    .length(DEVICE_ID_PREFIX.length + DEVICE_ID_LENGTH),
   revoked: z.boolean(),
   revokedAt: z.coerce.date().optional(),
   reason: RevocationReasonSchema.optional(),
@@ -87,22 +108,34 @@ export const PairingCodeSchema = z.object({
   code: z.string().length(PAIRING_CODE_LENGTH),
   expiresAt: z.coerce.date(),
   issuedAt: z.coerce.date(),
-  deviceId: z.string().startsWith(DEVICE_ID_PREFIX).length(DEVICE_ID_PREFIX.length + DEVICE_ID_LENGTH),
+  deviceId: z
+    .string()
+    .startsWith(DEVICE_ID_PREFIX)
+    .length(DEVICE_ID_PREFIX.length + DEVICE_ID_LENGTH),
   publicKeyFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
   qrPayload: z.string().optional(),
 });
 
 export const SignedHandshakeSchema = z.object({
-  deviceId: z.string().startsWith(DEVICE_ID_PREFIX).length(DEVICE_ID_PREFIX.length + DEVICE_ID_LENGTH),
+  deviceId: z
+    .string()
+    .startsWith(DEVICE_ID_PREFIX)
+    .length(DEVICE_ID_PREFIX.length + DEVICE_ID_LENGTH),
   nonce: z.string().min(1),
   timestamp: z.coerce.date(),
   signature: z.string().min(1),
   publicKeyJwk: JwkSchema,
-  certificateThumbprint: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  certificateThumbprint: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
 });
 
 export const SessionReconciliationStateSchema = z.object({
-  sessionId: z.string().startsWith('sess_').length(24 + 5),
+  sessionId: z
+    .string()
+    .startsWith('sess_')
+    .length(24 + 5),
   lastAckedSequence: z.number().int().nonnegative(),
   lastEventAt: z.coerce.date().optional(),
   state: z.string().min(1),
@@ -110,8 +143,14 @@ export const SessionReconciliationStateSchema = z.object({
 });
 
 export const ReconciliationRequestSchema = z.object({
-  deviceId: z.string().startsWith(DEVICE_ID_PREFIX).length(DEVICE_ID_PREFIX.length + DEVICE_ID_LENGTH),
-  gatewayId: z.string().startsWith('gw_').length(24 + 3),
+  deviceId: z
+    .string()
+    .startsWith(DEVICE_ID_PREFIX)
+    .length(DEVICE_ID_PREFIX.length + DEVICE_ID_LENGTH),
+  gatewayId: z
+    .string()
+    .startsWith('gw_')
+    .length(24 + 3),
   lastAckedGlobalSequence: z.number().int().nonnegative(),
   sessionStates: z.array(SessionReconciliationStateSchema),
   certificateThumbprint: z.string().regex(/^[a-f0-9]{64}$/),
@@ -120,26 +159,42 @@ export const ReconciliationRequestSchema = z.object({
 });
 
 export const ReconciliationResponseSchema = z.object({
-  deviceId: z.string().startsWith(DEVICE_ID_PREFIX).length(DEVICE_ID_PREFIX.length + DEVICE_ID_LENGTH),
-  replayEvents: z.array(z.object({
-    sequence: z.number().int().nonnegative(),
-    event: z.unknown(),
-  })),
-  sessionUpdates: z.array(z.object({
-    sessionId: z.string().startsWith('sess_').length(24 + 5),
-    newState: z.string().optional(),
-    missingApprovalDecisions: z.array(z.unknown()).optional(),
-    unrecoverableGaps: z.array(z.object({
+  deviceId: z
+    .string()
+    .startsWith(DEVICE_ID_PREFIX)
+    .length(DEVICE_ID_PREFIX.length + DEVICE_ID_LENGTH),
+  replayEvents: z.array(
+    z.object({
+      sequence: z.number().int().nonnegative(),
+      event: z.unknown(),
+    }),
+  ),
+  sessionUpdates: z.array(
+    z.object({
+      sessionId: z
+        .string()
+        .startsWith('sess_')
+        .length(24 + 5),
+      newState: z.string().optional(),
+      missingApprovalDecisions: z.array(z.unknown()).optional(),
+      unrecoverableGaps: z
+        .array(
+          z.object({
+            from: z.number().int().nonnegative(),
+            to: z.number().int().nonnegative(),
+            reason: z.string(),
+          }),
+        )
+        .optional(),
+    }),
+  ),
+  globalGapInfo: z
+    .object({
       from: z.number().int().nonnegative(),
       to: z.number().int().nonnegative(),
       reason: z.string(),
-    })).optional(),
-  })),
-  globalGapInfo: z.object({
-    from: z.number().int().nonnegative(),
-    to: z.number().int().nonnegative(),
-    reason: z.string(),
-  }).optional(),
+    })
+    .optional(),
   reconciledAt: z.coerce.date(),
   newAckBaseline: z.number().int().nonnegative(),
 });

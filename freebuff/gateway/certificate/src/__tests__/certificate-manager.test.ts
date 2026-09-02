@@ -1,13 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { mkdtempSync, rmSync } from 'node:fs';
-import {
-  CertificateManager,
-  createCertificateManager,
-} from '../certificate-manager';
-import type { SessionInvalidator } from '../certificate-manager';
+
 import { createDeviceIdentityManager } from '@freebuff/identity';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+import {
+  type CertificateManager,
+  createCertificateManager,
+  type SessionInvalidator,
+} from '../certificate-manager';
 
 describe('CertificateManager', () => {
   let tmpDir: string;
@@ -24,18 +26,26 @@ describe('CertificateManager', () => {
 
   afterEach(async () => {
     await certManager?.shutdown().catch(() => {});
-    try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   it('should initialize without a certificate', () => {
-    certManager = createCertificateManager(identityManager, undefined, { useEmbeddedCAForTesting: true });
+    certManager = createCertificateManager(identityManager, undefined, {
+      useEmbeddedCAForTesting: true,
+    });
     expect(certManager.hasCertificate()).toBe(false);
     expect(certManager.getCurrentCertificate()).toBeNull();
     expect(certManager.isCertificateValidNow()).toBe(false);
   });
 
   it('should issue an initial certificate', async () => {
-    certManager = createCertificateManager(identityManager, undefined, { useEmbeddedCAForTesting: true });
+    certManager = createCertificateManager(identityManager, undefined, {
+      useEmbeddedCAForTesting: true,
+    });
 
     const cert = await certManager.issueInitialCertificate();
 
@@ -77,7 +87,9 @@ describe('CertificateManager', () => {
   });
 
   it('should check revocation', async () => {
-    certManager = createCertificateManager(identityManager, undefined, { useEmbeddedCAForTesting: true });
+    certManager = createCertificateManager(identityManager, undefined, {
+      useEmbeddedCAForTesting: true,
+    });
 
     await certManager.issueInitialCertificate();
 
@@ -115,7 +127,9 @@ describe('CertificateManager', () => {
   });
 
   it('should get certificate chain', async () => {
-    certManager = createCertificateManager(identityManager, undefined, { useEmbeddedCAForTesting: true });
+    certManager = createCertificateManager(identityManager, undefined, {
+      useEmbeddedCAForTesting: true,
+    });
 
     await certManager.issueInitialCertificate();
     const chain = certManager.getCertificateChain();
@@ -127,7 +141,9 @@ describe('CertificateManager', () => {
   });
 
   it('should get embedded CA root PEM for testing', async () => {
-    certManager = createCertificateManager(identityManager, undefined, { useEmbeddedCAForTesting: true });
+    certManager = createCertificateManager(identityManager, undefined, {
+      useEmbeddedCAForTesting: true,
+    });
     // Embedded CA is created in constructor, so PEM is available immediately
     expect(certManager.getEmbeddedCARootPem()).toContain('BEGIN CERTIFICATE');
 

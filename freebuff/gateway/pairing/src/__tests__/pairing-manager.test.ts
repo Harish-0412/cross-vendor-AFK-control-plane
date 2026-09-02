@@ -1,19 +1,23 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { mkdtempSync, rmSync } from 'node:fs';
+
+import { createDeviceIdentityManager } from '@freebuff/identity';
+import type { DeviceCertificate, PairingCode } from '@freebuff/protocol';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+import { PairingRateLimiter, createPairingRateLimiter } from '../code-generator';
 import {
   PairingManager,
   createPairingManager,
-  ControlPlanePairingClient,
+  type ControlPlanePairingClient,
+  type PairingEvent,
 } from '../pairing-manager';
-import { PairingRateLimiter, createPairingRateLimiter } from '../code-generator';
-import { createDeviceIdentityManager } from '@freebuff/identity';
-import type { DeviceCertificate, PairingCode } from '@freebuff/protocol';
-import type { PairingEvent } from '../pairing-manager';
 import { PAIRING_CODE_LENGTH } from '../types';
 
-function createMockClient(overrides: Partial<ControlPlanePairingClient> = {}): ControlPlanePairingClient {
+function createMockClient(
+  overrides: Partial<ControlPlanePairingClient> = {},
+): ControlPlanePairingClient {
   return {
     checkPairingStatus: vi.fn().mockResolvedValue({
       success: false,
@@ -58,7 +62,11 @@ describe('PairingManager', () => {
 
   afterEach(async () => {
     await manager?.shutdown().catch(() => {});
-    try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   it('should initialize with idle state', () => {

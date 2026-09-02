@@ -25,13 +25,37 @@ export interface DurableEventClassification {
 }
 
 export const DURABLE_EVENT_TYPES: DurableEventClassification[] = [
-  { eventType: 'session.created', durability: 'durable', description: 'Session initialization event' },
+  {
+    eventType: 'session.created',
+    durability: 'durable',
+    description: 'Session initialization event',
+  },
   { eventType: 'session.started', durability: 'durable', description: 'Session started' },
-  { eventType: 'session.status_changed', durability: 'durable', description: 'Session state transition' },
-  { eventType: 'session.approval_required', durability: 'durable', description: 'Approval was requested' },
-  { eventType: 'session.approval_granted', durability: 'durable', description: 'Approval was granted' },
-  { eventType: 'session.approval_denied', durability: 'durable', description: 'Approval was denied' },
-  { eventType: 'session.completed', durability: 'durable', description: 'Session ended in success' },
+  {
+    eventType: 'session.status_changed',
+    durability: 'durable',
+    description: 'Session state transition',
+  },
+  {
+    eventType: 'session.approval_required',
+    durability: 'durable',
+    description: 'Approval was requested',
+  },
+  {
+    eventType: 'session.approval_granted',
+    durability: 'durable',
+    description: 'Approval was granted',
+  },
+  {
+    eventType: 'session.approval_denied',
+    durability: 'durable',
+    description: 'Approval was denied',
+  },
+  {
+    eventType: 'session.completed',
+    durability: 'durable',
+    description: 'Session ended in success',
+  },
   { eventType: 'session.failed', durability: 'durable', description: 'Session ended in failure' },
   { eventType: 'session.cancelled', durability: 'durable', description: 'Session was cancelled' },
   { eventType: 'session.crashed', durability: 'durable', description: 'Session crashed' },
@@ -43,10 +67,26 @@ export const DURABLE_EVENT_TYPES: DurableEventClassification[] = [
 
 export const EPHEMERAL_EVENT_TYPES: DurableEventClassification[] = [
   { eventType: 'session.output', durability: 'ephemeral', description: 'Streaming output chunks' },
-  { eventType: 'session.message', durability: 'ephemeral', description: 'Streaming assistant messages' },
-  { eventType: 'session.thinking', durability: 'ephemeral', description: 'Streaming thinking state' },
-  { eventType: 'session.tool_call', durability: 'ephemeral', description: 'Streaming tool call progress' },
-  { eventType: 'session.tool_result', durability: 'ephemeral', description: 'Streaming tool result' },
+  {
+    eventType: 'session.message',
+    durability: 'ephemeral',
+    description: 'Streaming assistant messages',
+  },
+  {
+    eventType: 'session.thinking',
+    durability: 'ephemeral',
+    description: 'Streaming thinking state',
+  },
+  {
+    eventType: 'session.tool_call',
+    durability: 'ephemeral',
+    description: 'Streaming tool call progress',
+  },
+  {
+    eventType: 'session.tool_result',
+    durability: 'ephemeral',
+    description: 'Streaming tool result',
+  },
   { eventType: 'session.tool_error', durability: 'ephemeral', description: 'Streaming tool error' },
   { eventType: 'session.file_changed', durability: 'ephemeral', description: 'File change events' },
 ];
@@ -57,7 +97,7 @@ export interface UnrecoverableGap {
   toSequence: number;
   reason: string;
   reportedAt: Date;
-  eventTypesAffected?: string[];
+  eventTypesAffected?: string[] | undefined;
 }
 
 export interface GapAnalysis {
@@ -72,7 +112,7 @@ export interface ReplayOptions {
   orderingKey?: 'sequence' | 'occurredAt' | 'sessionThenSequence';
   applyInOrder?: boolean;
   haltOnError?: boolean;
-  onlyDurable?: boolean;
+  onlyDurable?: boolean | undefined;
 }
 
 export const DEFAULT_REPLAY_OPTIONS: Required<ReplayOptions> = {
@@ -92,7 +132,7 @@ export interface ReconciliationResult {
   newAckBaseline: number;
   startedAt: Date;
   completedAt: Date;
-  error?: string;
+  error?: string | undefined;
   warnings: string[];
 }
 
@@ -101,18 +141,15 @@ export interface SessionStateProvider {
     sessionId: string;
     state: string;
     lastAckedSequence: number;
-    lastEventAt?: Date;
-    lastEventType?: string;
+    lastEventAt?: Date | undefined;
+    lastEventType?: string | undefined;
   }>;
   getLastAckedGlobalSequence(): number;
 }
 
 export interface SessionUpdateApplier {
   updateSessionState(sessionId: string, newState: string): Promise<boolean>;
-  applyMissingApprovalDecision(
-    sessionId: string,
-    approvalDecision: unknown,
-  ): Promise<boolean>;
+  applyMissingApprovalDecision(sessionId: string, approvalDecision: unknown): Promise<boolean>;
   getAllSessionsCount(): number;
 }
 
@@ -148,7 +185,7 @@ export interface ReconciliationEvent {
   previousStep?: ReconciliationStep;
   payload?: unknown;
   message?: string;
-  error?: string;
+  error?: string | undefined;
 }
 
 export {

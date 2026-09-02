@@ -10,12 +10,7 @@
  */
 
 export type ReconnectState =
-  | 'idle'
-  | 'connected'
-  | 'disconnected'
-  | 'reconnecting'
-  | 'reconciling'
-  | 'degraded';
+  'idle' | 'connected' | 'disconnected' | 'reconnecting' | 'reconciling' | 'degraded';
 
 export interface SessionCheckpoint {
   /** Session identifier */
@@ -84,7 +79,7 @@ export interface CheckpointStoreStats {
   totalCheckpoints: number;
   activeCheckpoints: number;
   terminalCheckpoints: number;
-  lastPersistedAt?: Date;
+  lastPersistedAt?: Date | undefined;
   storageSizeBytes: number;
 }
 
