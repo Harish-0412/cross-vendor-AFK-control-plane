@@ -18,8 +18,6 @@ import {
   DEFAULT_FORCE_KILL_DELAY_MS,
 } from '@freebuff/protocol';
 
-export type { SandboxCapabilities, SandboxConfig };
-
 export interface SandboxExitInfo {
   exitCode: number | null;
   signal: NodeJS.Signals | null;

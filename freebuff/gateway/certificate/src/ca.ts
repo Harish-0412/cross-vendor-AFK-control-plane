@@ -116,12 +116,32 @@ function derName(dn: DN): Buffer {
   return derSeq(Buffer.concat(rdns));
 }
 
+/** Attribute names this encoder understands in a distinguished name. */
+const DN_ATTRIBUTE_KEYS = [
+  'CN',
+  'O',
+  'OU',
+  'C',
+  'ST',
+  'L',
+  'emailAddress',
+  'UID',
+] as const satisfies readonly (keyof DN)[];
+
+function isDnAttributeKey(key: string): key is keyof DN {
+  return (DN_ATTRIBUTE_KEYS as readonly string[]).includes(key);
+}
+
 function parseDnString(dn: string): DN {
   const result: DN = {};
   for (const part of dn.split(', ')) {
     const [key, ...valParts] = part.split('=');
-    if (key && valParts.length > 0) {
-      (result as any)[key] = valParts.join('=');
+    // Only recognised attribute names are accepted. The DN being parsed comes
+    // from a certificate's issuer/subject field, which is attacker-controlled,
+    // and the previous untyped assignment would happily write any key it
+    // contained — including `__proto__` — onto this object.
+    if (key && isDnAttributeKey(key) && valParts.length > 0) {
+      result[key] = valParts.join('=');
     }
   }
   return result;
@@ -261,18 +281,30 @@ interface DN {
   UID?: string;
 }
 
+/**
+ * Renders either shape of name description into an RFC 4514-style DN string.
+ * `CAConfig` spells attributes out (`organizationName`) while `DN` uses the
+ * short forms (`O`); this accepts both rather than casting the union away.
+ */
 function buildSubject(config: CAConfig | DN): string {
-  const c = config as any;
-  const parts: string[] = [];
-  if (c.C || c.countryName) parts.push(`C=${c.C ?? c.countryName}`);
-  if (c.ST || c.stateOrProvinceName) parts.push(`ST=${c.ST ?? c.stateOrProvinceName}`);
-  if (c.L || c.localityName) parts.push(`L=${c.L ?? c.localityName}`);
-  if (c.O || c.organizationName) parts.push(`O=${c.O ?? c.organizationName}`);
-  if (c.OU || c.organizationalUnitName) parts.push(`OU=${c.OU ?? c.organizationalUnitName}`);
-  if (c.CN || c.commonName) parts.push(`CN=${c.CN ?? c.commonName}`);
-  if (c.emailAddress) parts.push(`emailAddress=${c.emailAddress}`);
-  if (c.UID) parts.push(`UID=${c.UID}`);
-  return parts.join(', ');
+  const dn: DN = config as DN;
+  const ca: Partial<CAConfig> = config as Partial<CAConfig>;
+
+  const attributes: [key: string, value: string | undefined][] = [
+    ['C', dn.C ?? ca.countryName],
+    ['ST', dn.ST ?? ca.stateOrProvinceName],
+    ['L', dn.L ?? ca.localityName],
+    ['O', dn.O ?? ca.organizationName],
+    ['OU', dn.OU ?? ca.organizationalUnitName],
+    ['CN', dn.CN ?? ca.commonName],
+    ['emailAddress', dn.emailAddress ?? ca.emailAddress],
+    ['UID', dn.UID],
+  ];
+
+  return attributes
+    .filter((entry): entry is [string, string] => Boolean(entry[1]))
+    .map(([key, value]) => `${key}=${value}`)
+    .join(', ');
 }
 
 function computeThumbprint(pemCertificate: string): string {

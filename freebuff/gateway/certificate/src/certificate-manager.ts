@@ -84,16 +84,14 @@ export class CertificateManager {
           // swallow
         }
       }
-      // Also notify session invalidator if configured
+      // Also notify session invalidator if configured. Not caught here:
+      // `addAndNotify` collects the failure so a device whose sessions could
+      // not be paused does not look successfully revoked.
       if (sessionInvalidator && entry.effectiveImmediately) {
-        try {
-          await sessionInvalidator.pauseAllSessions(
-            entry.deviceId,
-            `Device revoked: ${entry.reason}`,
-          );
-        } catch {
-          // swallow
-        }
+        await sessionInvalidator.pauseAllSessions(
+          entry.deviceId,
+          `Device revoked: ${entry.reason}`,
+        );
       }
     });
     this.revocationChecker = createRevocationChecker(

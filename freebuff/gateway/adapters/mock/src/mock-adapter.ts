@@ -297,7 +297,7 @@ export class MockAdapter implements AgentAdapter {
       internal.awaitingApproval.set(approvalId, { resolve, timeout });
     });
 
-    promise.then((approved) => {
+    void promise.then((approved) => {
       internal.awaitingApproval.delete(approvalId);
       clearTimeout(timeout);
       internal.session.state = approved ? 'running' : 'failed';

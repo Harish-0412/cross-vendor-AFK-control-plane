@@ -1051,7 +1051,20 @@ export class TunnelClient {
       this.config.reconnectBaseMs * Math.pow(2, Math.max(0, this.reconnectAttempts - 1));
     const delay = Math.min(baseDelay, this.config.reconnectMaxMs) + Math.random() * 500;
 
-    this.reconnectTimer = setTimeout(async () => {
+    // setTimeout discards the promise an async callback returns, so a throw
+    // from the catch block below (emitEvent calls into user listeners) would
+    // surface as an unhandled rejection during a reconnect storm — exactly
+    // when the client is least able to afford crashing.
+    this.reconnectTimer = setTimeout(() => {
+      void this.runReconnectAttempt();
+    }, delay);
+    if (typeof this.reconnectTimer.unref === 'function') {
+      this.reconnectTimer.unref();
+    }
+  }
+
+  private async runReconnectAttempt(): Promise<void> {
+    {
       try {
         await this.connect();
         if (this._state === 'connected') {
@@ -1073,9 +1086,6 @@ export class TunnelClient {
         });
         void this.reconnect();
       }
-    }, delay);
-    if (typeof this.reconnectTimer.unref === 'function') {
-      this.reconnectTimer.unref();
     }
   }
 

@@ -4,7 +4,7 @@ import * as path from 'node:path';
 
 import { createDeviceIdentityManager } from '@freebuff/identity';
 import { DeviceIdentity } from '@freebuff/protocol';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 
 import {
   generateCAKeyMaterial,

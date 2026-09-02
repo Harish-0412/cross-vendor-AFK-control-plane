@@ -246,3 +246,75 @@ describe('RevocationChecker', () => {
     expect(store.size()).toBe(0);
   });
 });
+
+describe('RevocationStore.addAndNotify', () => {
+  const entry = (): RevocationEntry => ({
+    deviceId: 'dev_async_notify',
+    revokedAt: new Date(),
+    reason: 'user_initiated',
+    revokedBy: 'user_1',
+    affectedCertificates: ['cert_abc'],
+    effectiveImmediately: true,
+  });
+
+  it('waits for async listeners before resolving', async () => {
+    const store = createRevocationStore();
+    let invalidationFinished = false;
+
+    store.onRevocation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      invalidationFinished = true;
+    });
+
+    const result = await store.addAndNotify(entry());
+
+    // Regression: `add` returned while session invalidation was still pending,
+    // so callers reported a device as revoked while it still had live sessions.
+    expect(invalidationFinished).toBe(true);
+    expect(result.delivered).toBe(true);
+    expect(result.failures).toEqual([]);
+  });
+
+  it('reports listener failures instead of swallowing them', async () => {
+    const store = createRevocationStore();
+    store.onRevocation(() => {
+      throw new Error('sync invalidation failed');
+    });
+    store.onRevocation(async () => {
+      await Promise.resolve();
+      throw new Error('async invalidation failed');
+    });
+
+    const result = await store.addAndNotify(entry());
+
+    expect(result.delivered).toBe(false);
+    expect(result.failures.map((f) => f.message).sort()).toEqual([
+      'async invalidation failed',
+      'sync invalidation failed',
+    ]);
+    // The revocation itself is still recorded even when teardown fails.
+    expect(store.isRevoked('dev_async_notify').revoked).toBe(true);
+  });
+
+  it('does not raise an unhandled rejection from a failing async listener on add()', async () => {
+    const store = createRevocationStore();
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+
+    try {
+      store.onRevocation(async () => {
+        await Promise.resolve();
+        throw new Error('rejects after add returns');
+      });
+      store.add(entry());
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+
+    expect(unhandled).toEqual([]);
+  });
+});

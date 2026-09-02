@@ -1,4 +1,4 @@
-import * as fs from 'node:fs';
+import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -43,31 +43,40 @@ class FileKeyStorage implements KeyStorage {
     return path.join(this.options.storageDir, this.options.keyFileName);
   }
 
-  private ensureStorageDir(): void {
-    if (!fs.existsSync(this.options.storageDir)) {
-      fs.mkdirSync(this.options.storageDir, { recursive: true, mode: 0o700 });
-    }
+  private async ensureStorageDir(): Promise<void> {
+    await fs.mkdir(this.options.storageDir, { recursive: true, mode: 0o700 });
   }
 
   async exists(): Promise<boolean> {
-    return fs.existsSync(this.getStoragePath());
+    try {
+      await fs.access(this.getStoragePath());
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async load(): Promise<StoredDeviceData | null> {
     const storagePath = this.getStoragePath();
-    if (!fs.existsSync(storagePath)) {
-      return null;
+
+    let raw: string;
+    try {
+      raw = await fs.readFile(storagePath, 'utf8');
+    } catch (err) {
+      // A missing key file is the first-run case, not a failure.
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(`Failed to load device keys: ${message}`);
     }
 
     try {
-      const raw = fs.readFileSync(storagePath, 'utf8');
-      const parsed = JSON.parse(raw);
+      const parsed: unknown = JSON.parse(raw);
 
       if (!this.validateKeyMaterial(parsed)) {
         throw new Error('Invalid key material stored');
       }
 
-      return parsed as DeviceKeyMaterial;
+      return parsed;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       throw new Error(`Failed to load device keys: ${message}`);
@@ -75,19 +84,19 @@ class FileKeyStorage implements KeyStorage {
   }
 
   async save(keyMaterial: StoredDeviceData): Promise<void> {
-    this.ensureStorageDir();
+    await this.ensureStorageDir();
     const storagePath = this.getStoragePath();
 
     try {
       const serialized = JSON.stringify(keyMaterial, null, 2);
-      fs.writeFileSync(storagePath, serialized, {
+      await fs.writeFile(storagePath, serialized, {
         mode: this.options.filePermissions,
         flag: 'w',
       });
 
       if (process.platform !== 'win32') {
         try {
-          fs.chmodSync(storagePath, this.options.filePermissions);
+          await fs.chmod(storagePath, this.options.filePermissions);
         } catch {
           // Best effort; ignore on platforms that don't support chmod
         }
@@ -99,18 +108,16 @@ class FileKeyStorage implements KeyStorage {
   }
 
   async destroy(): Promise<void> {
-    const storagePath = this.getStoragePath();
-    if (fs.existsSync(storagePath)) {
-      try {
-        fs.unlinkSync(storagePath);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        throw new Error(`Failed to destroy device keys: ${message}`);
-      }
+    try {
+      await fs.unlink(this.getStoragePath());
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(`Failed to destroy device keys: ${message}`);
     }
   }
 
-  private validateKeyMaterial(data: unknown): boolean {
+  private validateKeyMaterial(data: unknown): data is StoredDeviceData {
     if (typeof data !== 'object' || data === null) return false;
     const obj = data as Record<string, unknown>;
 

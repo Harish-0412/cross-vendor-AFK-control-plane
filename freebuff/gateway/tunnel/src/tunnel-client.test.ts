@@ -1,7 +1,7 @@
 import { describe, test, expect, afterEach } from 'vitest';
 
 import { createTunnelClient, type TunnelClient } from '../src/tunnel-client';
-import type { TunnelEvent, TunnelState } from '../src/types';
+import type { TunnelEvent } from '../src/types';
 
 describe('TunnelClient', () => {
   let client: TunnelClient;

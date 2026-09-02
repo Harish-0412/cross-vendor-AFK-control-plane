@@ -88,7 +88,19 @@ export class LocalApiServer {
       return this.getStatus();
     }
 
-    this.server = http.createServer(this.handleRequest.bind(this));
+    // handleRequest is async, and http.createServer ignores the promise it
+    // returns. Handing it over directly means a rejection escaping the
+    // handler's own catch — a failure inside the error path itself — surfaces
+    // as an unhandled rejection and takes the Gateway process down. Void it
+    // explicitly with a last-resort responder instead.
+    this.server = http.createServer((req, res) => {
+      void this.handleRequest(req, res).catch(() => {
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+        }
+        res.end(JSON.stringify({ error: 'Internal Server Error' }));
+      });
+    });
 
     this.server.on('connection', (socket) => {
       if (!this.options.allowRemote) {

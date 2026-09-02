@@ -147,3 +147,27 @@ describe('X.509 conformance (verified against node:crypto)', () => {
     expect(ca.verifyDeviceCertificate(cert.certificatePem).valid).toBe(true);
   });
 });
+
+describe('distinguished name parsing', () => {
+  it('ignores unrecognised attributes in an issuer/subject string', () => {
+    // A certificate's issuer and subject strings are attacker-controlled, and
+    // the parser used to assign every key it found onto a plain object. A DN
+    // containing __proto__ therefore reached Object.prototype. Round-trip a
+    // hostile DN through certificate issuance and confirm the prototype is
+    // untouched and the forged attribute is dropped.
+    const rootKey = generateCAKeyMaterial('EC', 'prime256v1');
+    const ca = createCertificateAuthority(rootKey, {
+      ...DEFAULT_ROOT_CA_CONFIG,
+      organizationName: 'Freebuff',
+      commonName: 'Root, __proto__=polluted, evilAttr=x',
+    });
+
+    const cert = new X509Certificate(ca.getRootCertificatePem());
+    expect(cert.subject).toContain('Freebuff');
+
+    const probe: Record<string, unknown> = {};
+    expect(probe['polluted']).toBeUndefined();
+    expect(Object.prototype.hasOwnProperty.call(Object.prototype, 'polluted')).toBe(false);
+    expect(cert.subject).not.toContain('evilAttr');
+  });
+});

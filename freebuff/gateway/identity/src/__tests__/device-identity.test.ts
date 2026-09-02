@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { FINGERPRINT_WORD_COUNT, FINGERPRINT_SHORT_CODE_LENGTH } from '@freebuff/protocol';
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 import {
   type DeviceIdentityManager,

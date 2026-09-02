@@ -20,6 +20,20 @@ export interface RevocationStoreConfig {
   persistPath?: string;
 }
 
+/**
+ * Revocation listeners may be async — invalidating a revoked device's live
+ * sessions is I/O. Use `addAndNotify` to await them.
+ */
+export type RevocationListener = (entry: RevocationEntry) => void | Promise<void>;
+
+/** Outcome of notifying listeners about a revocation. */
+export interface RevocationNotifyResult {
+  /** True when every listener completed without throwing. */
+  delivered: boolean;
+  /** Errors thrown or rejected by listeners, in completion order. */
+  failures: Error[];
+}
+
 const DEFAULT_MAX_ENTRIES = 10000;
 
 export class RevocationStore {
@@ -27,7 +41,7 @@ export class RevocationStore {
     Pick<RevocationStoreConfig, 'persistPath'>;
   private entries: Map<string, RevocationEntry> = new Map();
   private lastRefreshAt: Date | null = null;
-  private listeners: Set<(entry: RevocationEntry) => void> = new Set();
+  private listeners: Set<RevocationListener> = new Set();
 
   constructor(config: RevocationStoreConfig = {}) {
     this.config = {
@@ -37,7 +51,56 @@ export class RevocationStore {
     };
   }
 
+  /**
+   * Record a revocation and notify listeners without waiting for them.
+   *
+   * Prefer `addAndNotify` anywhere the caller reports the device as revoked
+   * afterwards: an async listener (session invalidation) has only been
+   * *started* when this returns, so a device can still be serving traffic on a
+   * live session at that point.
+   */
   add(entry: RevocationEntry): void {
+    this.record(entry);
+    for (const listener of this.listeners) {
+      try {
+        const result = listener(entry);
+        // An async listener rejects after `add` has already returned, so the
+        // try/catch above never sees it. Attach a handler so it cannot become
+        // an unhandled rejection.
+        if (result instanceof Promise) {
+          result.catch(() => undefined);
+        }
+      } catch {
+        // Listener failures must not prevent the revocation being recorded.
+      }
+    }
+  }
+
+  /**
+   * Record a revocation and wait for every listener to finish, returning what
+   * failed. Revocation is a security boundary: the caller should not report a
+   * device as revoked until its sessions have actually been torn down, and a
+   * failure to tear them down has to be visible rather than swallowed.
+   */
+  async addAndNotify(entry: RevocationEntry): Promise<RevocationNotifyResult> {
+    this.record(entry);
+
+    const failures: Error[] = [];
+    const settled = await Promise.allSettled(
+      [...this.listeners].map(async (listener) => listener(entry)),
+    );
+    for (const outcome of settled) {
+      if (outcome.status === 'rejected') {
+        const reason: unknown = outcome.reason;
+        failures.push(reason instanceof Error ? reason : new Error(String(reason)));
+      }
+    }
+
+    return { delivered: failures.length === 0, failures };
+  }
+
+  /** Insert the entry, evicting the oldest if the store is full. */
+  private record(entry: RevocationEntry): void {
     if (this.entries.size >= this.config.maxEntries) {
       const oldestKey = this.entries.keys().next().value;
       if (oldestKey) {
@@ -45,13 +108,6 @@ export class RevocationStore {
       }
     }
     this.entries.set(entry.deviceId, entry);
-    for (const listener of this.listeners) {
-      try {
-        listener(entry);
-      } catch {
-        // swallow listener errors
-      }
-    }
   }
 
   remove(deviceId: string): boolean {
@@ -115,7 +171,7 @@ export class RevocationStore {
     return this.lastRefreshAt;
   }
 
-  onRevocation(listener: (entry: RevocationEntry) => void): () => void {
+  onRevocation(listener: RevocationListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
@@ -165,14 +221,11 @@ export class RevocationChecker {
 
     if (sessionInvalidator) {
       store.onRevocation(async (entry) => {
-        if (entry.effectiveImmediately) {
-          try {
-            const reason = `Device revoked: ${entry.reason}${entry.revocationNote ? ` - ${entry.revocationNote}` : ''}`;
-            await sessionInvalidator(entry.deviceId, reason);
-          } catch {
-            // swallow
-          }
-        }
+        if (!entry.effectiveImmediately) return;
+        const reason = `Device revoked: ${entry.reason}${entry.revocationNote ? ` - ${entry.revocationNote}` : ''}`;
+        // Deliberately not caught here: `addAndNotify` collects the failure so
+        // the caller can see that a revoked device's sessions are still live.
+        await sessionInvalidator(entry.deviceId, reason);
       });
     }
   }
@@ -200,7 +253,9 @@ export class RevocationChecker {
             affectedCertificates: freshStatus.affectedCertificates,
             effectiveImmediately: true,
           };
-          this.store.add(entry);
+          // Await notification so we do not report the device as revoked
+          // while its sessions are still being torn down.
+          await this.store.addAndNotify(entry);
           status = freshStatus;
         }
         this.store.markRefreshed();

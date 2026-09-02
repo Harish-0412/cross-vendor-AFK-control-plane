@@ -98,14 +98,27 @@ export function parseQrPayload(payload: string): {
 } | null {
   try {
     const decoded = Buffer.from(payload, 'base64url').toString('utf8');
-    const data = JSON.parse(decoded);
-    if (!data.v || !data.d || !data.g || !data.f || !data.t) return null;
+    const data: unknown = JSON.parse(decoded);
+    if (typeof data !== 'object' || data === null) return null;
+
+    // A QR payload is untrusted input scanned from a screen, so each field is
+    // checked for type as well as presence. Previously these were only tested
+    // for truthiness and then returned as their declared types, so a payload
+    // carrying an object or number where a string belongs propagated straight
+    // into the pairing flow.
+    const { v, d, g, f, t } = data as Record<string, unknown>;
+    if (typeof v !== 'number' || !Number.isInteger(v) || v <= 0) return null;
+    if (typeof d !== 'string' || d.length === 0) return null;
+    if (typeof g !== 'string' || g.length === 0) return null;
+    if (typeof f !== 'string' || !/^[0-9a-f]+$/i.test(f)) return null;
+    if (typeof t !== 'number' || !Number.isFinite(t) || t <= 0) return null;
+
     return {
-      version: data.v,
-      deviceId: data.d,
-      gatewayId: data.g,
-      fingerprintHex: data.f,
-      timestamp: data.t,
+      version: v,
+      deviceId: d,
+      gatewayId: g,
+      fingerprintHex: f,
+      timestamp: t,
     };
   } catch {
     return null;

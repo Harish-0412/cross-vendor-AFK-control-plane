@@ -20,8 +20,7 @@ import { createMacOSSandbox } from './platforms/macos';
 import { createWindowsSandbox } from './platforms/windows';
 import { getPlatform, getProfile } from './profiles';
 
-export { getProfile, getPlatform, listProfiles } from './profiles';
-export type { SandboxCapabilities, SandboxCleanupReport };
+export type { SandboxCleanupReport };
 
 type SandboxInstance = PlatformSandboxBase & Sandbox;
 

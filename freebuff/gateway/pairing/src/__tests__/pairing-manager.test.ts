@@ -3,10 +3,10 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { createDeviceIdentityManager } from '@freebuff/identity';
-import type { DeviceCertificate, PairingCode } from '@freebuff/protocol';
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import type { DeviceCertificate } from '@freebuff/protocol';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
-import { PairingRateLimiter, createPairingRateLimiter } from '../code-generator';
+import { createPairingRateLimiter } from '../code-generator';
 import {
   PairingManager,
   createPairingManager,
