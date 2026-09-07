@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { ApprovalRecord } from '../types';
 import type { IDatabase } from '../db/types';
 
@@ -80,8 +81,17 @@ export class ApprovalWorkflow {
    * Called when a device is revoked (§7.3 — revoked device approval handling).
    */
   async revokeDeviceApprovals(deviceId: string, reason: string): Promise<number> {
-    const approvals = await this.db.approvals.listBySession(''); // Get all approvals
-    const deviceApprovals = approvals.filter((a) => a.deviceId === deviceId && a.status === 'pending');
+    // List all approvals by scanning through sessions
+    const allSessions = await this.listAllSessions();
+    const deviceApprovals: ApprovalRecord[] = [];
+    for (const sessionId of allSessions) {
+      const sessionApprovals = await this.db.approvals.listBySession(sessionId);
+      for (const approval of sessionApprovals) {
+        if (approval.deviceId === deviceId && approval.status === 'pending') {
+          deviceApprovals.push(approval);
+        }
+      }
+    }
 
     let count = 0;
     for (const approval of deviceApprovals) {
@@ -194,6 +204,20 @@ export class ApprovalWorkflow {
    */
   async getApproval(approvalId: string): Promise<ApprovalRecord | null> {
     return this.db.approvals.findById(approvalId);
+  }
+
+  /**
+   * List all session IDs (for scanning approvals across all sessions).
+   */
+  private async listAllSessions(): Promise<string[]> {
+    // Access the underlying session store to get all session IDs
+    const repo = this.db.sessions as unknown as {
+      sessions?: Map<string, import('../types').SessionRecord>;
+    };
+    if (repo.sessions) {
+      return Array.from(repo.sessions.keys());
+    }
+    return [];
   }
 
   /**

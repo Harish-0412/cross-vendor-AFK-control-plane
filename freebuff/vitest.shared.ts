@@ -31,6 +31,7 @@ const packageSources: Record<string, string> = {
   '@freebuff/gateway-core': 'gateway/core/src/index.ts',
   '@freebuff/control-plane': 'control-plane/src/index.ts',
   '@freebuff/policy-engine': 'packages/policy-engine/src/index.ts',
+  '@freebuff/gateway-policy': 'gateway/policy/src/index.ts',
 };
 
 export const workspaceAliases: Record<string, string> = Object.fromEntries(

@@ -5,6 +5,7 @@ import type { SessionConfig, TrustProfile } from '@freebuff/protocol';
 
 import { signJwt, verifyJwt } from '../auth/jwt';
 import { hashPassword, verifyPassword } from '../auth/password';
+import { verifyFirebaseIdToken } from '../auth/firebase-admin';
 import type { IDatabase } from '../db/types';
 import type { ConnectionRegistry } from '../tunnel/connection-registry';
 import type { TunnelServer } from '../tunnel/tunnel-server';
@@ -71,15 +72,46 @@ export class HttpRouter {
       null;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.slice(7).trim();
+
+      // Check Firebase ID token first if configured
       try {
-        const payload = verifyJwt(token, this.config.jwtSecret);
-        authUser = {
-          id: payload.sub,
-          email: payload.email,
-          role: payload.role,
-        };
+        const decoded = await verifyFirebaseIdToken(token);
+        if (decoded) {
+          authUser = {
+            id: decoded.uid,
+            email: decoded.email,
+            role: (decoded['role'] as string) || 'user',
+          };
+          // Ensure user exists in our repository
+          const existing = await this.db.users.findById(decoded.uid);
+          if (!existing && decoded.email) {
+            try {
+              await this.db.users.create({
+                email: decoded.email,
+                name: (decoded['name'] as string) || decoded.email.split('@')[0] || 'User',
+                role: 'user',
+              });
+            } catch {
+              // Ignore duplicate
+            }
+          }
+        }
       } catch {
-        /* invalid token */
+        /* Not a valid Firebase token */
+      }
+
+      // Fallback to local JWT validation
+      if (!authUser) {
+        try {
+          const payload = verifyJwt(token, this.config.jwtSecret);
+          authUser = {
+            id: payload.sub,
+            email: payload.email,
+            role: payload.role,
+          };
+        } catch {
+          /* invalid token */
+        }
       }
     }
 
@@ -312,6 +344,14 @@ export class HttpRouter {
           confirmedAt: new Date(),
         });
 
+        // Record pairing in audit log (§8.2)
+        await this.auditLog.record({
+          actor: { type: 'user', id: authUser.id },
+          deviceId: pairing.deviceId,
+          action: 'device.paired',
+          decision: 'allow',
+        });
+
         let device = await this.db.devices.findById(pairing.deviceId);
         if (!device) {
           device = await this.db.devices.create({
@@ -434,10 +474,25 @@ export class HttpRouter {
           // 2. Mark device as revoked in the database
           await this.db.devices.updateStatus(deviceId, 'revoked');
 
+          // 3. Transition all pending approvals for this device to 'superseded' (§7.3)
+          const supersededCount = await this.approvalWorkflow.revokeDeviceApprovals(
+            deviceId,
+            'Device revoked by user',
+          );
+
+          // 4. Record revocation in audit log (§8.2)
+          await this.auditLog.record({
+            actor: { type: 'user', id: authUser.id },
+            deviceId,
+            action: 'device.revoked',
+            decision: 'deny',
+          });
+
           return this.sendJson(res, 200, {
             success: true,
             deviceRevoked: true,
             tunnelTerminated: wasOnline,
+            approvalsSuperseded: supersededCount,
           });
         }
 
@@ -703,15 +758,53 @@ export class HttpRouter {
             return this.sendJson(res, 400, { error: '"approved" boolean is required' });
           }
 
-          const decision = approved ? 'granted' : 'denied';
-          await this.db.approvals.update(approvalId, {
-            status: decision,
-            decidedAt: new Date(),
-            decidedBy: authUser.id,
-            reason,
-          });
+          // Use the approval workflow state machine (CAS — first valid decision wins)
+          const result = await this.approvalWorkflow.submitDecision(approvalId, authUser.id, approved, reason);
 
-          const result = await this.tunnelServer.sendCommandToDevice(
+          if (result.conflict) {
+            return this.sendJson(res, 409, {
+              error: 'Approval already decided by another user',
+              currentStatus: result.record?.status,
+            });
+          }
+
+          if (!result.success) {
+            if (result.record?.status === 'timeout') {
+              return this.sendJson(res, 410, {
+                error: 'Approval request has expired',
+                status: 'timeout',
+              });
+            }
+            return this.sendJson(res, 400, {
+              error: 'Could not process approval decision',
+              status: result.record?.status,
+            });
+          }
+
+          // Re-evaluate against current policy (§7.3 — policy change after request)
+          // Wrap in try-catch to avoid breaking the approval flow if policy service fails
+          try {
+            const policyReEvaluation = await this.policyService.evaluate(
+              'process.exec', // Default capability for re-evaluation
+              'medium',
+              {
+                deviceId: session.deviceId,
+                sessionId,
+                userId: authUser.id,
+              },
+            );
+
+            // If policy now denies, auto-deny (policy_superseded)
+            if (policyReEvaluation.decision === 'deny') {
+              await this.approvalWorkflow.handlePolicyChange(approvalId, 'deny');
+            }
+          } catch {
+            // Policy re-evaluation failed — continue with the approval decision anyway
+            // The audit log will capture the decision regardless
+          }
+
+          const decision = approved ? 'granted' : 'denied';
+          const tunnelResult = await this.tunnelServer.sendCommandToDevice(
             session.deviceId,
             'session.approve',
             {
@@ -722,14 +815,24 @@ export class HttpRouter {
             },
           );
 
+          // Record the decision in audit log
+          await this.auditLog.record({
+            actor: { type: 'user', id: authUser.id },
+            sessionId,
+            deviceId: session.deviceId,
+            action: 'approval.decision',
+            decision,
+            policyVersion: result.record?.policyVersion,
+          });
+
           return this.sendJson(res, 200, {
             success: true,
             decision,
-            delivered: result.delivered,
-            acknowledged: result.acknowledged,
-            note: result.acknowledged
+            delivered: tunnelResult.delivered,
+            acknowledged: tunnelResult.acknowledged,
+            note: tunnelResult.acknowledged
               ? 'Approval decision delivered to gateway and acknowledged.'
-              : result.delivered
+              : tunnelResult.delivered
                 ? 'Approval decision forwarded to gateway; awaiting acknowledgment.'
                 : 'Gateway is offline; approval decision will be relayed when the device reconnects.',
           });

@@ -6,6 +6,7 @@ export * from './sandbox.schema';
 export * from './agent.schema';
 export * from './gateway.schema';
 export * from './device.schema';
+export * from './policy.schema';
 
 import type { z } from 'zod';
 

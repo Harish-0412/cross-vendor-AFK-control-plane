@@ -2,4 +2,6 @@ packages:
   - 'packages/*'
   - 'gateway/*'
   - 'gateway/adapters/*'
+  - 'gateway/policy'
+  - 'control-plane'
   - 'tests/*'

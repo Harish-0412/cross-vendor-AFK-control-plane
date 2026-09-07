@@ -1,0 +1,33 @@
+{
+  "name": "@freebuff/gateway-policy",
+  "version": "0.1.0",
+  "description": "Gateway-side policy cache and local advisory evaluation — READ-ONLY, never authorizes",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --build --dry",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@freebuff/protocol": "workspace:*",
+    "@freebuff/policy-engine": "workspace:*"
+  },
+  "devDependencies": {
+    "@freebuff/protocol": "workspace:*",
+    "@freebuff/policy-engine": "workspace:*",
+    "vitest": "^2.0.0"
+  }
+}

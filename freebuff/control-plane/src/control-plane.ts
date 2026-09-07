@@ -11,6 +11,9 @@ import { TunnelServer } from './tunnel/tunnel-server';
 import type { ControlPlaneConfig } from './types';
 import { PolicyEngineService, ApprovalWorkflow, AuditLog } from './policy/index';
 
+import { FirestoreDatabase } from './db/firestore-store';
+import { getFirebaseFirestore, isFirebaseAdminConfigured } from './auth/firebase-admin';
+
 export class ControlPlane {
   public db: IDatabase;
   public registry: ConnectionRegistry;
@@ -26,7 +29,24 @@ export class ControlPlane {
 
   constructor(options: Partial<ControlPlaneConfig> = {}, db?: IDatabase) {
     this.config = loadConfig(options);
-    this.db = db || new MemoryDatabase();
+    if (db) {
+      this.db = db;
+    } else if (process.env.USE_FIRESTORE === 'true' || isFirebaseAdminConfigured()) {
+      const firestore = getFirebaseFirestore();
+      if (firestore) {
+        // eslint-disable-next-line no-console
+        console.info('[Freebuff Control Plane] Using Cloud Firestore as persistent database');
+        this.db = new FirestoreDatabase(firestore);
+      } else {
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[Freebuff Control Plane] Firestore requested but could not be initialized, falling back to MemoryDatabase',
+        );
+        this.db = new MemoryDatabase();
+      }
+    } else {
+      this.db = new MemoryDatabase();
+    }
     this.registry = new ConnectionRegistry();
 
     this.tunnelServer = new TunnelServer(this.db, this.registry, {
@@ -41,9 +61,27 @@ export class ControlPlane {
     });
 
     // Policy Engine (Phase 5)
+    this.auditLog = new AuditLog(this.db);
     this.policyService = new PolicyEngineService(this.db, this.config, this.auditLog);
     this.approvalWorkflow = new ApprovalWorkflow(this.db);
-    this.auditLog = new AuditLog(this.db);
+
+    // Wire policy evaluator into tunnel server (§7.2)
+    this.tunnelServer.setPolicyEvaluator(
+      (capability, riskClass, context, _policyVersion) => {
+        return this.policyService.evaluateWithVersion(
+          capability,
+          riskClass,
+          null, // Use current policy version from service
+          {
+            resource: context.resource,
+            projectId: context.projectId,
+            trustProfile: context.trustProfile ?? 'default',
+            deviceStatus: 'trusted', // Tunnel server already authenticated the device
+            userId: context.userId,
+          },
+        );
+      },
+    );
 
     this.router = new HttpRouter(
       this.db,
