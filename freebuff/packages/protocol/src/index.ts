@@ -6,5 +6,6 @@ export * from './types/project';
 export * from './types/sandbox';
 export * from './types/gateway';
 export * from './types/device';
+export * from './types/policy';
 
 export * from './ids';
