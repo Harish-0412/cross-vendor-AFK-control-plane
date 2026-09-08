@@ -1,9 +1,3 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import * as path from 'node:path';
-
-import { createDeviceIdentityManager } from '@freebuff/identity';
-import { DeviceIdentity } from '@freebuff/protocol';
 import { describe, it, expect, beforeEach } from 'vitest';
 
 import {

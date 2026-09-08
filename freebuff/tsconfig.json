@@ -19,6 +19,7 @@
     { "path": "./gateway/pairing" },
     { "path": "./gateway/certificate" },
     { "path": "./gateway/reconciliation" },
-    { "path": "./gateway/core" }
+    { "path": "./gateway/core" },
+    { "path": "./control-plane" }
   ]
 }

@@ -21,6 +21,8 @@ import type {
   AgentInfo,
   GatewayEvent,
   EventEnvelope,
+  SessionState,
+  AgentAdapter,
 } from '@freebuff/protocol';
 import {
   generateGatewayId,
@@ -35,7 +37,11 @@ import { type TunnelClient, createTunnelClient } from '@freebuff/tunnel';
 import { type AgentManager, createAgentManager } from './agent-manager';
 import { type EventBus, createEventBus } from './event-bus';
 import { type ProjectManager, createProjectManager } from './project-manager';
-import { type SessionRegistry, createSessionRegistry } from './session-registry';
+import {
+  type SessionRegistry,
+  createSessionRegistry,
+  type SessionRecord,
+} from './session-registry';
 
 export type { GatewayOptions } from '@freebuff/protocol';
 
@@ -420,7 +426,7 @@ export class GatewayImpl implements GatewayCore {
   }
 
   /** Get the adapter's session ID for a given gateway session */
-  private getAdapterSessionId(record: import('./session-registry').SessionRecord): string {
+  private getAdapterSessionId(record: SessionRecord): string {
     return record.adapterSessionId ?? record.id;
   }
 
@@ -518,7 +524,7 @@ export class GatewayImpl implements GatewayCore {
 
   private wireAdapterEvents(
     gatewaySessionId: string,
-    adapter: import('@freebuff/protocol').AgentAdapter,
+    adapter: AgentAdapter,
     adapterSessionId?: string,
   ): void {
     const effectiveId = adapterSessionId ?? gatewaySessionId;
@@ -544,7 +550,10 @@ export class GatewayImpl implements GatewayCore {
           if (event.eventType === 'session.status_changed') {
             const payload = event.payload as { state?: string };
             if (payload?.state) {
-              const validStates = [
+              // Typed as SessionState[] so the membership check narrows
+              // payload.state, rather than validating it and then casting the
+              // result away through `any`.
+              const validStates: SessionState[] = [
                 'initializing',
                 'running',
                 'waiting_for_approval',
@@ -554,8 +563,9 @@ export class GatewayImpl implements GatewayCore {
                 'cancelled',
                 'crashed',
               ];
-              if (validStates.includes(payload.state)) {
-                this.registry.updateState(gatewaySessionId, payload.state as any);
+              const candidate = payload.state as SessionState;
+              if (validStates.includes(candidate)) {
+                this.registry.updateState(gatewaySessionId, candidate);
               }
             }
           }

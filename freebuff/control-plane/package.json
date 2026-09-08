@@ -1,0 +1,43 @@
+{
+  "name": "@freebuff/control-plane",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloud Control Plane - Central hub for Freebuff AFK Control Plane",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "start": "npx tsx src/server.ts",
+    "dev": "tsc -w",
+    "typecheck": "tsc --build --dry",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@freebuff/config": "workspace:*",
+    "@freebuff/policy-engine": "workspace:*",
+    "@freebuff/protocol": "workspace:*",
+    "@freebuff/schemas": "workspace:*",
+    "firebase-admin": "^14.3.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "@types/ws": "^8.5.14",
+    "typescript": "^5.4.0",
+    "vitest": "^1.5.0"
+  }
+}

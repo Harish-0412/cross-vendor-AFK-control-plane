@@ -63,14 +63,17 @@ export class WindowsSandbox extends PlatformSandboxBase {
       );
       if (result.stdout.trim()) {
         try {
-          const info = JSON.parse(result.stdout);
-          const workingSetBytes = Number(info.WorkingSet64 ?? 0);
+          // PowerShell output is untrusted shape; read the two fields we use
+          // defensively rather than letting JSON.parse's `any` spread through
+          // the resource sample.
+          const info = JSON.parse(result.stdout) as Record<string, unknown>;
+          const workingSetBytes = Number(info['WorkingSet64'] ?? 0);
           const memoryMb = Math.round(workingSetBytes / 1024 / 1024);
           this.peakMemory = Math.max(this.peakMemory, memoryMb);
           this.peakProcesses = Math.max(this.peakProcesses, 1);
 
           this.resourceSample = {
-            cpuPercent: Math.min(100, Number(info.CPU ?? 0) * 10),
+            cpuPercent: Math.min(100, Number(info['CPU'] ?? 0) * 10),
             memoryMb,
             memoryPeakMb: this.peakMemory,
             activeProcesses: 1,

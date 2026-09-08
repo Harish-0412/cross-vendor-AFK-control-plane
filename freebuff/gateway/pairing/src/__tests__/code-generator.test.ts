@@ -4,6 +4,7 @@ import {
   generatePairingCode,
   createPairingCode,
   validatePairingCodeFormat,
+  type PairingRateLimiter,
   createPairingRateLimiter,
 } from '../code-generator';
 import { PAIRING_CODE_LENGTH, PAIRING_CODE_CHARSET, DEFAULT_PAIRING_TTL_MS } from '../types';
@@ -80,9 +81,9 @@ describe('validatePairingCodeFormat', () => {
     expect(validatePairingCodeFormat('ABIJEFGH')).toBe(false);
   });
   it('should reject non-string inputs', () => {
-    expect(validatePairingCodeFormat(null as any)).toBe(false);
-    expect(validatePairingCodeFormat(undefined as any)).toBe(false);
-    expect(validatePairingCodeFormat(12345 as any)).toBe(false);
+    expect(validatePairingCodeFormat(null as unknown as string)).toBe(false);
+    expect(validatePairingCodeFormat(undefined as unknown as string)).toBe(false);
+    expect(validatePairingCodeFormat(12345 as unknown as string)).toBe(false);
   });
 });
 describe('PairingRateLimiter', () => {

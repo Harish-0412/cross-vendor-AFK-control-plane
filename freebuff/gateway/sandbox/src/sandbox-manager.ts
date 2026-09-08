@@ -6,6 +6,7 @@ import type {
   SandboxState,
   SandboxCapabilities,
   SandboxCleanupReport,
+  SandboxStatus,
   Platform,
 } from '@freebuff/protocol';
 import {
@@ -101,7 +102,7 @@ export class SandboxManager implements ISandboxManager {
     return Array.from(this.sandboxes.values());
   }
 
-  async getStatus(sandboxId: string): Promise<import('@freebuff/protocol').SandboxStatus> {
+  async getStatus(sandboxId: string): Promise<SandboxStatus> {
     const sandbox = this.sandboxes.get(sandboxId);
     if (!sandbox) {
       throw new Error(`Sandbox not found: ${sandboxId}`);
@@ -110,7 +111,10 @@ export class SandboxManager implements ISandboxManager {
   }
 
   listByState(state: SandboxState): Sandbox[] {
-    return this.list().filter(async (s) => (await s.getStatus()).state === state);
+    // Filtered on the instance's synchronously maintained `state`. The previous
+    // predicate was async, and Array.filter treats the promise it returns as
+    // truthy, so this matched every sandbox regardless of the state asked for.
+    return Array.from(this.sandboxes.values()).filter((s) => s.state === state);
   }
 
   getCapabilities(): SandboxCapabilities {

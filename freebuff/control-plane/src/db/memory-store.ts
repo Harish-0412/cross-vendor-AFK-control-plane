@@ -24,10 +24,10 @@ import type {
 export class MemoryUserRepository implements IUserRepository {
   private users = new Map<string, User>();
 
-  async create(data: Omit<User, 'id' | 'createdAt' | 'updatedAt'>): Promise<User> {
+  async create(data: Omit<User, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<User> {
     const now = new Date();
     const user: User = {
-      id: `usr_${randomUUID().replace(/-/g, '')}`,
+      id: data.id || `usr_${randomUUID().replace(/-/g, '')}`,
       ...data,
       createdAt: now,
       updatedAt: now,

@@ -14,9 +14,9 @@
 
 We are **not** building another IDE, another AI coding model, or a simple remote desktop.
 
-We are building a **control plane and security boundary around locally executing AI coding agents**.
+We are building **the Kubernetes/control-plane layer for AI coding agents** — a vendor-neutral governance and operating layer that makes agents interchangeable execution engines under unified control.
 
-The product has three major zones:
+The product has four major zones:
 
 ```text
                      PHONE / WEB
@@ -35,6 +35,26 @@ The product has three major zones:
               | Notifications           |
               | Audit                   |
               | Integrations             |
+              +-----------+-------------+
+                          |
+              +-----------+-------------+
+              |  ORCHESTRATION &        |
+              |  GOVERNANCE SERVICES    |
+              |                         |
+              | Agent Router            |
+              | Multi-Agent Orchestrator|
+              | Risk Engine             |
+              | Agent Firewall          |
+              | Cost/Token Governor     |
+              | Agent Reputation System |
+              | Universal Agent Memory  |
+              | Automated Verification  |
+              | Policy-as-Code          |
+              | Agent Marketplace       |
+              | Task Scheduler          |
+              | Compliance Evidence     |
+              | Cross-Agent Benchmarking|
+              | Human Approval Intelligence|
               +-----------+-------------+
                           |
                   Secure outbound link
@@ -63,7 +83,21 @@ The product has three major zones:
                  Project Workspace
 ```
 
-The final specification explicitly establishes the Local Agent Gateway plus Cloud Control Plane model, with local execution, secure remote supervision, sandboxing, redaction, policy enforcement, and auditability as core requirements.
+The key architectural insight: **agents become interchangeable execution engines.**
+
+When a user says "Fix this production bug," the control plane decides:
+
+- Which agent should handle it (Claude for implementation, Codex for security review, OpenCode for tests)
+- Which model/provider to use
+- What permissions the agent gets
+- What files it can access
+- What network destinations it can reach
+- What actions require approval
+- How much compute/token budget it can consume
+- Whether another agent should review the work
+- Whether the final change satisfies organizational policy
+
+This turns the project into an **agent-neutral execution marketplace** — "Bring your own agent. We govern the work."
 
 ---
 
@@ -98,7 +132,17 @@ Git/review
       ↓
 Reliability + production hardening
       ↓
-Multi-agent orchestration
+Agent Router + Multi-Agent Orchestration
+      ↓
+Risk Engine + Agent Firewall
+      ↓
+Cost/Token Governor + Reputation System
+      ↓
+Universal Memory + Verification Service
+      ↓
+Policy-as-Code + Marketplace
+      ↓
+Compliance + Benchmarking
 ```
 
 Do **not** start by building a beautiful dashboard.
@@ -110,6 +154,23 @@ Do **not** start with native Android/iOS apps.
 Do **not** start with multi-agent orchestration.
 
 The final specification itself recommends validating isolation and the Gateway foundation before expanding compatibility, and explicitly warns that a large unreliable compatibility list is less valuable than a small number of well-tested adapters.
+
+## 1.2 The strategic pivot
+
+Once the core control plane is stable, the product's differentiation shifts from "remote control for coding agents" to "intelligent orchestration and governance for all agents."
+
+The new priority order after core stabilization:
+
+1. **Agent Router** — automatically choose the right agent for each task (highest strategic value)
+2. **Multi-Agent Orchestration** — coordinate specialized agents as teams (killer feature potential)
+3. **Risk Engine** — score every action by danger level, not just allow/deny
+4. **Agent Firewall** — control network egress per session with deny-by-default
+5. **Cost/Token Governor** — budget enforcement and anomaly detection
+6. **Agent Reputation System** — track success rates across agents and tasks
+7. **Universal Agent Memory** — shared knowledge so agents learn from each other
+8. **Automated Verification Service** — post-task validation, test running, coverage checks
+9. **Policy-as-Code** — programmable policies in YAML/Rego
+10. **Agent Marketplace/Registry** — discoverable, version-pinned agents with capability metadata
 
 ---
 
@@ -1975,13 +2036,352 @@ repeat usage
 
 ---
 
-# 21. Phase 17 — Advanced Multi-Agent Orchestration
+# 21. Phase 17 — Agent Router & Multi-Agent Orchestration
 
 ## This is a later phase
 
 Do not implement this in MVP.
 
-## Future architecture
+## The strategic upgrade
+
+This phase transforms the product from "remote control for coding agents" to "the Kubernetes/control-plane layer for AI coding agents." The key insight: **agents become interchangeable execution engines.**
+
+## 21.1 Agent Router
+
+### Problem
+
+Developers today choose agents manually: "I'll use Claude" or "I'll use Codex." But different agents excel at different things.
+
+### Solution
+
+The Agent Router automatically selects the best agent(s) for each task based on:
+
+```text
+Task Complexity
+Security Sensitivity
+Repository Size
+Required Tools
+Latency Requirement
+Budget
+Agent Availability
+Historical Success Rate
+```
+
+### Example routing decision
+
+Task: "Refactor authentication and add comprehensive tests."
+
+```text
+Claude → implementation
+Codex → security review
+OpenCode → test generation
+```
+
+### Configurable routing policies
+
+Administrators define routing rules:
+
+```yaml
+routing:
+  security_tasks:
+    preferred_agent: codex
+
+  frontend_tasks:
+    preferred_agent: claude
+
+  cheap_tasks:
+    preferred_agent: opencode
+
+  high_risk_tasks:
+    strategy: multi_agent_review
+```
+
+## 21.2 Multi-Agent Orchestration
+
+### The killer feature
+
+Instead of `User → Agent`, support:
+
+```text
+User
+ │
+ ▼
+Planner Agent
+ │
+ ├──► Coding Agent
+ ├──► Test Agent
+ ├──► Security Agent
+ └──► Review Agent
+            │
+            ▼
+        Final Gate
+```
+
+### Example: "Implement OAuth login"
+
+The platform automatically creates:
+
+- **Agent A**: Architecture + implementation
+- **Agent B**: Security review
+- **Agent C**: Tests
+- **Agent D**: Code review
+
+Then the control plane aggregates:
+
+```text
+Implementation confidence: 91%
+Security confidence: 96%
+Test confidence: 88%
+
+Final decision → Human approval
+```
+
+Now you aren't just controlling agents. You're controlling **agent teams**.
+
+## 21.3 Risk Engine
+
+### Problem
+
+The Policy Engine answers "Is this action allowed?" But it should also answer "How dangerous is this action?"
+
+### Solution
+
+Score every action:
+
+```text
+git status              → Risk: 0.01
+npm install            → Risk: 0.15
+git push               → Risk: 0.52
+rm -rf                 → Risk: 0.89
+production deploy      → Risk: 0.97
+```
+
+### Uses
+
+- Dynamic approval thresholds (higher risk = stricter approval)
+- Cost allocation (risky tasks cost more to supervise)
+- Agent selection (risky tasks → more capable agent)
+- Alert prioritization (high-risk actions get immediate attention)
+
+## 21.4 Agent Firewall
+
+### Problem
+
+Agents need network access for package installs, API calls, and dependency downloads — but shouldn't exfiltrate data or reach internal systems.
+
+### Solution
+
+Per-session network policies:
+
+```yaml
+firewall:
+  default: deny-all
+  allow:
+    - registry.npmjs.org
+    - pypi.org
+    - github.com
+  block:
+    - internal.corp.net
+    - *.prod.internal
+  inspect:
+    - data exfiltration patterns
+    - credential transmission
+```
+
+## 21.5 Cost/Token Governor
+
+### Problem
+
+Different agents and models have different costs. Without governance, a single runaway session can consume a large budget.
+
+### Solution
+
+Budget enforcement per:
+
+- Task
+- Session
+- Agent/provider
+- Project
+- Organization
+- Time window (hourly/daily/monthly)
+
+Features:
+
+- Token/compute limits per session
+- Cost anomaly detection
+- Budget alerts and automatic pause
+- Cost attribution to projects/teams
+- Cost forecasting based on task complexity
+
+## 21.6 Agent Reputation System
+
+### Problem
+
+How do you know which agent is best for which task?
+
+### Solution
+
+Track and aggregate:
+
+- Success rate per task type
+- Failure modes and patterns
+- Cost efficiency (outcome per dollar)
+- Completion time
+- Quality metrics (test coverage, lint pass rate, review findings)
+- User satisfaction signals
+
+This feeds the Agent Router and helps administrators make informed agent selection decisions.
+
+## 21.7 Universal Agent Memory
+
+### Problem
+
+Each agent session starts fresh. Knowledge doesn't persist across agents.
+
+### Solution
+
+A shared knowledge layer:
+
+- Codebase context that any agent can access
+- Learned patterns and conventions
+- Previously solved problems and their solutions
+- Project-specific knowledge (build commands, test patterns, deployment steps)
+- Cross-agent learnings (what worked, what didn't)
+
+## 21.8 Automated Verification Service
+
+### Problem
+
+How do you know the agent's work is correct?
+
+### Solution
+
+Post-task verification:
+
+- Run test suites automatically
+- Check code coverage
+- Validate against task requirements
+- Lint and style checks
+- Security scanning
+- Performance regression checks
+- Cross-agent verification (another agent reviews the work)
+
+## 21.9 Policy-as-Code
+
+### Problem
+
+Policies are currently declarative configurations. Complex governance needs programmable policies.
+
+### Solution
+
+Policy definitions in:
+
+- YAML for simple rules
+- Rego (Open Policy Agent) for complex logic
+- WebAssembly plugins for custom policy logic
+
+Examples:
+
+```yaml
+policies:
+  - name: security-review-required
+    condition: task.type == "security" and task.risk_score > 0.7
+    action: require_multi_agent_review
+    agents:
+      - codex
+      - claude
+
+  - name: budget-enforcement
+    condition: session.estimated_cost > project.daily_budget
+    action: require_approval
+
+  - name: protected-branches
+    condition: git.push.target in protected_branches
+    action: deny_without_approval
+    deny_fallback: true  # cannot be overridden
+```
+
+## 21.10 Agent Marketplace/Registry
+
+### Problem
+
+Adding new agents requires manual integration work.
+
+### Solution
+
+A registry of agents with:
+
+- Capability declarations
+- Version pinning and hash verification
+- Compatibility metadata
+- Usage documentation
+- Community ratings and reviews
+- One-click adapter installation
+
+## 21.11 Task Scheduler
+
+Schedule tasks:
+
+- Cron-based (e.g., "run tests every hour")
+- Event-driven (e.g., "on push to main, run security review")
+- Manual with scheduled start
+- Recurring maintenance tasks
+
+Each scheduled task inherits policies, budgets, and agent routing rules.
+
+## 21.12 Incident/Recovery Service
+
+- Checkpoint-based session recovery
+- Automatic rollback on verification failure
+- Incident summary generation
+- Post-incident analysis
+- Session replay for debugging
+
+## 21.13 Compliance Evidence Engine
+
+Auto-generate evidence packages for:
+
+- SOC2
+- ISO27001
+- Internal audits
+- Security reviews
+
+Evidence includes:
+
+- Audit trail exports
+- Policy enforcement records
+- Approval logs
+- Agent activity summaries
+- Sandbox isolation proofs
+
+## 21.14 Cross-Agent Benchmarking
+
+Compare agent performance on standardized tasks:
+
+- Implementation speed
+- Code quality
+- Test coverage achieved
+- Cost efficiency
+- Security findings caught
+
+Helps with:
+
+- Agent selection decisions
+- Capacity planning
+- Cost optimization
+- Vendor evaluation
+
+## 21.15 Human Approval Intelligence
+
+Smart approval management:
+
+- Route approvals to the right approver based on expertise
+- Batch similar approvals
+- Suggest approval/denial based on policy and history
+- Escalation policies for urgent items
+- Approval fatigue reduction (smart notification timing)
+
+## Architecture
 
 ```text
                    ORCHESTRATOR
@@ -1989,28 +2389,17 @@ Do not implement this in MVP.
           +-------------+-------------+
           |             |             |
           v             v             v
-      Frontend       Backend       Testing
-       Agent          Agent          Agent
+      Planner       Coding        Testing
+       Agent         Agent         Agent
           |             |             |
           +-------------+-------------+
                         |
                         v
-                     Review
+                   Review
+                        |
+                        v
+                   Gate
 ```
-
-## Capabilities
-
-- task decomposition
-- agent selection
-- dependency graphs
-- parallel execution
-- context handoff
-- reviewer agents
-- verification
-- rollback
-- human checkpoints
-- concurrency limits
-- cost/resource budgets
 
 ## Critical safety principle
 

@@ -107,7 +107,7 @@ function derName(dn: DN): Buffer {
     UID: '0.9.2342.19200300.100.1.1',
   };
   const rdns: Buffer[] = [];
-  for (const [attrType, attrValue] of Object.entries(dn)) {
+  for (const [attrType, attrValue] of Object.entries(dn) as [string, string | undefined][]) {
     if (!attrValue) continue;
     const oidStr = OID_MAP[attrType] ?? '2.5.4.3';
     const rdn = derSeq(Buffer.concat([derOid(oidStr), derUtf8String(attrValue)]));

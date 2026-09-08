@@ -8,7 +8,7 @@ import type {
 } from '../types';
 
 export interface IUserRepository {
-  create(user: Omit<User, 'id' | 'createdAt' | 'updatedAt'>): Promise<User>;
+  create(user: Omit<User, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<User>;
   findById(id: string): Promise<User | null>;
   findByEmail(email: string): Promise<User | null>;
   list(): Promise<User[]>;

@@ -307,3 +307,49 @@ describe('SandboxManager', () => {
     expect(manager.list()).toHaveLength(0);
   }, 20000);
 });
+
+describe('SandboxManager.listByState', () => {
+  let manager: SandboxManager;
+  let tempDir: string;
+
+  beforeEach(async () => {
+    manager = createSandboxManager();
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'freebuff-lbs-'));
+  });
+
+  afterEach(async () => {
+    await manager.shutdown(2000);
+    try {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    } catch {
+      /* swallow */
+    }
+  });
+
+  test('only returns sandboxes actually in the requested state', async () => {
+    // Regression: the predicate was async, and Array.filter treats the promise
+    // it returns as truthy, so every sandbox matched every state.
+    const sb = await manager.create({
+      projectRoot: tempDir,
+      agentBinary: process.execPath,
+      agentArgs: ['-e', 'setTimeout(() => {}, 200)'],
+      env: {},
+      resourceLimits: { cpuPercent: 50, memoryMb: 256 },
+      networkPolicy: { mode: 'deny-all' },
+      writablePaths: [tempDir],
+      readablePaths: [tempDir],
+      deniedPaths: [],
+      profile: 'standard',
+    });
+
+    expect(manager.list()).toHaveLength(1);
+
+    const actualState = (await sb.getStatus()).state;
+    const impossibleState = actualState === 'destroyed' ? 'running' : 'destroyed';
+
+    expect(manager.listByState(actualState).map((s) => s.id)).toEqual([sb.id]);
+    expect(manager.listByState(impossibleState)).toEqual([]);
+
+    await manager.destroy(sb.id);
+  });
+});

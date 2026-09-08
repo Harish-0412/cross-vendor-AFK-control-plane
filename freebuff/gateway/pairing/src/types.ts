@@ -1,3 +1,5 @@
+import type { SignedHandshake, DeviceCertificate } from '@freebuff/protocol';
+
 export type PairingState =
   | 'idle'
   | 'generating_code'
@@ -57,7 +59,7 @@ export interface ControlPlanePairingRequest {
   signature: string;
   nonce: string;
   timestamp: Date;
-  signedHandshake: import('@freebuff/protocol').SignedHandshake;
+  signedHandshake: SignedHandshake;
 }
 
 export interface ControlPlanePairingResponse {
@@ -79,7 +81,7 @@ export interface FingerprintConfirmationData {
 export interface PairingCompleteResult {
   deviceId: string;
   pairedAt: Date;
-  certificate: import('@freebuff/protocol').DeviceCertificate;
+  certificate: DeviceCertificate;
   status: 'paired';
 }
 

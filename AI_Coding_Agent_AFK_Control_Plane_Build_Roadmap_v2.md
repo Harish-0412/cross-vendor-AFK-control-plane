@@ -332,9 +332,48 @@ Most teams should **start on Path A locally** (it's what v1 already recommends, 
 **Free-resource notes:** no infrastructure change; this is a process phase. If you're on Path B, your entire beta can run inside Always-Free limits (1M Lambda requests, 25 GB DynamoDB, 1M SNS/SQS operations) for a beta cohort well into the hundreds of active users.
 **Cost:** $0.
 
-### Phase 17 — Advanced Multi-Agent Orchestration *(post-MVP, unchanged from v1)*
-No infrastructure changes required beyond what's already in place; orchestration logic lives in the same Lambda/service layer.
-**Cost:** $0 at moderate scale; revisit Always-Free request-volume limits before this phase if usage is high.
+### Phase 17 — Agent Router & Multi-Agent Orchestration *(post-MVP)*
+This phase transforms the product from "remote control for coding agents" to "the Kubernetes/control-plane layer for AI coding agents." The key insight: **agents become interchangeable execution engines.**
+
+**New services built in this phase:**
+
+1. **Agent Router** — automatically selects the best agent(s) for each task based on task complexity, security sensitivity, budget, and historical success rates. Administrators define routing policies in YAML.
+
+2. **Multi-Agent Orchestration** — coordinates specialized agents as teams (Planner → Coder → Tester → Reviewer) with confidence aggregation and final gates. Each spawned agent still receives scoped permissions; orchestration never becomes an uncontrolled privilege multiplier.
+
+3. **Risk Engine** — scores every action by danger level (0.01 for `git status`, 0.97 for production deploy). Feeds dynamic approval thresholds, cost allocation, agent selection, and alert prioritization.
+
+4. **Agent Firewall** — per-session network policies with deny-by-default, explicit allow lists, block lists, and data exfiltration detection.
+
+5. **Cost/Token Governor** — budget enforcement per task/session/agent/project/organization with token limits, cost anomaly detection, and automatic pause on budget exhaustion.
+
+6. **Agent Reputation System** — tracks success rates, failure modes, cost efficiency, completion time, and quality metrics per agent/provider across task types. Feeds the Agent Router.
+
+7. **Universal Agent Memory** — shared knowledge layer so agents learn from each other's work: codebase context, learned patterns, previously solved problems, project-specific knowledge.
+
+8. **Automated Verification Service** — post-task validation: run test suites, check coverage, validate against requirements, lint/style checks, security scanning, cross-agent verification.
+
+9. **Policy-as-Code** — policy definitions in YAML (simple rules), Rego/OPA (complex logic), or WebAssembly plugins (custom logic). Example: "security tasks with risk > 0.7 require multi-agent review."
+
+10. **Agent Marketplace/Registry** — discoverable agents with capability declarations, version pinning/hash verification, compatibility metadata, and one-click adapter installation.
+
+11. **Task Scheduler** — cron-based and event-driven task scheduling with policy inheritance, agent routing, and budget enforcement.
+
+12. **Incident/Recovery Service** — checkpoint-based session recovery, automatic rollback on verification failure, incident summary generation, session replay.
+
+13. **Compliance Evidence Engine** — auto-generates evidence packages for SOC2, ISO27001, and internal audits: audit trail exports, policy enforcement records, approval logs, sandbox isolation proofs.
+
+14. **Cross-Agent Benchmarking** — compares agent performance on standardized tasks for agent selection, capacity planning, cost optimization, and vendor evaluation.
+
+15. **Human Approval Intelligence** — smart approval routing, batch similar approvals, suggest decisions based on policy/history, escalation policies, approval fatigue reduction.
+
+**Infrastructure:**
+
+- Durable message broker (NATS/JetStream or SQS/SNS) becomes essential here for multi-agent coordination and event fan-out.
+- Additional DynamoDB tables or Postgres schemas for: routing_policies, agent_reputation, task_memory, verification_results, compliance_packages, benchmarks.
+- If on Path B (AWS serverless): Lambda functions for router, orchestrator, risk engine, verification service. Event-driven via SNS/SQS.
+
+**Cost:** $0 at moderate scale; the orchestration layer adds compute but stays within Always-Free limits for beta-scale usage. Monitor Lambda request volume and DynamoDB capacity as agent count and task volume grow.
 
 ### Phase 18 — Enterprise *(deliberately deferred, unchanged from v1)*
 This is the one phase where "free-only" stops being the right constraint — SSO/SCIM, dedicated SIEM export, and self-hosted Control Plane support for enterprise customers are reasonable to build against paid infrastructure **once there's revenue to justify it.** Nothing here blocks the free MVP.

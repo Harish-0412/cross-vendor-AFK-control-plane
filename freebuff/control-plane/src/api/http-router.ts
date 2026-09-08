@@ -87,6 +87,7 @@ export class HttpRouter {
           if (!existing && decoded.email) {
             try {
               await this.db.users.create({
+                id: decoded.uid,
                 email: decoded.email,
                 name: (decoded['name'] as string) || decoded.email.split('@')[0] || 'User',
                 role: 'user',
@@ -229,11 +230,53 @@ export class HttpRouter {
         return this.sendJson(res, 200, { success: true, message: 'Logged out successfully' });
       }
 
+      // Sync user profile from frontend
+      if (path === '/api/v1/auth/sync' && method === 'POST') {
+        let userAuth = authUser;
+        const idToken = typeof body['idToken'] === 'string' ? body['idToken'] : undefined;
+        if (!userAuth && idToken) {
+          try {
+            const decoded = await verifyFirebaseIdToken(idToken);
+            if (decoded) {
+              userAuth = {
+                id: decoded.uid,
+                email: decoded.email,
+                role: (decoded['role'] as string) || 'user',
+              };
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+        if (!userAuth) {
+          return this.sendJson(res, 401, { error: 'Unauthorized' });
+        }
+        const name = typeof body['name'] === 'string' ? body['name'] : undefined;
+        let user = await this.db.users.findById(userAuth.id);
+        if (!user && userAuth.email) {
+          user = await this.db.users.create({
+            id: userAuth.id,
+            email: userAuth.email,
+            name: name || userAuth.email.split('@')[0] || 'User',
+            role: 'user',
+          });
+        }
+        return this.sendJson(res, 200, { success: true, user });
+      }
+
       if (path === '/api/v1/auth/me' && method === 'GET') {
         if (!authUser) {
           return this.sendJson(res, 401, { error: 'Unauthorized' });
         }
-        const user = await this.db.users.findById(authUser.id);
+        let user = await this.db.users.findById(authUser.id);
+        if (!user && authUser.email) {
+          user = await this.db.users.create({
+            id: authUser.id,
+            email: authUser.email,
+            name: authUser.email.split('@')[0] || 'User',
+            role: 'user',
+          });
+        }
         if (!user) {
           return this.sendJson(res, 404, { error: 'User not found' });
         }

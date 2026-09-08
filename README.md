@@ -1,6 +1,10 @@
-# Vendor-Neutral AFK Control Plane
+# Freebuff — The Kubernetes/Control-Plane Layer for AI Coding Agents
 
-A vendor-neutral remote control platform for AI coding agents (Claude Code, Codex, OpenCode, Cline, Cursor, Antigravity, …). Start a task at your desk, supervise and approve it from your phone — with a mandatory sandbox layer, encrypted device pairing, and a policy engine that no trust profile can bypass.
+**Bring your own agent. We govern the work.**
+
+Freebuff is a vendor-neutral governance and operating layer for autonomous coding agents (Claude Code, Codex, OpenCode, Cline, Cursor, Antigravity, …). Route every task to the right agent, enforce policies before execution, isolate every workload, control network and secrets access, verify the result automatically, and require humans only when risk demands it.
+
+Freebuff doesn't replace your agents — it makes them interchangeable execution engines under a unified control plane that handles identity, policy, agent routing, security, observability, cost management, orchestration, governance, knowledge, and recovery.
 
 📄 **Full architecture, threat model, and implementation spec:** [Executive_Summary_Enhanced.docx](./docs/Executive_Summary_Enhanced.docx)
 This README covers **building and running the project**. For the full design rationale, security fixes, and diagrams, read the doc above.
@@ -9,6 +13,7 @@ This README covers **building and running the project**. For the full design rat
 
 ## Table of Contents
 
+- [Strategic Positioning](#strategic-positioning)
 - [System Overview](#system-overview)
 - [Repository Layout](#repository-layout)
 - [Prerequisites](#prerequisites)
@@ -25,17 +30,109 @@ This README covers **building and running the project**. For the full design rat
 
 ---
 
+## Strategic Positioning
+
+Freebuff is **the Kubernetes/control-plane layer for AI coding agents**.
+
+Not another coding agent. Not another IDE. Not another remote terminal.
+
+Instead, Freebuff provides a unified layer that sits between your developers and all their coding agents:
+
+```
+                   YOUR CONTROL PLANE
+                          │
+        ┌─────────────────┼─────────────────┐
+        │                 │                 │
+      SECURITY         GOVERNANCE       INTELLIGENCE
+        │                 │                 │
+    Sandbox             Policy           Routing
+    Firewall            Risk             Cost
+    Secrets             Approval         Reputation
+    DLP                 Audit            Benchmark
+        │                 │                 │
+        └─────────────────┼─────────────────┘
+                          │
+                 MULTI-AGENT FABRIC
+                          │
+       ┌──────────┬───────┼─────────┬──────────┐
+       ▼          ▼       ▼         ▼          ▼
+    Claude     Codex   OpenCode   Cursor    Internal
+       │          │       │         │          │
+       └──────────┴───────┴─────────┴──────────┘
+                          │
+                          ▼
+                  SOFTWARE DELIVERY
+```
+
+The key differentiator: **agents become interchangeable execution engines.**
+
+When a user says "Fix this production bug," Freebuff decides:
+
+- Which agent should handle it (Claude for implementation, Codex for security review, OpenCode for tests)
+- Which model/provider to use
+- What permissions the agent gets
+- What files it can access
+- What network destinations it can reach
+- What actions require approval
+- How much compute/token budget it can consume
+- Whether another agent should review the work
+- Whether the final change satisfies organizational policy
+
+This turns your project into an **agent-neutral execution marketplace**.
+
+### The Opportunity
+
+The market is moving from AI autocomplete to autonomous agents. Competitors are building isolated agent experiences with their own governance:
+
+- OpenAI Codex: sandboxing, approvals, constrained networking, agent telemetry
+- Coder: centralized agent controls, server-side policy enforcement, identity attribution
+- GitHub Copilot: async coding agents, session logs, review/approval capabilities
+- Cloudflare AI Gateway: observability, cost tracking, rate limiting, DLP for coding agents
+- Devin: enterprise RBAC, audit logs, secrets governance, session controls
+
+These products compete on **"our agent with our governance."**
+
+Freebuff competes on **"any agent with your governance."**
+
+### Recommended Services
+
+| Service | Value | Differentiation |
+|---|---|---|
+| **Agent Router** | Very High | Automatically route tasks to the best agent based on complexity, security sensitivity, budget, and historical success rates |
+| **Multi-Agent Orchestrator** | Very High | Coordinate specialized agents (Planner → Coder → Tester → Reviewer) with confidence aggregation and final gates |
+| **Risk Engine** | Very High | Score every action by risk level (0.01 for `git status`, 0.89 for `rm -rf`, 0.97 for prod deploy) |
+| **Agent Firewall** | Very High | Control network destinations per session, block data exfiltration, enforce egress policies |
+| **Cost/Token Governor** | Very High | Budget enforcement per task, agent, project, and organization; cost anomaly detection |
+| **Agent Reputation System** | High | Track success rates, failure modes, and cost efficiency per agent/provider across tasks |
+| **Universal Agent Memory** | High | Shared knowledge layer so agents learn from each other's work | 
+| **Automated Verification Service** | Very High | Post-task verification: run tests, check coverage, validate against requirements |
+| **Policy-as-Code** | Very High | Declarative policies in YAML/Rego that define allowed actions, risk thresholds, and routing rules |
+| **Agent Marketplace/Registry** | High | Discoverable, version-pinned agents with capability declarations and compatibility metadata |
+| **Task Scheduler** | High | Cron-like and event-driven task scheduling with agent assignment and policy inheritance |
+| **Incident/Recovery Service** | High | Checkpoint-based recovery, session resumability, rollback on failed verifications |
+| **Compliance Evidence Engine** | High | Auto-generate audit evidence packages for SOC2, ISO27001, and internal audits |
+| **Cross-Agent Benchmarking** | Very High | Compare agent performance on standardized tasks for capacity planning |
+| **Human Approval Intelligence** | High | Smart approval routing, escalation policies, and approval fatigue reduction |
+
+---
+
 ## System Overview
 
-Two deployable units, built and versioned independently:
+Three deployable zones, built and versioned independently:
 
 | Component | Language/Runtime (suggested) | Runs where |
 |---|---|---|
 | **Agent Gateway** | Node.js or Go binary | Developer's local machine |
 | **Control Plane** | Node.js/TypeScript or Go services + Postgres + Redis | Cloud (Docker/Kubernetes) |
+| **Orchestration & Governance Services** | Node.js/TypeScript or Go services | Cloud (Docker/Kubernetes) |
 
 ```
 Mobile/Web App  <--WSS-->  Control Plane  <--E2E encrypted tunnel-->  Agent Gateway  -->  Sandboxed Agent Process
+                                                                                    ▲
+                                                                                    │
+                                                                      ┌───────────┴───────────┐
+                                                                      │  Claude │ Codex │ OC  │
+                                                                      └───────────────────────┘
 ```
 
 See the full doc's Section 7 (Enhanced Architecture) and Section 8 (Feature Implementation) for the complete service breakdown and sequence diagrams before you start implementing.

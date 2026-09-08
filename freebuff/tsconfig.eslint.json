@@ -25,7 +25,8 @@
       "@freebuff/pairing": ["./gateway/pairing/src/index.ts"],
       "@freebuff/certificate": ["./gateway/certificate/src/index.ts"],
       "@freebuff/reconciliation": ["./gateway/reconciliation/src/index.ts"],
-      "@freebuff/gateway-core": ["./gateway/core/src/index.ts"]
+      "@freebuff/gateway-core": ["./gateway/core/src/index.ts"],
+      "@freebuff/control-plane": ["./control-plane/src/index.ts"]
     }
   },
   "include": [
@@ -33,7 +34,9 @@
     "gateway/*/src/**/*.ts",
     "gateway/*/tests/**/*.ts",
     "gateway/adapters/*/src/**/*.ts",
-    "gateway/adapters/*/tests/**/*.ts"
+    "gateway/adapters/*/tests/**/*.ts",
+    "control-plane/src/**/*.ts",
+    "control-plane/tests/**/*.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

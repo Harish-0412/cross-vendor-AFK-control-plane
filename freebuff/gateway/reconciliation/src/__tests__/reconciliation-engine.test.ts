@@ -250,7 +250,9 @@ describe('ReconciliationEngine', () => {
   });
 
   it('should handle replay errors gracefully', async () => {
-    vi.mocked(mocks.eventStore.replayEvent).mockRejectedValueOnce(new Error('disk full'));
+    (mocks.eventStore.replayEvent as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('disk full'),
+    );
 
     const response = {
       deviceId: 'dev_abc',

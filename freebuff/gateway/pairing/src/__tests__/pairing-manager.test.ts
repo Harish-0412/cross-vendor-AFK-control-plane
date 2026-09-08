@@ -4,7 +4,7 @@ import * as path from 'node:path';
 
 import { createDeviceIdentityManager } from '@freebuff/identity';
 import type { DeviceCertificate } from '@freebuff/protocol';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { createPairingRateLimiter } from '../code-generator';
 import {

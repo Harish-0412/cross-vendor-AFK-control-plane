@@ -5,12 +5,16 @@ node_modules/
 # Build outputs
 dist/
 build/
+.next/
 *.tsbuildinfo
+*.zip
 
 # Environment and secrets
 .env
 .env.local
 .env.*.local
+!.env*.example
+!.env.example
 *.pem
 *.key
 *.cert

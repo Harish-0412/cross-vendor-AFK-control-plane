@@ -3,6 +3,50 @@ import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 
 import { createMockAdapter, type MockAdapter } from '../src/mock-adapter';
 
+/**
+ * Poll until `check` returns true, or fail the test when it never does.
+ *
+ * Replaces `new Promise(resolve => setInterval(async () => ...))`. setInterval
+ * discards the promise an async callback returns, so a throw inside the poll
+ * was swallowed and the test hung until the suite timeout instead of failing
+ * with the real error. A condition that never becomes true now fails loudly
+ * rather than hanging.
+ */
+async function waitUntil(check: () => boolean | Promise<boolean>, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await check()) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Condition not met within ${timeoutMs}ms`);
+}
+
+/**
+ * Poll until the session reaches a terminal state.
+ *
+ * Replaces `new Promise(resolve => setInterval(async () => ...))`, where the
+ * async callback's rejection was discarded by setInterval: a throw from
+ * getState hung the test until the suite timeout instead of failing it.
+ */
+async function waitForTerminalState(
+  adapter: MockAdapter,
+  sessionId: string,
+  stream: { unsubscribe(): void },
+  timeoutMs = 5000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  try {
+    while (Date.now() < deadline) {
+      const state = await adapter.getState(sessionId);
+      if (state === 'completed' || state === 'failed' || state === 'cancelled') return;
+      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error(`Session ${sessionId} did not reach a terminal state in ${timeoutMs}ms`);
+  } finally {
+    stream.unsubscribe();
+  }
+}
+
 describe('MockAdapter', () => {
   let adapter: MockAdapter;
 
@@ -68,16 +112,7 @@ describe('MockAdapter', () => {
       onEvent: (e) => events.push(e),
     });
 
-    await new Promise<void>((resolve) => {
-      const check = setInterval(async () => {
-        const state = await adapter.getState(sessionId);
-        if (state === 'completed' || state === 'failed' || state === 'cancelled') {
-          clearInterval(check);
-          stream.unsubscribe();
-          resolve();
-        }
-      }, 50);
-    });
+    await waitForTerminalState(adapter, sessionId, stream);
 
     const types = events.map((e) => e.eventType);
     expect(types).toContain('session.started');
@@ -95,14 +130,9 @@ describe('MockAdapter', () => {
     };
     const sessionId = await adapter.startSession(config);
 
-    await new Promise<void>((resolve) => {
-      const check = setInterval(async () => {
-        const state = await adapter.getState(sessionId);
-        if (state !== 'running' && state !== 'initializing') {
-          clearInterval(check);
-          resolve();
-        }
-      }, 50);
+    await waitUntil(async () => {
+      const state = await adapter.getState(sessionId);
+      return state !== 'running' && state !== 'initializing';
     });
 
     const finalState = await adapter.getState(sessionId);
@@ -117,14 +147,9 @@ describe('MockAdapter', () => {
     };
     const sessionId = await adapter.startSession(config);
 
-    await new Promise<void>((resolve) => {
-      const check = setInterval(async () => {
-        const state = await adapter.getState(sessionId);
-        if (state !== 'running' && state !== 'initializing') {
-          clearInterval(check);
-          resolve();
-        }
-      }, 50);
+    await waitUntil(async () => {
+      const state = await adapter.getState(sessionId);
+      return state !== 'running' && state !== 'initializing';
     });
 
     expect(await adapter.getState(sessionId)).toBe('cancelled');
@@ -145,14 +170,9 @@ describe('MockAdapter', () => {
 
     await adapter.abortSession(sessionId, 'test abort', true);
 
-    await new Promise<void>((resolve) => {
-      const check = setInterval(async () => {
-        const state = await adapter.getState(sessionId);
-        if (state === 'cancelled' || state === 'completed') {
-          clearInterval(check);
-          resolve();
-        }
-      }, 50);
+    await waitUntil(async () => {
+      const state = await adapter.getState(sessionId);
+      return state === 'cancelled' || state === 'completed';
     });
 
     expect(await adapter.getState(sessionId)).toBe('cancelled');
@@ -184,14 +204,7 @@ describe('MockAdapter', () => {
       },
     });
 
-    await new Promise<void>((resolve) => {
-      const check = setInterval(async () => {
-        if (approvalEvents.length > 0) {
-          clearInterval(check);
-          resolve();
-        }
-      }, 50);
-    });
+    await waitUntil(() => approvalEvents.length > 0);
 
     const approvalPayload = approvalEvents[0]!.payload as { approvalId: string };
     expect(approvalPayload.approvalId).toBeDefined();
@@ -202,14 +215,9 @@ describe('MockAdapter', () => {
       'test approval',
     );
 
-    await new Promise<void>((resolve) => {
-      const check = setInterval(async () => {
-        const state = await adapter.getState(sessionId);
-        if (state === 'completed') {
-          clearInterval(check);
-          resolve();
-        }
-      }, 50);
+    await waitUntil(async () => {
+      const state = await adapter.getState(sessionId);
+      return state === 'completed';
     });
   });
 

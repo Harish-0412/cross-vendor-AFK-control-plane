@@ -107,32 +107,34 @@ export class MockEventStream implements AsyncIterable<EventEnvelope> {
   }
 
   [Symbol.asyncIterator](): AsyncIterator<EventEnvelope> {
-    const stream = this;
     let index = 0;
 
+    // Arrow functions rather than method shorthand plus a `const stream = this`
+    // alias: a shorthand method's `this` is the returned iterator object, not
+    // the stream, so the alias was load-bearing. Arrows close over the
+    // instance directly and keep the reference obvious.
     return {
-      async next(): Promise<IteratorResult<EventEnvelope>> {
-        while (true) {
+      next: async (): Promise<IteratorResult<EventEnvelope>> => {
+        for (;;) {
           // First, drain any buffered events by index
-          if (index < stream.buffer.length) {
-            const value = stream.buffer[index]!;
+          if (index < this.buffer.length) {
+            const value = this.buffer[index]!;
             index++;
             return { value, done: false };
           }
-          if (stream.closed) {
+          if (this.closed) {
             return { value: undefined, done: true };
           }
           // Wait for the next event via the drain queue
           const nextEvent = await new Promise<EventEnvelope>((resolve) => {
-            stream.drainQueue.push(resolve);
+            this.drainQueue.push(resolve);
           });
           // The drain queue resolved with the event directly — return it
           return { value: nextEvent, done: false };
         }
       },
-      async return(): Promise<IteratorResult<EventEnvelope>> {
-        return { value: undefined, done: true };
-      },
+      return: (): Promise<IteratorResult<EventEnvelope>> =>
+        Promise.resolve({ value: undefined, done: true }),
     };
   }
 }

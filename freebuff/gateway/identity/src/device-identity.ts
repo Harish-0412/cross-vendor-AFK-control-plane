@@ -6,6 +6,7 @@ import {
   sign,
   verify,
   type KeyObject,
+  type JsonWebKey,
 } from 'node:crypto';
 
 import {
@@ -18,7 +19,12 @@ import {
 } from '@freebuff/protocol';
 
 import { createFingerprint } from './fingerprint';
-import { createKeyStorage, type KeyStorage, type KeyStorageOptions } from './key-storage';
+import {
+  createKeyStorage,
+  type KeyStorage,
+  type KeyStorageOptions,
+  type StoredDeviceData,
+} from './key-storage';
 
 export interface DeviceIdentityManagerOptions {
   algorithm?: KeyAlgorithm;
@@ -76,7 +82,7 @@ export class DeviceIdentityManager {
       ...keyMaterial,
       deviceId: identity.deviceId,
       gatewayId: identity.gatewayId,
-    } as import('./key-storage').StoredDeviceData);
+    } as StoredDeviceData);
     this.keyMaterial = keyMaterial;
     this.identity = identity;
     this.cacheKeyObjects(keyMaterial);
@@ -106,7 +112,7 @@ export class DeviceIdentityManager {
       ...newKeys,
       deviceId: newIdentity.deviceId,
       gatewayId: newIdentity.gatewayId,
-    } as import('./key-storage').StoredDeviceData);
+    } as StoredDeviceData);
     this.keyMaterial = newKeys;
     this.identity = newIdentity;
     this.cacheKeyObjects(newKeys);
@@ -149,7 +155,7 @@ export class DeviceIdentityManager {
     let keyObj: KeyObject | null = null;
     if (publicKeyJwk) {
       keyObj = createPublicKey({
-        key: publicKeyJwk as import('node:crypto').JsonWebKey,
+        key: publicKeyJwk as JsonWebKey,
         format: 'jwk',
       });
     } else {
@@ -266,11 +272,11 @@ export class DeviceIdentityManager {
 
   private cacheKeyObjects(keyMaterial: DeviceKeyMaterial): void {
     this.privateKeyObj = createPrivateKey({
-      key: keyMaterial.privateKeyJwk as import('node:crypto').JsonWebKey,
+      key: keyMaterial.privateKeyJwk as JsonWebKey,
       format: 'jwk',
     });
     this.publicKeyObj = createPublicKey({
-      key: keyMaterial.publicKeyJwk as import('node:crypto').JsonWebKey,
+      key: keyMaterial.publicKeyJwk as JsonWebKey,
       format: 'jwk',
     });
   }
