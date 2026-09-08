@@ -1,10 +1,13 @@
-# Freebuff — The Kubernetes/Control-Plane Layer for AI Coding Agents
+# Odysseus — The Kubernetes/Control-Plane Layer for AI Coding Agents
 
 **Bring your own agent. We govern the work.**
 
-Freebuff is a vendor-neutral governance and operating layer for autonomous coding agents (Claude Code, Codex, OpenCode, Cline, Cursor, Antigravity, …). Route every task to the right agent, enforce policies before execution, isolate every workload, control network and secrets access, verify the result automatically, and require humans only when risk demands it.
+Odysseus is a vendor-neutral governance and operating layer for autonomous coding agents (Claude Code, Codex, OpenCode, Cline, Cursor, Antigravity, …). Route every task to the right agent, enforce policies before execution, isolate every workload, control network and secrets access, verify the result automatically, and require humans only when risk demands it.
 
-Freebuff doesn't replace your agents — it makes them interchangeable execution engines under a unified control plane that handles identity, policy, agent routing, security, observability, cost management, orchestration, governance, knowledge, and recovery.
+Odysseus doesn't replace your agents — it makes them interchangeable execution engines under a unified control plane that handles identity, policy, agent routing, security, observability, cost management, orchestration, governance, knowledge, and recovery.
+
+* **Live Web UI:** [https://freebuff-control-center.vercel.app](https://freebuff-control-center.vercel.app)
+* **Live Control Plane API:** [https://freebuff-control-plane.onrender.com](https://freebuff-control-plane.onrender.com)
 
 📄 **Full architecture, threat model, and implementation spec:** [Executive_Summary_Enhanced.docx](./docs/Executive_Summary_Enhanced.docx)
 This README covers **building and running the project**. For the full design rationale, security fixes, and diagrams, read the doc above.
@@ -33,11 +36,11 @@ This README covers **building and running the project**. For the full design rat
 
 ## Strategic Positioning
 
-Freebuff is **the Kubernetes/control-plane layer for AI coding agents**.
+Odysseus is **the Kubernetes/control-plane layer for AI coding agents**.
 
 Not another coding agent. Not another IDE. Not another remote terminal.
 
-Instead, Freebuff provides a unified layer that sits between your developers and all their coding agents:
+Instead, Odysseus provides a unified layer that sits between your developers and all their coding agents:
 
 ```
                    YOUR CONTROL PLANE
@@ -67,7 +70,7 @@ Instead, Freebuff provides a unified layer that sits between your developers and
 
 The key differentiator: **agents become interchangeable execution engines.**
 
-When a user says "Fix this production bug," Freebuff decides:
+When a user says "Fix this production bug," Odysseus decides:
 
 - Which agent should handle it (Claude for implementation, Codex for security review, OpenCode for tests)
 - Which model/provider to use
@@ -93,7 +96,7 @@ The market is moving from AI autocomplete to autonomous agents. Competitors are 
 
 These products compete on **"our agent with our governance."**
 
-Freebuff competes on **"any agent with your governance."**
+Odysseus competes on **"any agent with your governance."**
 
 ### Recommended Services
 

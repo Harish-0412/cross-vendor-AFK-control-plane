@@ -1,5 +1,6 @@
 "use client"
 
+import { useRouter } from "next/navigation"
 import { Bot, Github, Twitter, MessageCircle, Youtube } from "lucide-react"
 import { Reveal } from "@/components/reveal"
 import { MagneticButton } from "@/components/magnetic-button"
@@ -19,6 +20,8 @@ const socials = [
 ]
 
 export function CtaFooter() {
+  const router = useRouter();
+  const handleGetStarted = () => router.push("/dashboard");
   return (
     <footer className="relative px-6 pt-24 md:px-12 md:pt-32 lg:px-16">
       <div className="mx-auto max-w-7xl">
@@ -33,7 +36,7 @@ export function CtaFooter() {
               Start supervising your AI agents from anywhere. Free for individual developers.
             </p>
             <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <MagneticButton size="lg" variant="primary">
+              <MagneticButton size="lg" variant="primary" onClick={handleGetStarted}>
                 Get Started Free
               </MagneticButton>
               <MagneticButton size="lg" variant="secondary" className="inline-flex items-center gap-2">
@@ -72,18 +75,16 @@ export function CtaFooter() {
               </ul>
             </div>
           ))}
-        </div>
-
-        <div className="flex flex-col items-center justify-between gap-6 border-t border-border py-8 md:flex-row">
+        </div>          <div className="flex flex-col items-center justify-between gap-6 border-t border-border py-8 md:flex-row">
           <div className="text-center md:text-left">
-            <p className="text-sm text-foreground/60">© 2026 SmartConnect. Open source under MIT License.</p>
+            <p className="text-sm text-foreground/60">© 2026 Odysseus AFK Control Plane. Open source under MIT License.</p>
             <p className="font-mono text-xs text-foreground/40">Made for developers who go AFK.</p>
           </div>
           <div className="flex gap-2">
             {socials.map((s) => (
               <a
                 key={s.label}
-                href="#"
+                href={s.label === "GitHub" ? "https://github.com/Harish-0412/cross-vendor-AFK-control-plane" : "#"}
                 aria-label={s.label}
                 className="flex h-10 w-10 items-center justify-center rounded-lg border border-border text-foreground/60 transition-colors hover:border-primary/40 hover:text-foreground"
               >

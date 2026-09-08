@@ -1,5 +1,6 @@
 "use client"
 
+import { useRouter } from "next/navigation"
 import FoldText from "@/components/FoldText"
 import TiltedCard from "@/components/TiltedCard"
 import { Play, Check } from "lucide-react"
@@ -9,6 +10,9 @@ import { AgentPhone } from "@/components/agent-phone"
 const badges = ["No credit card required", "Open source", "Runs locally"]
 
 export function Hero({ isLoaded }: { isLoaded: boolean }) {
+  const router = useRouter()
+  const handleGetStarted = () => router.push("/dashboard")
+
   return (
     <section
       id="top"
@@ -49,7 +53,7 @@ export function Hero({ isLoaded }: { isLoaded: boolean }) {
           </p>
 
           <div className="mb-8 flex animate-in fade-in slide-in-from-bottom-4 flex-col gap-3 duration-1000 delay-300 sm:flex-row sm:items-center">
-            <MagneticButton size="lg" variant="primary">
+            <MagneticButton size="lg" variant="primary" onClick={handleGetStarted}>
               Get Started Free
             </MagneticButton>
             <MagneticButton size="lg" variant="secondary" className="inline-flex items-center gap-2">
@@ -69,7 +73,7 @@ export function Hero({ isLoaded }: { isLoaded: boolean }) {
         </div>
 
         <div className="flex animate-in fade-in slide-in-from-bottom-8 justify-center duration-1000 delay-500 lg:justify-end">
-          <TiltedCard 
+          <TiltedCard
             imageSrc={null}
             displayOverlayContent={true}
             overlayContent={<AgentPhone />}

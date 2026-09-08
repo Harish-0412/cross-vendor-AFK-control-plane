@@ -1,0 +1,18 @@
+# Git / package metadata
+.git
+.pnpm-store
+
+# Build outputs
+node_modules
+dist
+.next
+*.tsbuildinfo
+
+# Large binary artifacts (not needed to build the Next.js app)
+*.pdf
+*.docx
+*.zip
+
+# Local dev / scratch
+.odysseus
+frontend/.env.local
