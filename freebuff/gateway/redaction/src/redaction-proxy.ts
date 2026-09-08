@@ -1,5 +1,13 @@
-import { EventEnvelope, SessionOutputPayload, SessionMessagePayload, ToolCallPayload, ToolResultPayload, FileChangedPayload } from '@freebuff/protocol';
-import { Redactor, Classifier, SecretType } from './types';
+import {
+  type EventEnvelope,
+  type SessionOutputPayload,
+  type SessionMessagePayload,
+  type ToolCallPayload,
+  type ToolResultPayload,
+  type FileChangedPayload,
+} from '@freebuff/protocol';
+
+import { type Redactor, type Classifier, type SecretType } from './types';
 
 export interface RedactionProxyStats {
   eventsProcessed: number;
@@ -22,7 +30,7 @@ export class DefaultRedactionProxy implements RedactionProxy {
   private redactor: Redactor;
   private classifier: Classifier;
   private options: RedactionProxyOptions;
-  
+
   private stats: RedactionProxyStats = {
     eventsProcessed: 0,
     secretsRedacted: 0,
@@ -49,13 +57,13 @@ export class DefaultRedactionProxy implements RedactionProxy {
     }
 
     const start = performance.now();
-    
+
     // We only process specific event types that contain agent-produced text
     const processedEvent = this.processPayload(event);
-    
+
     const end = performance.now();
     const duration = end - start;
-    
+
     this.totalLatencyMs += duration;
     this.stats.eventsProcessed++;
     this.stats.averageLatencyMs = this.totalLatencyMs / this.stats.eventsProcessed;
@@ -81,8 +89,8 @@ export class DefaultRedactionProxy implements RedactionProxy {
         payload: {
           payload_blocked: true,
           reason: 'restricted_content',
-          original_type: event.eventType
-        }
+          original_type: event.eventType,
+        },
       };
     }
 
@@ -101,11 +109,11 @@ export class DefaultRedactionProxy implements RedactionProxy {
         const msg = payload as SessionMessagePayload;
         const result = this.redactor.redact(msg.content);
         let thinkingRedacted = msg.thinking;
-        
+
         if (msg.thinking) {
-           const thinkingResult = this.redactor.redact(msg.thinking);
-           thinkingRedacted = thinkingResult.text;
-           this.updateStats(thinkingResult.matches);
+          const thinkingResult = this.redactor.redact(msg.thinking);
+          thinkingRedacted = thinkingResult.text;
+          this.updateStats(thinkingResult.matches);
         }
 
         this.updateStats(result.matches);
@@ -115,7 +123,7 @@ export class DefaultRedactionProxy implements RedactionProxy {
       case 'session.tool_call': {
         const call = payload as ToolCallPayload;
         const result = this.redactor.redactObject(call.arguments);
-        // Note: tracking matches inside object redaction would require changes to redactObject, 
+        // Note: tracking matches inside object redaction would require changes to redactObject,
         // assuming it doesn't return match stats right now, we just pass the object through.
         redactedPayload = { ...call, arguments: result };
         break;
@@ -145,7 +153,7 @@ export class DefaultRedactionProxy implements RedactionProxy {
 
     return {
       ...event,
-      payload: redactedPayload
+      payload: redactedPayload,
     };
   }
 

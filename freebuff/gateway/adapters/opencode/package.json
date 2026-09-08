@@ -9,5 +9,5 @@
   "exports": { ".": { "types": "./dist/index.d.ts", "default": "./src/index.ts" } },
   "scripts": { "build": "tsc --build", "test": "vitest run", "typecheck": "tsc --build --dry" },
   "dependencies": { "@freebuff/protocol": "workspace:*", "@freebuff/sandbox": "workspace:*" },
-  "devDependencies": { "@types/node": "^20.12.0", "vitest": "^1.5.0" }
+  "devDependencies": { "@types/node": "^20.12.0", "vitest": "^1.5.0", "@freebuff/redaction": "workspace:*" }
 }

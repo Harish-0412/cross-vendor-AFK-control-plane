@@ -1,5 +1,5 @@
-import type { AuditEvent } from '../types';
 import type { IDatabase } from '../db/types';
+import type { AuditEvent } from '../types';
 
 /**
  * §8 — Audit Subsystem.

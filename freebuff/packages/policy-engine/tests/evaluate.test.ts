@@ -371,13 +371,35 @@ describe('Policy Engine §9.9 — Deny-override immutability', () => {
   });
 
   it('all deny-floor entries are covered by the floor list', () => {
-    // Verify the floor entries exist and are what we expect
-    expect(DENY_OVERRIDE_FLOOR).toHaveLength(3);
+    // Verify the floor entries exist and are what we expect. Two force-push
+    // entries (Phase 9's protected-branch requirement) were added alongside
+    // the original three; this list is intentionally spelled out rather than
+    // just length-checked so a future addition is forced to update this test
+    // and think about whether the new entry's resourcePattern is correct.
+    expect(DENY_OVERRIDE_FLOOR).toHaveLength(5);
     expect(DENY_OVERRIDE_FLOOR.map((e) => e.capability)).toEqual([
       'deployment.execute',
       'filesystem.delete',
       'secret.read',
+      'git.push',
+      'git.push',
     ]);
+  });
+
+  it('does not deny a resource-scoped floor capability when no resource is given', () => {
+    // Regression: denyFloorMatches previously treated "this floor entry has a
+    // resourcePattern, but no resource was passed in" as equivalent to "this
+    // entry has no resourcePattern" and matched unconditionally — so an
+    // ordinary git.push evaluated without a `resource` field (a legitimate
+    // shape: not every push targets a named ref the caller bothers to pass)
+    // was denied by the floor even though it was nowhere near force-pushing
+    // main/master. A resource-scoped entry must require an actual matching
+    // resource, never match on the entry's mere existence.
+    const result = evaluate(
+      makeContext({ capability: 'git.push', riskClass: 'high' }),
+      null,
+    );
+    expect(result.decision).toBe('require_approval');
   });
 });
 

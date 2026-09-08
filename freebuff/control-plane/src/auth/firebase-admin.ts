@@ -2,7 +2,15 @@
 // Firebase Admin SDK initialization and verification helpers
 
 import * as fs from 'node:fs';
-import { initializeApp, cert, getApps, getApp, type App } from 'firebase-admin/app';
+
+import {
+  initializeApp,
+  cert,
+  getApps,
+  getApp,
+  type App,
+  type ServiceAccount,
+} from 'firebase-admin/app';
 import { getAuth, type Auth, type DecodedIdToken } from 'firebase-admin/auth';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { getMessaging, type Messaging } from 'firebase-admin/messaging';
@@ -13,7 +21,10 @@ let adminDb: Firestore | null = null;
 let adminMessaging: Messaging | null = null;
 
 export function isFirebaseAdminConfigured(): boolean {
-  if (process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
+  if (
+    process.env.GOOGLE_APPLICATION_CREDENTIALS &&
+    fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)
+  ) {
     return true;
   }
   return Boolean(
@@ -37,10 +48,25 @@ export function initFirebaseAdmin(): App | null {
     const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
     if (credPath && fs.existsSync(credPath)) {
       const fileContent = fs.readFileSync(credPath, 'utf8');
-      const serviceAccount = JSON.parse(fileContent);
+      // The downloaded Google service-account key file uses snake_case keys
+      // (project_id, private_key, ...). firebase-admin's `cert()` accepts
+      // this raw shape at runtime (its internal credential loader reads
+      // both project_id and projectId), but its TypeScript surface only
+      // declares the camelCase `ServiceAccount` interface — there is no
+      // exported type for the raw on-disk JSON shape. Parsed as `unknown`
+      // and narrowed with a real check on the one field we read directly,
+      // rather than letting `any` propagate from JSON.parse.
+      const parsed: unknown = JSON.parse(fileContent);
+      if (typeof parsed !== 'object' || parsed === null) {
+        throw new Error(`Malformed service account file at ${credPath}: not a JSON object`);
+      }
+      const serviceAccount = parsed as Record<string, unknown>;
+      const projectId =
+        (typeof serviceAccount['project_id'] === 'string' ? serviceAccount['project_id'] : undefined) ??
+        process.env.FIREBASE_PROJECT_ID;
       adminApp = initializeApp({
-        credential: cert(serviceAccount),
-        projectId: serviceAccount.project_id || process.env.FIREBASE_PROJECT_ID,
+        credential: cert(serviceAccount as unknown as ServiceAccount),
+        ...(projectId ? { projectId } : {}),
       });
     } else if (
       process.env.FIREBASE_PROJECT_ID &&
@@ -65,7 +91,10 @@ export function initFirebaseAdmin(): App | null {
       adminDb = getFirestore(adminApp);
       adminMessaging = getMessaging(adminApp);
       // eslint-disable-next-line no-console
-      console.info('[Firebase Admin] Successfully initialized for project:', adminApp.options.projectId);
+      console.info(
+        '[Firebase Admin] Successfully initialized for project:',
+        adminApp.options.projectId,
+      );
     }
     return adminApp;
   } catch (error) {

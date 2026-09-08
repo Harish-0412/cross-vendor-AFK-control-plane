@@ -1,7 +1,5 @@
-import { execFile } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { promisify } from 'node:util';
 
 import { PROJECT_ACCESS_TTL_MS } from '@freebuff/config';
 import type {
@@ -14,7 +12,7 @@ import type {
 } from '@freebuff/protocol';
 import { generateProjectId, deriveProjectName, DEFAULT_DENIED_PATHS } from '@freebuff/protocol';
 
-const execFileAsync = promisify(execFile);
+import { safeGitExec } from './git/git-exec';
 
 interface ProjectRecord {
   info: ProjectInfo;
@@ -108,20 +106,16 @@ export class ProjectManager {
         writablePaths.push('.git');
       }
 
-      const branches = await this.safeGitExec(resolvedRoot, ['symbolic-ref', '--short', 'HEAD']);
+      const branches = await safeGitExec(resolvedRoot, ['symbolic-ref', '--short', 'HEAD']);
       if (branches.success) {
         currentBranch = branches.stdout.trim();
       }
 
-      const defBranch = await this.safeGitExec(resolvedRoot, [
-        'config',
-        '--get',
-        'init.defaultBranch',
-      ]);
+      const defBranch = await safeGitExec(resolvedRoot, ['config', '--get', 'init.defaultBranch']);
       if (defBranch.success && defBranch.stdout.trim()) {
         defaultBranch = defBranch.stdout.trim();
       } else {
-        const branchesResult = await this.safeGitExec(resolvedRoot, ['branch', '--list']);
+        const branchesResult = await safeGitExec(resolvedRoot, ['branch', '--list']);
         if (branchesResult.success) {
           const lines = branchesResult.stdout
             .split('\n')
@@ -136,7 +130,7 @@ export class ProjectManager {
         }
       }
 
-      const commit = await this.safeGitExec(resolvedRoot, ['log', '-1', '--format=%H%x09%ct']);
+      const commit = await safeGitExec(resolvedRoot, ['log', '-1', '--format=%H%x09%ct']);
       if (commit.success) {
         const [hash, unixTime] = commit.stdout.trim().split('\t');
         if (hash) lastCommitHash = hash;
@@ -374,22 +368,6 @@ export class ProjectManager {
         ? path.join(process.env.HOMEDRIVE, process.env.HOMEPATH)
         : '/')
     );
-  }
-
-  private async safeGitExec(
-    cwd: string,
-    args: string[],
-  ): Promise<{ success: boolean; stdout: string; stderr: string }> {
-    try {
-      const result = await execFileAsync('git', args, {
-        cwd,
-        timeout: 5000,
-        windowsHide: true,
-      });
-      return { success: true, stdout: result.stdout, stderr: result.stderr };
-    } catch {
-      return { success: false, stdout: '', stderr: '' };
-    }
   }
 }
 

@@ -4,12 +4,12 @@ export type Decision =
   | { decision: 'allow'; policyVersion: string }
   | { decision: 'deny'; policyVersion: string; reason: string; matchedRules?: string[] }
   | {
-      decision: 'require_approval'
-      policyVersion: string
-      requiredRole?: 'owner' | 'admin'
-      expiresAt: Date
-      matchedRules: string[]
-      reason: string
+      decision: 'require_approval';
+      policyVersion: string;
+      requiredRole?: 'owner' | 'admin';
+      expiresAt: Date;
+      matchedRules: string[];
+      reason: string;
     };
 
 export type TrustProfile = 'supervised' | 'trusted-afk' | 'read-only' | 'locked' | 'default';
@@ -47,6 +47,8 @@ export interface PolicyEvaluationContext {
   trustProfile: TrustProfile;
   deviceStatus: 'trusted' | 'revoked' | 'suspended';
   userId: string;
+  /** Git push modifier; used by the non-overridable protected-branch floor. */
+  force?: boolean;
 }
 
 export interface ApprovalRequest {
@@ -90,5 +92,7 @@ export type Capability =
   | 'package.install'
   | 'git.commit'
   | 'git.push'
+  | 'git.branch_create'
+  | 'git.pull_request_create'
   | 'deployment.execute'
   | 'secret.read';

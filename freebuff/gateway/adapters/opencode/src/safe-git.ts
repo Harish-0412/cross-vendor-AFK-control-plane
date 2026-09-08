@@ -7,7 +7,10 @@ const execFileAsync = promisify(execFile);
 export async function safeGitDiff(projectRoot: string): Promise<string> {
   try {
     const { stdout } = await execFileAsync('git', ['diff', '--no-ext-diff', '--binary', '--'], {
-      cwd: projectRoot, timeout: 5_000, windowsHide: true, maxBuffer: 10 * 1024 * 1024,
+      cwd: projectRoot,
+      timeout: 5_000,
+      windowsHide: true,
+      maxBuffer: 10 * 1024 * 1024,
     });
     return stdout;
   } catch (error) {

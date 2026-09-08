@@ -11,6 +11,12 @@ export type CommandType =
   | 'session.approve'
   | 'session.deny'
   | 'session.input'
+  | 'session.diff_collection'
+  | 'session.run_tests'
+  | 'git.branch_create'
+  | 'git.commit'
+  | 'git.push'
+  | 'git.status'
   | 'system.ping'
   | 'system.shutdown';
 
@@ -65,6 +71,28 @@ export interface ApprovalDecisionCommand {
 export interface SessionInputCommand {
   data: string;
   stream: 'stdin' | 'control';
+}
+
+export interface GitBranchCreateCommand {
+  sessionId: string;
+  projectRoot: string;
+  branch: string;
+  fromRef?: string;
+}
+
+export interface GitCommitCommand {
+  sessionId: string;
+  projectRoot: string;
+  message: string;
+  files?: string[];
+}
+
+export interface GitPushCommand {
+  sessionId: string;
+  projectRoot: string;
+  remote?: string;
+  branch: string;
+  force?: boolean;
 }
 
 export type EventStream = AsyncIterable<EventEnvelope> & {

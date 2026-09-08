@@ -10,6 +10,12 @@ export const CommandTypeSchema = z.enum([
   'session.approve',
   'session.deny',
   'session.input',
+  'session.diff_collection',
+  'session.run_tests',
+  'git.branch_create',
+  'git.commit',
+  'git.push',
+  'git.status',
   'system.ping',
   'system.shutdown',
 ]);

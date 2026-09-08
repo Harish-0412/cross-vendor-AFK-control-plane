@@ -99,9 +99,7 @@ function isWithinQuietHours(occurredAt: Date, quietHours?: QuietHours): boolean 
   }
 
   if (start === end) return true;
-  return start < end
-    ? current >= start && current < end
-    : current >= start || current < end;
+  return start < end ? current >= start && current < end : current >= start || current < end;
 }
 
 function parseWallClock(value: string): number | null {

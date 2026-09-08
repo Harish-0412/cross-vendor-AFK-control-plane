@@ -1,4 +1,5 @@
 import type { AttentionLevel, EventEnvelope } from '@freebuff/protocol';
+
 import type { ApprovalRecord } from '../types';
 
 export interface PushNotification {
@@ -70,7 +71,8 @@ function titleForNotify(event: EventEnvelope): string {
 }
 
 function titleForHighPriority(event: EventEnvelope): string {
-  if (event.eventType === 'session.approval_required') return `Approval needed: ${eventDetail(event)}`;
+  if (event.eventType === 'session.approval_required')
+    return `Approval needed: ${eventDetail(event)}`;
   if (event.eventType === 'session.completed') return 'AFK task complete';
   if (event.eventType === 'session.failed' || event.eventType === 'session.crashed') {
     return 'Task failed';
@@ -82,13 +84,14 @@ function eventDetail(event: EventEnvelope): string {
   const payload = asRecord(event.payload);
   const action = asRecord(payload['action']);
   if (event.eventType === 'session.approval_required') {
-    const actionName = firstString(
-      payload['description'],
-      action['description'],
-      payload['actionType'],
-      action['type'],
-      payload['capability'],
-    ) ?? 'agent action';
+    const actionName =
+      firstString(
+        payload['description'],
+        action['description'],
+        payload['actionType'],
+        action['type'],
+        payload['capability'],
+      ) ?? 'agent action';
     const resource = firstString(payload['resource'], payload['scope']);
     return resource && !actionName.includes(resource) ? `${actionName} to ${resource}` : actionName;
   }
@@ -96,18 +99,24 @@ function eventDetail(event: EventEnvelope): string {
     return firstString(payload['summary']) ?? 'The agent finished the task.';
   }
   if (event.eventType === 'session.failed' || event.eventType === 'session.crashed') {
-    return firstString(payload['errorMessage'], payload['error'], payload['message'])
-      ?? 'The agent could not complete the task.';
+    return (
+      firstString(payload['errorMessage'], payload['error'], payload['message']) ??
+      'The agent could not complete the task.'
+    );
   }
   if (event.eventType === 'policy.violation') {
-    return firstString(payload['description'], payload['message']) ?? 'A policy violation was blocked.';
+    return (
+      firstString(payload['description'], payload['message']) ?? 'A policy violation was blocked.'
+    );
   }
-  return firstString(payload['description'], payload['message'], payload['summary'])
-    ?? event.eventType.replaceAll('.', ' ');
+  return (
+    firstString(payload['description'], payload['message'], payload['summary']) ??
+    event.eventType.replaceAll('.', ' ')
+  );
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === 'object' && value !== null ? value as Record<string, unknown> : {};
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
 }
 
 function firstString(...values: unknown[]): string | undefined {

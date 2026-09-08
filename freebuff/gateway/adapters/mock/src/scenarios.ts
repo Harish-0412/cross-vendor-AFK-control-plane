@@ -278,8 +278,8 @@ export function buildLeakyOutputScenario(config: ScenarioConfig): ScenarioEventT
       payloadFactory: () => ({
         stream: 'stdout',
         content: 'Connecting to AWS with key AKIAIOSFODNN7EXAMPLE...',
-        timestamp: new Date()
-      })
+        timestamp: new Date(),
+      }),
     },
     {
       type: 'session.completed',

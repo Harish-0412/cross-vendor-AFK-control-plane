@@ -9,6 +9,19 @@ export const DEFAULT_CONTROL_PLANE_CONFIG: ControlPlaneConfig = {
   corsOrigins: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : ['*'],
   pairingCodeTtlSec: parseInt(process.env.PAIRING_CODE_TTL_SEC || '300', 10), // 5 mins
   heartbeatTimeoutMs: parseInt(process.env.HEARTBEAT_TIMEOUT_MS || '60000', 10), // 60s
+  ...(process.env.GITHUB_CLIENT_ID ? { githubClientId: process.env.GITHUB_CLIENT_ID } : {}),
+  ...(process.env.GITHUB_CLIENT_SECRET
+    ? { githubClientSecret: process.env.GITHUB_CLIENT_SECRET }
+    : {}),
+  ...(process.env.GITHUB_CALLBACK_URL
+    ? { githubCallbackUrl: process.env.GITHUB_CALLBACK_URL }
+    : {}),
+  ...(process.env.CREDENTIAL_ENCRYPTION_SECRET
+    ? { credentialEncryptionSecret: process.env.CREDENTIAL_ENCRYPTION_SECRET }
+    : {}),
+  secureCookies: process.env.SECURE_COOKIES
+    ? process.env.SECURE_COOKIES === 'true'
+    : process.env.NODE_ENV === 'production',
 };
 
 export function loadConfig(overrides: Partial<ControlPlaneConfig> = {}): ControlPlaneConfig {

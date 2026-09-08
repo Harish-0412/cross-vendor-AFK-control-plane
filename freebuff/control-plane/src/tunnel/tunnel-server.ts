@@ -2,14 +2,19 @@ import { randomUUID } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 
-import type { Decision, EventEnvelope, SessionState, Capability } from '@freebuff/protocol';
+import type {
+  Decision,
+  EventEnvelope,
+  SessionState,
+  Capability,
+  PolicyVersion,
+} from '@freebuff/protocol';
 import { WebSocketServer, type WebSocket } from 'ws';
 
 import type { IDatabase } from '../db/types';
 import type { ApprovalRecord, StoredEvent } from '../types';
 
 import type { ConnectionRegistry } from './connection-registry';
-import type { PolicyVersion } from '@freebuff/protocol';
 
 export interface TunnelServerOptions {
   heartbeatTimeoutMs?: number;
@@ -38,18 +43,20 @@ export class TunnelServer {
   >();
   private onEventBroadcast?: (event: StoredEvent) => void;
   private onApprovalCreated?: (approval: ApprovalRecord) => void;
-  private policyEvaluator: ((
-    capability: Capability,
-    riskClass: 'low' | 'medium' | 'high' | 'critical',
-    context: {
-      resource?: string;
-      projectId?: string;
-      deviceId: string;
-      sessionId?: string;
-      userId: string;
-    },
-    policyVersion: PolicyVersion | null,
-  ) => Promise<Decision>) | undefined;
+  private policyEvaluator:
+    | ((
+        capability: Capability,
+        riskClass: 'low' | 'medium' | 'high' | 'critical',
+        context: {
+          resource?: string;
+          projectId?: string;
+          deviceId: string;
+          sessionId?: string;
+          userId: string;
+        },
+        policyVersion: PolicyVersion | null,
+      ) => Promise<Decision>)
+    | undefined;
 
   constructor(db: IDatabase, registry: ConnectionRegistry, options: TunnelServerOptions = {}) {
     this.db = db;
@@ -67,9 +74,7 @@ export class TunnelServer {
     this.onApprovalCreated = callback;
   }
 
-  setPolicyEvaluator(
-    evaluator: typeof this.policyEvaluator,
-  ): void {
+  setPolicyEvaluator(evaluator: typeof this.policyEvaluator): void {
     this.policyEvaluator = evaluator;
   }
 
@@ -238,7 +243,7 @@ export class TunnelServer {
         if (conn) conn.lastHeartbeatAt = new Date();
 
         if (payload && typeof payload === 'object') {
-          const p = payload as Record<string, unknown>;
+          const p = payload;
           const resources = (p['resources'] ?? p['resourceUsage'] ?? p) as Record<string, unknown>;
           if (
             typeof resources['cpuPercent'] === 'number' ||
@@ -252,7 +257,9 @@ export class TunnelServer {
               memoryMb:
                 typeof resources['memoryMb'] === 'number' ? resources['memoryMb'] : undefined,
               memoryPeakMb:
-                typeof resources['memoryPeakMb'] === 'number' ? resources['memoryPeakMb'] : undefined,
+                typeof resources['memoryPeakMb'] === 'number'
+                  ? resources['memoryPeakMb']
+                  : undefined,
               activeProcesses:
                 typeof resources['activeProcesses'] === 'number'
                   ? resources['activeProcesses']
@@ -328,7 +335,8 @@ export class TunnelServer {
 
             if (this.policyEvaluator && session && device) {
               const capability = (p.capability || p.action?.type || 'process.exec') as Capability;
-              const riskClass = (p.riskClass || p.action?.riskLevel || 'medium') as 'low' | 'medium' | 'high' | 'critical';
+              const riskClass = (p.riskClass || p.action?.riskLevel || 'medium') as
+                'low' | 'medium' | 'high' | 'critical';
               const result = await this.policyEvaluator(
                 capability,
                 riskClass,

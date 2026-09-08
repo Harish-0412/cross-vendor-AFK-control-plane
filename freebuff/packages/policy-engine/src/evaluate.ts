@@ -4,9 +4,10 @@ import type {
   PolicyRule,
   PolicyVersion,
 } from '@freebuff/protocol';
+
 import { denyFloorMatches } from './deny-floor';
-import { sortRulesForEvaluation } from './specificity';
 import { riskClassDefaults } from './risk-defaults';
+import { sortRulesForEvaluation } from './specificity';
 
 /**
  * §4.1 — The policy evaluation pipeline.
@@ -28,7 +29,7 @@ export function evaluate(
   policyVersion: PolicyVersion | null,
 ): Decision {
   // Step 1: Deny-override floor (§3.5) — evaluated first, terminal
-  const floorResult = denyFloorMatches(context.capability, context.resource);
+  const floorResult = denyFloorMatches(context.capability, context.resource, context.force);
   if (floorResult.matched) {
     return {
       decision: 'deny',
@@ -109,10 +110,7 @@ export function evaluate(
 /**
  * Check whether a policy rule matches the evaluation context.
  */
-function ruleMatches(
-  context: PolicyEvaluationContext,
-  rule: PolicyRule,
-): boolean {
+function ruleMatches(context: PolicyEvaluationContext, rule: PolicyRule): boolean {
   // capability match
   if (rule.match.capability !== undefined) {
     if (rule.match.capability !== context.capability) return false;
@@ -156,12 +154,7 @@ function globMatches(resource: string, pattern: string): boolean {
   return matchParts(parts, resParts, 0, 0);
 }
 
-function matchParts(
-  pattern: string[],
-  resource: string[],
-  pi: number,
-  ri: number,
-): boolean {
+function matchParts(pattern: string[], resource: string[], pi: number, ri: number): boolean {
   while (pi < pattern.length) {
     const p = pattern[pi]!;
 

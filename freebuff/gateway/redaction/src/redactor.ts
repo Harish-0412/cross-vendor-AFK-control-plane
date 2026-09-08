@@ -1,5 +1,12 @@
-import { Redactor, RedactionOptions, RedactionResult, RedactionMatch, CustomPattern, SecretType } from './types';
 import { createPatternRegistry } from './patterns';
+import {
+  type Redactor,
+  type RedactionOptions,
+  type RedactionResult,
+  type RedactionMatch,
+  type CustomPattern,
+  type SecretType,
+} from './types';
 
 export class DefaultRedactor implements Redactor {
   private patterns: Map<string, CustomPattern>;
@@ -13,7 +20,7 @@ export class DefaultRedactor implements Redactor {
       enabledTypes: options.enabledTypes || [],
       disabledTypes: options.disabledTypes || [],
       maxMatches: options.maxMatches || 1000,
-      contextChars: options.contextChars || 0
+      contextChars: options.contextChars || 0,
     };
 
     this.patterns = createPatternRegistry(this.options.customPatterns);
@@ -63,7 +70,9 @@ export class DefaultRedactor implements Redactor {
     for (const pattern of sortedPatterns) {
       if (matches.length >= this.options.maxMatches) break;
 
-      const flags = pattern.pattern.flags.includes('g') ? pattern.pattern.flags : pattern.pattern.flags + 'g';
+      const flags = pattern.pattern.flags.includes('g')
+        ? pattern.pattern.flags
+        : pattern.pattern.flags + 'g';
       const regex = new RegExp(pattern.pattern.source, flags);
       let match;
 
@@ -73,10 +82,12 @@ export class DefaultRedactor implements Redactor {
         const fullMatch = match[0];
         const matchIndex = match.index;
 
-        const existingMatch = matches.find(m => 
-          (matchIndex >= m.index && matchIndex < m.index + m.length) ||
-          (matchIndex + fullMatch.length > m.index && matchIndex + fullMatch.length <= m.index + m.length) ||
-          (matchIndex <= m.index && matchIndex + fullMatch.length >= m.index + m.length)
+        const existingMatch = matches.find(
+          (m) =>
+            (matchIndex >= m.index && matchIndex < m.index + m.length) ||
+            (matchIndex + fullMatch.length > m.index &&
+              matchIndex + fullMatch.length <= m.index + m.length) ||
+            (matchIndex <= m.index && matchIndex + fullMatch.length >= m.index + m.length),
         );
         if (existingMatch) continue;
 
@@ -86,7 +97,7 @@ export class DefaultRedactor implements Redactor {
           value: fullMatch,
           index: matchIndex,
           length: fullMatch.length,
-          pattern: pattern.pattern.source
+          pattern: pattern.pattern.source,
         });
       }
     }
@@ -100,14 +111,13 @@ export class DefaultRedactor implements Redactor {
       if (!pattern) continue;
 
       const placeholder = pattern.placeholder || this.options.placeholder;
-      const replacement = this.options.preserveLength 
-        ? 'X'.repeat(match.length)
-        : placeholder;
+      const replacement = this.options.preserveLength ? 'X'.repeat(match.length) : placeholder;
 
       const adjustedIndex = match.index + offset;
-      redactedText = redactedText.slice(0, adjustedIndex) + 
-                     replacement + 
-                     redactedText.slice(adjustedIndex + match.length);
+      redactedText =
+        redactedText.slice(0, adjustedIndex) +
+        replacement +
+        redactedText.slice(adjustedIndex + match.length);
 
       offset += replacement.length - match.length;
     }
@@ -117,46 +127,54 @@ export class DefaultRedactor implements Redactor {
       matches,
       redacted: matches.length > 0,
       originalLength: text.length,
-      redactedLength: redactedText.length
+      redactedLength: redactedText.length,
     };
   }
 
   private getSortedPatterns(): CustomPattern[] {
     const patterns = Array.from(this.patterns.values());
-    
+
     const priority: Record<SecretType, number> = {
-      'private_key': 100,
-      'aws_secret_key': 90,
-      'jwt_token': 80,
-      'bearer_token': 85,
-      'connection_string': 70,
-      'password': 70,
-      'api_key': 60,
-      'aws_access_key': 60,
-      'github_token': 60,
-      'stripe_key': 60,
-      'openai_key': 60,
-      'ssh_key': 50,
-      'database_url': 50,
-      'custom': 10
+      private_key: 100,
+      aws_secret_key: 90,
+      jwt_token: 80,
+      bearer_token: 85,
+      connection_string: 70,
+      password: 70,
+      api_key: 60,
+      aws_access_key: 60,
+      github_token: 60,
+      stripe_key: 60,
+      openai_key: 60,
+      ssh_key: 50,
+      database_url: 50,
+      custom: 10,
     };
 
-    return patterns.sort((a, b) => (priority[b.type as SecretType] || 0) - (priority[a.type as SecretType] || 0));
+    return patterns.sort(
+      (a, b) => (priority[b.type as SecretType] || 0) - (priority[a.type as SecretType] || 0),
+    );
   }
 
   redactObject<T>(obj: T): T {
     if (obj === null || obj === undefined) return obj;
-    
+
     if (typeof obj === 'string') {
       return this.redact(obj).text as unknown as T;
     }
-    
+
     if (Array.isArray(obj)) {
-      return obj.map(item => this.redactObject(item)) as unknown as T;
+      // `Array.isArray` narrows `obj` to `any[]` here (TS can't narrow a bare
+      // generic `T` to a precise element type), so `.map`'s result was
+      // `any[]` and propagated through the return. Routing through an
+      // explicit `unknown[]` keeps the recursion's actual safety (each
+      // element is still processed correctly) without an `any` in the type.
+      const mapped: unknown[] = (obj as unknown[]).map((item: unknown) => this.redactObject(item));
+      return mapped as unknown as T;
     }
-    
+
     if (typeof obj === 'object') {
-      const result: any = {};
+      const result: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(obj)) {
         if (typeof value === 'string') {
           const redactedVal = this.redact(value);
@@ -177,36 +195,51 @@ export class DefaultRedactor implements Redactor {
       }
       return result as unknown as T;
     }
-    
+
     return obj;
   }
 
   private isSensitiveKey(key: string): boolean {
     const sensitiveKeys = [
-      'password', 'passwd', 'pwd', 'secret', 'token', 'key', 'api_key', 'apikey',
-      'access_token', 'refresh_token', 'access_key', 'secret_key', 'private_key',
-      'authorization', 'auth', 'credentials', 'connection_string', 'database_url'
+      'password',
+      'passwd',
+      'pwd',
+      'secret',
+      'token',
+      'key',
+      'api_key',
+      'apikey',
+      'access_token',
+      'refresh_token',
+      'access_key',
+      'secret_key',
+      'private_key',
+      'authorization',
+      'auth',
+      'credentials',
+      'connection_string',
+      'database_url',
     ];
-    
+
     const lowerKey = key.toLowerCase();
-    return sensitiveKeys.some(s => lowerKey.includes(s));
+    return sensitiveKeys.some((s) => lowerKey.includes(s));
   }
 
   async *redactStream(stream: AsyncIterable<string>): AsyncIterable<string> {
     let buffer = '';
-    
+
     for await (const chunk of stream) {
       buffer += chunk;
-      
+
       const lines = buffer.split('\n');
       buffer = lines.pop() || '';
-      
+
       for (const line of lines) {
         const result = this.redact(line + '\n');
         yield result.text;
       }
     }
-    
+
     if (buffer) {
       const result = this.redact(buffer);
       yield result.text;
@@ -219,7 +252,7 @@ export class DefaultRedactor implements Redactor {
       matches: [],
       redacted: false,
       originalLength: text?.length || 0,
-      redactedLength: text?.length || 0
+      redactedLength: text?.length || 0,
     };
   }
 }
@@ -240,7 +273,7 @@ export class StreamingRedactor {
     this.buffer += chunk;
     const lines = this.buffer.split('\n');
     this.buffer = lines.pop() || '';
-    
+
     let output = '';
     for (const line of lines) {
       output += this.redactor.redact(line + '\n').text;
@@ -261,14 +294,14 @@ export function calculateEntropy(str: string): number {
   for (const char of str) {
     freq[char] = (freq[char] || 0) + 1;
   }
-  
+
   let entropy = 0;
   const len = str.length;
   for (const count of Object.values(freq)) {
     const p = count / len;
     entropy -= p * Math.log2(p);
   }
-  
+
   return entropy;
 }
 

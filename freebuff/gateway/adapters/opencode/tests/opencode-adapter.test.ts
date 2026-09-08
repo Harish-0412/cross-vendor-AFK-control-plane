@@ -19,7 +19,7 @@ function fakeController(): OpenCodeProcessController {
     validate: vi.fn().mockResolvedValue({ valid: true, version: '1.18.23', errors: [] }),
     start: vi.fn().mockResolvedValue(sandbox), stop: vi.fn().mockResolvedValue(undefined),
     getSandbox: vi.fn().mockReturnValue(sandbox),
-    watchStdout: vi.fn((_sandbox, onLine) => { onLine('{"type":"message.part.updated","properties":{"part":{"type":"text","text":"hello"}}}'); }),
+    watchStdout: vi.fn((_sandbox, onLine) => { onLine('{"type":"text","part":{"type":"text","text":"hello"}}'); }),
   };
 }
 

@@ -1,8 +1,9 @@
 import { classifyEvent, mergeNotificationPreferences } from '@freebuff/attention-engine';
 
 import type { IDatabase } from '../db/types';
-import type { StoredEvent } from '../types';
 import type { ConnectionRegistry } from '../tunnel/connection-registry';
+import type { StoredEvent } from '../types';
+
 import { notificationForEvent } from './notification-templates';
 import type { PushSender } from './push-sender';
 import { SummaryGenerator } from './summary-generator';
@@ -21,13 +22,19 @@ export class AfkOrchestrator {
     const user = await this.db.users.findById(session.userId);
     const preferences = mergeNotificationPreferences(user?.notificationPreferences);
     const level = classifyEvent(stored.envelope, session.trustProfile, preferences);
-    const completionSummary = stored.envelope.eventType === 'session.completed'
-      && session.trustProfile === 'trusted-afk'
-      ? await this.summaries.generate(session.id)
-      : undefined;
-    const notification = notificationForEvent(level, completionSummary
-      ? { ...stored.envelope, payload: { ...(asPayload(stored.envelope.payload)), summary: completionSummary.text } }
-      : stored.envelope);
+    const completionSummary =
+      stored.envelope.eventType === 'session.completed' && session.trustProfile === 'trusted-afk'
+        ? await this.summaries.generate(session.id)
+        : undefined;
+    const notification = notificationForEvent(
+      level,
+      completionSummary
+        ? {
+            ...stored.envelope,
+            payload: { ...asPayload(stored.envelope.payload), summary: completionSummary.text },
+          }
+        : stored.envelope,
+    );
     if (!notification) return;
 
     const isForeground = this.registry
@@ -43,5 +50,5 @@ export class AfkOrchestrator {
 }
 
 function asPayload(value: unknown): Record<string, unknown> {
-  return typeof value === 'object' && value !== null ? value as Record<string, unknown> : {};
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
 }

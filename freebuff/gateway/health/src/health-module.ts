@@ -33,6 +33,7 @@ export class HealthModule {
   private totalEventsProcessed = 0;
   private eventListeners: Set<(report: HealthReport) => void> = new Set();
   private shuttingDown = false;
+  private readonly resourceUsageProvider: () => { cpuPercent: number; memoryUsedPercent: number };
 
   constructor(options: HealthModuleOptions) {
     this.gatewayId = options.gatewayId;
@@ -40,6 +41,8 @@ export class HealthModule {
     this.startedAt = new Date();
     this.heartbeatOverdueThresholdMs =
       options.heartbeatOverdueThresholdMs ?? DEFAULT_HEALTH_OPTIONS.heartbeatOverdueThresholdMs;
+    this.resourceUsageProvider =
+      options.resourceUsageProvider ?? (() => this.readOsResourceUsage());
     this.lastResourceSnapshot = this.takeResourceSnapshot();
 
     // Register default resource check
@@ -234,9 +237,12 @@ export class HealthModule {
   }
 
   /**
-   * Take a system resource snapshot.
+   * Real OS-level CPU/memory reading — the default `resourceUsageProvider`.
+   * Kept separate from `takeResourceSnapshot` so tests can override just the
+   * numbers that drive the healthy/degraded/unhealthy thresholds without
+   * also having to fake load average, total memory, etc.
    */
-  private takeResourceSnapshot(): ResourceSnapshot {
+  private readOsResourceUsage(): { cpuPercent: number; memoryUsedPercent: number } {
     const totalMem = os.totalmem();
     const freeMem = os.freemem();
     const usedMem = totalMem - freeMem;
@@ -247,6 +253,21 @@ export class HealthModule {
       Math.round(((loadAvg[0] ?? 0) / Math.max(1, cpus.length)) * 100),
     );
     const memoryUsedPercent = Math.round((usedMem / totalMem) * 100);
+    return { cpuPercent, memoryUsedPercent };
+  }
+
+  /**
+   * Take a system resource snapshot. CPU/memory percentages come from
+   * `resourceUsageProvider` (real OS metrics by default, injectable in
+   * tests); load average and memory totals are always the real machine
+   * values, since nothing thresholds on them.
+   */
+  private takeResourceSnapshot(): ResourceSnapshot {
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const usedMem = totalMem - freeMem;
+    const loadAvg = os.loadavg();
+    const { cpuPercent, memoryUsedPercent } = this.resourceUsageProvider();
 
     const nodeUsage = process.memoryUsage?.();
     const memoryMb = nodeUsage

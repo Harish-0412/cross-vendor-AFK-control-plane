@@ -1,21 +1,21 @@
 import * as http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
+import { AfkOrchestrator } from './afk/afk-orchestrator';
+import { EscalationScheduler } from './afk/escalation-scheduler';
+import { PushSender } from './afk/push-sender';
 import { HttpRouter } from './api/http-router';
+import { getFirebaseFirestore, isFirebaseAdminConfigured } from './auth/firebase-admin';
 import { loadConfig } from './config';
+import { FirestoreDatabase } from './db/firestore-store';
 import { MemoryDatabase } from './db/memory-store';
 import type { IDatabase } from './db/types';
+import { PolicyEngineService, ApprovalWorkflow, AuditLog } from './policy/index';
+import { ReviewOrchestrator } from './review/review-orchestrator';
 import { ClientServer } from './tunnel/client-server';
 import { ConnectionRegistry } from './tunnel/connection-registry';
 import { TunnelServer } from './tunnel/tunnel-server';
 import type { ControlPlaneConfig } from './types';
-import { PolicyEngineService, ApprovalWorkflow, AuditLog } from './policy/index';
-
-import { FirestoreDatabase } from './db/firestore-store';
-import { getFirebaseFirestore, isFirebaseAdminConfigured } from './auth/firebase-admin';
-import { AfkOrchestrator } from './afk/afk-orchestrator';
-import { PushSender } from './afk/push-sender';
-import { EscalationScheduler } from './afk/escalation-scheduler';
 
 export class ControlPlane {
   public db: IDatabase;
@@ -30,6 +30,7 @@ export class ControlPlane {
   public pushSender: PushSender;
   public afkOrchestrator: AfkOrchestrator;
   public escalationScheduler: EscalationScheduler;
+  public reviewOrchestrator: ReviewOrchestrator;
   private server?: http.Server | undefined;
   private actualPort = 0;
 
@@ -71,37 +72,42 @@ export class ControlPlane {
       });
     });
 
-    // Wire real-time event forwarding from Gateway tunnel to Web Client subscribers
-    this.tunnelServer.setOnEventBroadcast((storedEvent) => {
-      this.clientServer.broadcastEvent(storedEvent);
-      void this.afkOrchestrator.handleEvent(storedEvent).catch((error: unknown) => {
-        // Delivery failures are isolated from event persistence and WebSocket fan-out.
-        // eslint-disable-next-line no-console
-        console.warn('[Freebuff Control Plane] AFK notification pipeline failed:', error);
-      });
-    });
-
     // Policy Engine (Phase 5)
     this.auditLog = new AuditLog(this.db);
     this.policyService = new PolicyEngineService(this.db, this.config, this.auditLog);
-    this.approvalWorkflow = new ApprovalWorkflow(this.db, this.tunnelServer);  // §7.4 — TunnelServer injected for feedback dispatch
+    this.approvalWorkflow = new ApprovalWorkflow(this.db, this.tunnelServer); // §7.4 — TunnelServer injected for feedback dispatch
+    this.approvalWorkflow.setOnApprovalCreated((approval) =>
+      this.escalationScheduler.schedule(approval),
+    );
+    this.reviewOrchestrator = new ReviewOrchestrator(
+      this.db,
+      this.tunnelServer,
+      this.policyService,
+    );
+
+    // Wire real-time event forwarding and the automatic completion review.
+    this.tunnelServer.setOnEventBroadcast((storedEvent) => {
+      this.clientServer.broadcastEvent(storedEvent);
+      void this.afkOrchestrator.handleEvent(storedEvent).catch((error: unknown) => {
+        console.warn('[Freebuff Control Plane] AFK notification pipeline failed:', error);
+      });
+      if (storedEvent.eventType === 'session.completed') {
+        void this.reviewOrchestrator.build(storedEvent.sessionId).catch((error: unknown) => {
+          console.warn('[Freebuff Control Plane] Review bundle generation failed:', error);
+        });
+      }
+    });
 
     // Wire policy evaluator into tunnel server (§7.2)
-    this.tunnelServer.setPolicyEvaluator(
-      (capability, riskClass, context, _policyVersion) => {
-        return this.policyService.evaluate(
-          capability,
-          riskClass,
-          {
-            ...(context.resource ? { resource: context.resource } : {}),
-            ...(context.projectId ? { projectId: context.projectId } : {}),
-            deviceId: context.deviceId,
-            ...(context.sessionId ? { sessionId: context.sessionId } : {}),
-            userId: context.userId,
-          },
-        );
-      },
-    );
+    this.tunnelServer.setPolicyEvaluator((capability, riskClass, context, _policyVersion) => {
+      return this.policyService.evaluate(capability, riskClass, {
+        ...(context.resource ? { resource: context.resource } : {}),
+        ...(context.projectId ? { projectId: context.projectId } : {}),
+        deviceId: context.deviceId,
+        ...(context.sessionId ? { sessionId: context.sessionId } : {}),
+        userId: context.userId,
+      });
+    });
 
     this.router = new HttpRouter(
       this.db,
@@ -111,6 +117,7 @@ export class ControlPlane {
       this.policyService,
       this.approvalWorkflow,
       this.auditLog,
+      this.reviewOrchestrator,
     );
   }
 
@@ -156,7 +163,10 @@ export class ControlPlane {
         this.actualPort = addr.port;
         void this.escalationScheduler.reconcile().catch((error: unknown) => {
           // eslint-disable-next-line no-console
-          console.warn('[Freebuff Control Plane] Approval escalation reconciliation failed:', error);
+          console.warn(
+            '[Freebuff Control Plane] Approval escalation reconciliation failed:',
+            error,
+          );
         });
         resolve({ url: this.getUrl(), port: this.actualPort });
       });

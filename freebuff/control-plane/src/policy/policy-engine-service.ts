@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto';
+
+import { evaluate } from '@freebuff/policy-engine';
 import type {
   Capability,
   Decision,
@@ -7,10 +10,11 @@ import type {
   RiskClass,
   TrustProfile,
 } from '@freebuff/protocol';
-import { evaluate } from '@freebuff/policy-engine';
+
 import type { IDatabase } from '../db/types';
 import type { ControlPlaneConfig } from '../types';
-import { AuditLog } from './audit-log';
+
+import { type AuditLog } from './audit-log';
 
 /**
  * §7 — Policy Engine Service.
@@ -49,6 +53,7 @@ export class PolicyEngineService {
       deviceId: string;
       sessionId?: string;
       userId: string;
+      force?: boolean;
     },
   ): Promise<Decision> {
     // Load the current policy version
@@ -56,9 +61,7 @@ export class PolicyEngineService {
 
     // Check device status
     const device = await this.db.devices.findById(context.deviceId);
-    const session = context.sessionId
-      ? await this.db.sessions.findById(context.sessionId)
-      : null;
+    const session = context.sessionId ? await this.db.sessions.findById(context.sessionId) : null;
     const deviceStatus: 'trusted' | 'revoked' | 'suspended' =
       device?.status === 'trusted' || device?.status === 'pairing'
         ? 'trusted'
@@ -77,6 +80,7 @@ export class PolicyEngineService {
       trustProfile: session?.trustProfile ?? device?.defaultTrustProfile ?? 'default',
       deviceStatus,
       userId: context.userId,
+      ...(context.force !== undefined ? { force: context.force } : {}),
     };
 
     // Run the pure evaluation function
@@ -88,7 +92,12 @@ export class PolicyEngineService {
       ...(context.sessionId ? { sessionId: context.sessionId } : {}),
       deviceId: context.deviceId,
       action: capability,
-      decision: decision.decision === 'allow' ? 'allow' : decision.decision === 'deny' ? 'deny' : 'require_approval',
+      decision:
+        decision.decision === 'allow'
+          ? 'allow'
+          : decision.decision === 'deny'
+            ? 'deny'
+            : 'require_approval',
       policyVersion: decision.policyVersion,
       ...('matchedRules' in decision && decision.matchedRules
         ? { matchedRules: decision.matchedRules }
@@ -112,6 +121,7 @@ export class PolicyEngineService {
       trustProfile: TrustProfile;
       deviceStatus: 'trusted' | 'revoked' | 'suspended';
       userId: string;
+      force?: boolean;
     },
   ): Decision {
     const evalContext: PolicyEvaluationContext = {
@@ -122,6 +132,7 @@ export class PolicyEngineService {
       trustProfile: context.trustProfile,
       deviceStatus: context.deviceStatus,
       userId: context.userId,
+      ...(context.force !== undefined ? { force: context.force } : {}),
     };
 
     return evaluate(evalContext, policyVersion);
@@ -165,14 +176,14 @@ export class PolicyEngineService {
       id: string;
       description: string;
       match: {
-        capability?: Capability;
-        riskClass?: RiskClass;
-        resourcePattern?: string;
-        projectId?: string;
-        trustProfile?: TrustProfile;
+        capability?: Capability | undefined;
+        riskClass?: RiskClass | undefined;
+        resourcePattern?: string | undefined;
+        projectId?: string | undefined;
+        trustProfile?: TrustProfile | undefined;
       };
       effect: 'allow' | 'deny' | 'require_approval';
-      requiredRole?: 'owner' | 'admin';
+      requiredRole?: 'owner' | 'admin' | undefined;
       priority: number;
     }>,
   ): Promise<PolicyVersion> {
@@ -216,7 +227,10 @@ export class PolicyEngineService {
   /**
    * Activate a policy version (makes it the current active version).
    */
-  async activatePolicyVersion(versionId: string, activatedBy: string): Promise<PolicyVersion | null> {
+  async activatePolicyVersion(
+    versionId: string,
+    activatedBy: string,
+  ): Promise<PolicyVersion | null> {
     const allUsers = await this.db.users.list();
     const policyEntries = allUsers.filter((u) => u.metadata?._policyVersion);
 
@@ -237,8 +251,8 @@ export class PolicyEngineService {
     }
 
     // Get the activated version
-    const targetEntry = policyEntries.find((entry) =>
-      (entry.metadata?._policyVersion as PolicyVersion | undefined)?.id === versionId,
+    const targetEntry = policyEntries.find(
+      (entry) => (entry.metadata?._policyVersion as PolicyVersion | undefined)?.id === versionId,
     );
     if (!targetEntry) return null;
 
@@ -294,5 +308,3 @@ export class PolicyEngineService {
     return user?.role === 'admin' || user?.role === 'owner';
   }
 }
-
-import { randomUUID } from 'node:crypto';

@@ -1,6 +1,0 @@
-{"type":"session.created","sessionID":"ses_01JTEST","properties":{"id":"ses_01JTEST","title":"Add greeting"}}
-{"type":"message.part.updated","sessionID":"ses_01JTEST","properties":{"part":{"type":"text","text":"I will update the greeting."}}}
-{"type":"tool.call.started","sessionID":"ses_01JTEST","properties":{"callID":"call_1","tool":"write","input":{"path":"src/greeting.ts"}}}
-{"type":"file.changed","sessionID":"ses_01JTEST","properties":{"path":"src/greeting.ts","action":"modified"}}
-{"type":"tool.call.completed","sessionID":"ses_01JTEST","properties":{"callID":"call_1","tool":"write","result":"written","duration":12}}
-{"type":"session.completed","sessionID":"ses_01JTEST","properties":{"summary":"Greeting updated"}}

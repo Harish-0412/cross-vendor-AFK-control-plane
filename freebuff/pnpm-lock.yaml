@@ -132,6 +132,9 @@ importers:
         specifier: workspace:*
         version: link:../../sandbox
     devDependencies:
+      '@freebuff/redaction':
+        specifier: workspace:*
+        version: link:../../redaction
       '@types/node':
         specifier: ^20.12.0
         version: 20.19.43

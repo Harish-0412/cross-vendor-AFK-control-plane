@@ -7,13 +7,17 @@ import type {
   StoredEvent,
   PushSubscriptionRecord,
   AuditEvent,
+  ProjectRecord,
+  IntegrationCredentialRecord,
 } from '../types';
 
 export interface IUserRepository {
-  create(user: Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'passwordHash'> & {
-    id?: string;
-    passwordHash?: string;
-  }): Promise<User>;
+  create(
+    user: Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'passwordHash'> & {
+      id?: string;
+      passwordHash?: string;
+    },
+  ): Promise<User>;
   findById(id: string): Promise<User | null>;
   findByEmail(email: string): Promise<User | null>;
   list(): Promise<User[]>;
@@ -69,6 +73,25 @@ export interface ISessionRepository {
   update(id: string, updates: Partial<SessionRecord>): Promise<SessionRecord | null>;
 }
 
+export interface IProjectRepository {
+  create(project: Omit<ProjectRecord, 'createdAt' | 'updatedAt'>): Promise<ProjectRecord>;
+  findById(id: string): Promise<ProjectRecord | null>;
+  findByRoot(userId: string, root: string): Promise<ProjectRecord | null>;
+  listByUser(userId: string): Promise<ProjectRecord[]>;
+  update(id: string, updates: Partial<ProjectRecord>): Promise<ProjectRecord | null>;
+}
+
+export interface IIntegrationCredentialRepository {
+  upsert(
+    record: Omit<IntegrationCredentialRecord, 'id' | 'createdAt' | 'updatedAt'>,
+  ): Promise<IntegrationCredentialRecord>;
+  find(
+    userId: string,
+    provider: IntegrationCredentialRecord['provider'],
+  ): Promise<IntegrationCredentialRecord | null>;
+  delete(userId: string, provider: IntegrationCredentialRecord['provider']): Promise<boolean>;
+}
+
 export interface IEventRepository {
   append(event: Omit<StoredEvent, 'id' | 'storedAt'>): Promise<StoredEvent>;
   listBySession(sessionId: string, fromSequence?: number, limit?: number): Promise<StoredEvent[]>;
@@ -96,20 +119,20 @@ export interface IPushSubscriptionRepository {
 
 export interface IAuditRepository {
   append(event: Omit<AuditEvent, 'id' | 'sequence' | 'hash' | 'previousHash'>): Promise<AuditEvent>;
-  list(
-    options?: {
-      sessionId?: string;
-      deviceId?: string;
-      actorType?: string;
-      actorId?: string;
-      decision?: string;
-      fromSequence?: number;
-      limit?: number;
-    },
-  ): Promise<AuditEvent[]>;
+  list(options?: {
+    sessionId?: string;
+    deviceId?: string;
+    actorType?: string;
+    actorId?: string;
+    decision?: string;
+    fromSequence?: number;
+    limit?: number;
+  }): Promise<AuditEvent[]>;
   getHighestSequence(): Promise<number>;
   findById(id: string): Promise<AuditEvent | null>;
-  verifyChain(): Promise<{ valid: boolean; firstBrokenIndex?: number }> | { valid: boolean; firstBrokenIndex?: number };
+  verifyChain():
+    | Promise<{ valid: boolean; firstBrokenIndex?: number }>
+    | { valid: boolean; firstBrokenIndex?: number };
 }
 
 export interface IDatabase {
@@ -117,6 +140,8 @@ export interface IDatabase {
   devices: IDeviceRepository;
   pairings: IPairingRepository;
   sessions: ISessionRepository;
+  projects: IProjectRepository;
+  integrationCredentials: IIntegrationCredentialRepository;
   events: IEventRepository;
   approvals: IApprovalRepository;
   pushSubscriptions: IPushSubscriptionRepository;

@@ -1,5 +1,5 @@
-import type { AuditEvent, StoredEvent } from '../types';
 import type { IDatabase } from '../db/types';
+import type { AuditEvent, StoredEvent } from '../types';
 
 export interface SessionSummary {
   sessionId: string;
@@ -55,7 +55,7 @@ export class SummaryGenerator {
 
 function payload(event: StoredEvent): Record<string, unknown> {
   const value = event.envelope.payload;
-  return typeof value === 'object' && value !== null ? value as Record<string, unknown> : {};
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
 }
 
 function isSuccessfulTestResult(event: StoredEvent): boolean {
@@ -90,12 +90,22 @@ function approvalDescriptions(events: StoredEvent[], audit: AuditEvent[]): strin
   for (const event of events) {
     if (event.eventType !== 'session.approval_required') continue;
     const data = payload(event);
-    const action = String(data['actionType'] ?? data['capability'] ?? data['description'] ?? '').toLowerCase();
-    descriptions.add(/package|dependenc|install/.test(action) ? 'Dependency install required approval' : 'Approval required');
+    const action = String(
+      data['actionType'] ?? data['capability'] ?? data['description'] ?? '',
+    ).toLowerCase();
+    descriptions.add(
+      /package|dependenc|install/.test(action)
+        ? 'Dependency install required approval'
+        : 'Approval required',
+    );
   }
   for (const event of audit) {
     if (event.decision !== 'require_approval') continue;
-    descriptions.add(/package|dependenc|install/.test(event.action.toLowerCase()) ? 'Dependency install required approval' : 'Approval required');
+    descriptions.add(
+      /package|dependenc|install/.test(event.action.toLowerCase())
+        ? 'Dependency install required approval'
+        : 'Approval required',
+    );
   }
   return [...descriptions];
 }

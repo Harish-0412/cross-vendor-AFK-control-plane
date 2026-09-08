@@ -1,12 +1,25 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { basename, resolve } from 'node:path';
 
-import type { SessionConfig, TrustProfile } from '@freebuff/protocol';
+import type { Capability, SessionConfig, TrustProfile } from '@freebuff/protocol';
+import { CreatePolicyVersionSchema } from '@freebuff/schemas';
 
+import { SummaryGenerator } from '../afk/summary-generator';
+import { verifyFirebaseIdToken } from '../auth/firebase-admin';
 import { signJwt, verifyJwt } from '../auth/jwt';
 import { hashPassword, verifyPassword } from '../auth/password';
-import { verifyFirebaseIdToken } from '../auth/firebase-admin';
+import {
+  AuthRateLimiter,
+  DEFAULT_LOGIN_RATE_LIMIT,
+  DEFAULT_REGISTER_RATE_LIMIT,
+} from '../auth/rate-limiter';
 import type { IDatabase } from '../db/types';
+import { GitHubClient } from '../integrations/github/github-client';
+import { GitHubOAuth } from '../integrations/github/oauth';
+import { EncryptedTokenStore } from '../integrations/github/token-store';
+import { type PolicyEngineService, type ApprovalWorkflow, type AuditLog } from '../policy/index';
+import { ReviewOrchestrator } from '../review/review-orchestrator';
 import type { ConnectionRegistry } from '../tunnel/connection-registry';
 import type { TunnelServer } from '../tunnel/tunnel-server';
 import type { ControlPlaneConfig, DeviceRecord } from '../types';
@@ -22,8 +35,6 @@ const TRUST_PROFILES: readonly TrustProfile[] = [
 function isTrustProfile(value: unknown): value is TrustProfile {
   return typeof value === 'string' && TRUST_PROFILES.includes(value as TrustProfile);
 }
-import { PolicyEngineService, ApprovalWorkflow, AuditLog } from '../policy/index';
-import { SummaryGenerator } from '../afk/summary-generator';
 
 export class HttpRouter {
   private db: IDatabase;
@@ -34,6 +45,16 @@ export class HttpRouter {
   private approvalWorkflow: ApprovalWorkflow;
   private auditLog: AuditLog;
   private summaryGenerator: SummaryGenerator;
+  private reviewOrchestrator: ReviewOrchestrator;
+  private githubOAuth?: GitHubOAuth;
+  private githubTokens: EncryptedTokenStore;
+  // §4.4 of the pre-deployment audit: neither endpoint had any attempt
+  // limiting at all. Keyed by IP+email for login (so a distributed attacker
+  // guessing one account, or one IP spraying many accounts, both get
+  // limited) and by IP alone for register (an email doesn't exist yet to
+  // key on when the abuse is account-creation spam itself).
+  private readonly loginRateLimiter = new AuthRateLimiter(DEFAULT_LOGIN_RATE_LIMIT);
+  private readonly registerRateLimiter = new AuthRateLimiter(DEFAULT_REGISTER_RATE_LIMIT);
 
   constructor(
     db: IDatabase,
@@ -43,6 +64,7 @@ export class HttpRouter {
     policyService: PolicyEngineService,
     approvalWorkflow: ApprovalWorkflow,
     auditLog: AuditLog,
+    reviewOrchestrator?: ReviewOrchestrator,
   ) {
     this.db = db;
     this.registry = registry;
@@ -52,6 +74,20 @@ export class HttpRouter {
     this.approvalWorkflow = approvalWorkflow;
     this.auditLog = auditLog;
     this.summaryGenerator = new SummaryGenerator(db);
+    this.reviewOrchestrator =
+      reviewOrchestrator ?? new ReviewOrchestrator(db, tunnelServer, policyService);
+    this.githubTokens = new EncryptedTokenStore(
+      db,
+      config.credentialEncryptionSecret ?? config.jwtSecret,
+    );
+    if (config.githubClientId && config.githubClientSecret && config.githubCallbackUrl) {
+      this.githubOAuth = new GitHubOAuth(
+        config.githubClientId,
+        config.githubClientSecret,
+        config.githubCallbackUrl,
+        config.jwtSecret,
+      );
+    }
   }
 
   async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -92,13 +128,26 @@ export class HttpRouter {
       try {
         const decoded = await verifyFirebaseIdToken(token);
         if (decoded) {
+          // SECURITY FIX: `role` used to be read directly from the Firebase
+          // ID token's custom claim (`decoded['role']`) and trusted for
+          // every authorization decision in this handler, while a
+          // newly-created user record was unconditionally given `role:
+          // 'user'` — so the database (source of truth) and the per-request
+          // authUser.role could diverge, and every check downstream trusted
+          // the token over the database. Custom claims can currently only be
+          // set server-side via the Admin SDK, so this wasn't yet reachable
+          // by a client — but it's exactly the kind of latent seam that
+          // becomes exploitable the moment an unrelated feature (an "invite
+          // a teammate" flow, a claims-sync endpoint) is added without
+          // realizing this handler already trusts that claim. Role is now
+          // always read from the database record.
+          const existing = await this.db.users.findById(decoded.uid);
           authUser = {
             id: decoded.uid,
             email: decoded.email,
-            role: (decoded['role'] as string) || 'user',
+            role: existing?.role ?? 'user',
           };
           // Ensure user exists in our repository
-          const existing = await this.db.users.findById(decoded.uid);
           if (!existing && decoded.email) {
             try {
               await this.db.users.create({
@@ -153,6 +202,15 @@ export class HttpRouter {
 
       // --- AUTH ROUTES ---
       if (path === '/api/v1/auth/register' && method === 'POST') {
+        const clientIp = this.getClientIp(req);
+        if (!this.registerRateLimiter.isAllowed(clientIp)) {
+          return this.sendJson(res, 429, {
+            error: 'Too many registration attempts. Please try again later.',
+            retryAfterSeconds: this.registerRateLimiter.retryAfterSeconds(clientIp),
+          });
+        }
+        this.registerRateLimiter.recordAttempt(clientIp);
+
         const email = typeof body['email'] === 'string' ? body['email'] : undefined;
         const password = typeof body['password'] === 'string' ? body['password'] : undefined;
         const name = typeof body['name'] === 'string' ? body['name'] : undefined;
@@ -189,8 +247,25 @@ export class HttpRouter {
         if (!email || !password) {
           return this.sendJson(res, 400, { error: 'Email and password are required' });
         }
+
+        // Keyed by IP+email: bounds both "one attacker guessing one
+        // account's password" and "one IP spraying many accounts", without
+        // letting an attacker who rotates IPs bypass a per-email-only limit
+        // or an attacker sharing an IP (e.g. behind NAT/a proxy) lock out
+        // every other user on that IP via a per-IP-only limit.
+        const loginKey = `${this.getClientIp(req)}:${email.toLowerCase()}`;
+        if (!this.loginRateLimiter.isAllowed(loginKey)) {
+          return this.sendJson(res, 429, {
+            error: 'Too many login attempts. Please try again later.',
+            retryAfterSeconds: this.loginRateLimiter.retryAfterSeconds(loginKey),
+          });
+        }
+
         const user = await this.db.users.findByEmail(email);
         if (!user || !verifyPassword(password, user.passwordHash)) {
+          // Record only failed attempts — a legitimate user who succeeds on
+          // their first try should never be throttled by their own history.
+          this.loginRateLimiter.recordAttempt(loginKey);
           return this.sendJson(res, 401, { error: 'Invalid email or password' });
         }
         const tokens = this.issueTokenPair(user.id, user.email, user.role);
@@ -227,8 +302,7 @@ export class HttpRouter {
           return this.sendJson(res, 401, { error: 'User no longer exists' });
         }
         const tokens = this.issueTokenPair(user.id, user.email, user.role);
-        const isWeb =
-          req.headers['x-client-type'] === 'web' || Boolean(cookies['refreshToken']);
+        const isWeb = req.headers['x-client-type'] === 'web' || Boolean(cookies['refreshToken']);
         if (isWeb) {
           this.setRefreshCookie(res, tokens.refreshToken);
         }
@@ -634,7 +708,12 @@ export class HttpRouter {
           return this.sendJson(res, 404, { error: 'Device not found' });
         }
 
-        const ACTIVE_STATES = new Set(['running', 'waiting_for_approval', 'initializing', 'paused']);
+        const ACTIVE_STATES = new Set([
+          'running',
+          'waiting_for_approval',
+          'initializing',
+          'paused',
+        ]);
         const sessions = await this.db.sessions.listByDevice(deviceId);
         const active = sessions.filter((s) => ACTIVE_STATES.has(s.state));
 
@@ -645,15 +724,20 @@ export class HttpRouter {
               ? 'Kill switch activated by user'
               : 'Session locked by user';
 
-        const results: Array<{ sessionId: string; state: string; delivered: boolean; acknowledged: boolean }> = [];
+        const results: Array<{
+          sessionId: string;
+          state: string;
+          delivered: boolean;
+          acknowledged: boolean;
+        }> = [];
         for (const session of active) {
           if (action === 'kill-switch') {
             // Same command POST /sessions/:id/cancel already uses, looped (§2.5).
-            const result = await this.tunnelServer.sendCommandToDevice(
-              deviceId,
-              'session.stop',
-              { sessionId: session.id, force: true, reason },
-            );
+            const result = await this.tunnelServer.sendCommandToDevice(deviceId, 'session.stop', {
+              sessionId: session.id,
+              force: true,
+              reason,
+            });
             await this.db.sessions.update(session.id, { state: 'cancelled' });
             results.push({
               sessionId: session.id,
@@ -754,14 +838,279 @@ export class HttpRouter {
 
       if (path === '/api/v1/push/subscribe' && method === 'DELETE') {
         if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
-        const target = typeof body['endpoint'] === 'string'
-          ? body['endpoint']
-          : typeof body['fcmToken'] === 'string'
-            ? body['fcmToken']
-            : undefined;
+        const target =
+          typeof body['endpoint'] === 'string'
+            ? body['endpoint']
+            : typeof body['fcmToken'] === 'string'
+              ? body['fcmToken']
+              : undefined;
         if (!target) return this.sendJson(res, 400, { error: 'endpoint or fcmToken is required' });
         const deleted = await this.db.pushSubscriptions.delete(authUser.id, target);
         return this.sendJson(res, deleted ? 200 : 404, { success: deleted });
+      }
+
+      // --- PROJECT WORKSPACES ---
+      if (path === '/api/v1/integrations/github/oauth/start' && method === 'GET') {
+        if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+        if (!this.githubOAuth)
+          return this.sendJson(res, 503, { error: 'GitHub OAuth is not configured' });
+        return this.sendJson(res, 200, {
+          authorizationUrl: this.githubOAuth.authorizationUrl(authUser.id),
+          scope: ['repo'],
+        });
+      }
+      if (path === '/api/v1/integrations/github/oauth/callback' && method === 'GET') {
+        if (!this.githubOAuth)
+          return this.sendJson(res, 503, { error: 'GitHub OAuth is not configured' });
+        const code = url.searchParams.get('code');
+        const state = url.searchParams.get('state');
+        if (!code || !state)
+          return this.sendJson(res, 400, { error: 'code and state are required' });
+        const userId = this.githubOAuth.verifyState(state);
+        await this.githubTokens.set(userId, await this.githubOAuth.exchangeCode(code));
+        return this.sendJson(res, 200, { connected: true, provider: 'github' });
+      }
+      if (path === '/api/v1/integrations/github/repositories' && method === 'GET') {
+        if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+        const token = await this.githubTokens.get(authUser.id);
+        if (!token) return this.sendJson(res, 409, { error: 'GitHub is not connected' });
+        return this.sendJson(res, 200, await new GitHubClient(token).listRepositories());
+      }
+      if (path === '/api/v1/integrations/github' && method === 'DELETE') {
+        if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+        return this.sendJson(res, 200, {
+          disconnected: await this.githubTokens.delete(authUser.id),
+        });
+      }
+      if (path === '/api/v1/projects' && method === 'GET') {
+        if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+        return this.sendJson(res, 200, await this.db.projects.listByUser(authUser.id));
+      }
+      if (path === '/api/v1/projects' && method === 'POST') {
+        if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+        if (typeof body['root'] !== 'string' || !body['root'])
+          return this.sendJson(res, 400, { error: 'root is required' });
+        const root = resolve(body['root']);
+        const existing = await this.db.projects.findByRoot(authUser.id, root);
+        if (existing) return this.sendJson(res, 200, existing);
+        const project = await this.db.projects.create({
+          id: `proj_${randomUUID().replace(/-/g, '').slice(0, 24)}`,
+          userId: authUser.id,
+          name: typeof body['name'] === 'string' ? body['name'] : basename(root),
+          root,
+          preferences: { protectedBranches: ['main', 'master'] },
+        });
+        return this.sendJson(res, 201, project);
+      }
+      if (
+        segments.length >= 4 &&
+        segments[0] === 'api' &&
+        segments[1] === 'v1' &&
+        segments[2] === 'projects'
+      ) {
+        if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+        const projectId = segments[3];
+        if (!projectId) return this.sendJson(res, 400, { error: 'Project ID is required' });
+        const project = await this.db.projects.findById(projectId);
+        if (!project || project.userId !== authUser.id)
+          return this.sendJson(res, 404, { error: 'Project not found' });
+        if (segments.length === 4 && method === 'GET') return this.sendJson(res, 200, project);
+        if (segments.length === 5 && segments[4] === 'preferences' && method === 'PATCH') {
+          const preferences = { ...project.preferences };
+          if (body['defaultTrustProfile'] !== undefined) {
+            if (!isTrustProfile(body['defaultTrustProfile']))
+              return this.sendJson(res, 400, { error: 'Invalid defaultTrustProfile' });
+            preferences.defaultTrustProfile = body['defaultTrustProfile'];
+          }
+          if (typeof body['defaultBranch'] === 'string')
+            preferences.defaultBranch = body['defaultBranch'];
+          if (typeof body['githubRepository'] === 'string')
+            preferences.githubRepository = body['githubRepository'];
+          if (typeof body['preferredAdapter'] === 'string')
+            preferences.preferredAdapter = body['preferredAdapter'];
+          if (
+            Array.isArray(body['protectedBranches']) &&
+            body['protectedBranches'].every((item) => typeof item === 'string')
+          ) {
+            preferences.protectedBranches = body['protectedBranches'];
+          }
+          return this.sendJson(res, 200, await this.db.projects.update(projectId, { preferences }));
+        }
+        if (segments.length === 5 && segments[4] === 'dashboard' && method === 'GET') {
+          const allSessions = await this.db.sessions.listByUser(authUser.id);
+          const sessions = allSessions.filter(
+            (item) =>
+              item.projectId === projectId ||
+              (!item.projectId && resolve(item.projectRoot) === project.root),
+          );
+          const activeStates = new Set([
+            'initializing',
+            'running',
+            'waiting_for_approval',
+            'paused',
+          ]);
+          const eventGroups = await Promise.all(
+            sessions.map((item) => this.db.events.listBySession(item.id, 0, 100)),
+          );
+          const approvalGroups = await Promise.all(
+            sessions.map((item) => this.db.approvals.listBySession(item.id)),
+          );
+          const sessionIds = new Set(sessions.map((item) => item.id));
+          const gitActivity = (await this.db.audit.list({ limit: 1000 })).filter(
+            (item) =>
+              item.sessionId && sessionIds.has(item.sessionId) && item.action.startsWith('git.'),
+          );
+          const policyVersion = await this.policyService.getActivePolicyVersion();
+          const policies = (policyVersion?.rules ?? []).filter(
+            (rule) => rule.match.projectId === projectId,
+          );
+          const activeSessions = sessions.filter((item) => activeStates.has(item.state));
+          const statusSession = activeSessions[0] ?? sessions[0];
+          let gitStatus: unknown = null;
+          if (statusSession) {
+            const statusAck = await this.tunnelServer.sendCommandToDevice(
+              statusSession.deviceId,
+              'git.status',
+              { sessionId: statusSession.id, projectRoot: project.root },
+            );
+            const ackPayload =
+              typeof statusAck.payload === 'object' && statusAck.payload !== null
+                ? (statusAck.payload as { result?: unknown })
+                : null;
+            gitStatus = ackPayload?.result ?? null;
+          }
+          const historyLimit = Math.min(
+            Math.max(Number(url.searchParams.get('limit') ?? 50), 1),
+            200,
+          );
+          const historyOffset = Math.max(Number(url.searchParams.get('offset') ?? 0), 0);
+          const history = [
+            ...sessions.map((item) => ({ type: 'session', timestamp: item.startedAt, item })),
+            ...gitActivity.map((item) => ({ type: 'audit', timestamp: item.timestamp, item })),
+          ]
+            .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+            .slice(historyOffset, historyOffset + historyLimit);
+          return this.sendJson(res, 200, {
+            project,
+            preferences: project.preferences,
+            repository: {
+              id: project.id,
+              name: project.name,
+              githubRepository: project.preferences.githubRepository ?? null,
+              status: gitStatus,
+            },
+            workspace: { root: project.root },
+            defaultBranch: project.preferences.defaultBranch ?? 'main',
+            policies,
+            agentPreferences: {
+              preferredAdapter: project.preferences.preferredAdapter ?? null,
+              defaultTrustProfile: project.preferences.defaultTrustProfile ?? null,
+            },
+            activeSessions,
+            history,
+            activeAgents: sessions
+              .filter((item) => activeStates.has(item.state))
+              .map((item) => ({ sessionId: item.id, agentId: item.agentId, state: item.state })),
+            tasks: sessions.map((item) => ({
+              sessionId: item.id,
+              state: item.state,
+              startedAt: item.startedAt,
+              completedAt: item.completedAt,
+            })),
+            gitActivity,
+            pendingApprovals: approvalGroups.flat().filter((item) => item.status === 'pending'),
+            recentEvents: eventGroups
+              .flat()
+              .sort((a, b) => b.storedAt.getTime() - a.storedAt.getTime())
+              .slice(0, 100),
+            reviews: sessions.filter((item) => item.reviewBundle).map((item) => item.reviewBundle),
+          });
+        }
+        if (
+          segments.length === 6 &&
+          segments[4] === 'github' &&
+          segments[5] === 'pull-request' &&
+          method === 'POST'
+        ) {
+          const repository = project.preferences.githubRepository;
+          if (!repository || !repository.includes('/'))
+            return this.sendJson(res, 409, {
+              error: 'Project has no GitHub repository configured',
+            });
+          const title = typeof body['title'] === 'string' ? body['title'] : undefined;
+          const head = typeof body['head'] === 'string' ? body['head'] : undefined;
+          const base =
+            typeof body['base'] === 'string'
+              ? body['base']
+              : (project.preferences.defaultBranch ?? 'main');
+          if (!title || !head)
+            return this.sendJson(res, 400, { error: 'title and head are required' });
+          const sessions = (await this.db.sessions.listByUser(authUser.id)).filter(
+            (item) => item.projectId === projectId,
+          );
+          const policySession = sessions.at(-1);
+          if (!policySession)
+            return this.sendJson(res, 409, {
+              error: 'A project session is required for policy evaluation',
+            });
+          const decision = await this.policyService.evaluate('git.pull_request_create', 'medium', {
+            resource: `${repository}:${head}->${base}`,
+            projectId,
+            deviceId: policySession.deviceId,
+            sessionId: policySession.id,
+            userId: authUser.id,
+          });
+          if (decision.decision === 'deny') return this.sendJson(res, 403, { decision });
+          if (decision.decision === 'require_approval') {
+            const approval = await this.approvalWorkflow.createApproval({
+              sessionId: policySession.id,
+              deviceId: policySession.deviceId,
+              userId: authUser.id,
+              actionType: 'git.pull_request_create',
+              description: `Create pull request ${repository}:${head}->${base}`,
+              details: {
+                riskClass: 'medium',
+                resource: `${repository}:${head}->${base}`,
+                pendingControlAction: {
+                  type: 'github.pull_request_create',
+                  projectId,
+                  repository,
+                  title,
+                  head,
+                  base,
+                  ...(typeof body['description'] === 'string'
+                    ? { description: body['description'] }
+                    : {}),
+                },
+              },
+              policyVersion: decision.policyVersion,
+              matchedRules: decision.matchedRules,
+              ...(decision.requiredRole ? { requiredRole: decision.requiredRole } : {}),
+              expiresAt: decision.expiresAt,
+            });
+            return this.sendJson(res, 202, { decision: 'require_approval', approval });
+          }
+          const token = await this.githubTokens.get(authUser.id);
+          if (!token) return this.sendJson(res, 409, { error: 'GitHub is not connected' });
+          const [owner, repo] = repository.split('/');
+          const pullRequest = await new GitHubClient(token).createPullRequest(
+            owner!,
+            repo!,
+            title,
+            head,
+            base,
+            typeof body['description'] === 'string' ? body['description'] : undefined,
+          );
+          await this.auditLog.record({
+            actor: { type: 'user', id: authUser.id },
+            sessionId: policySession.id,
+            deviceId: policySession.deviceId,
+            action: 'git.pull_request_create',
+            decision: 'allow',
+            policyVersion: decision.policyVersion,
+          });
+          return this.sendJson(res, 201, pullRequest);
+        }
       }
 
       // --- SESSION MANAGEMENT ---
@@ -790,6 +1139,8 @@ export class HttpRouter {
         const projectRoot =
           typeof body['projectRoot'] === 'string' ? body['projectRoot'] : process.cwd();
         const prompt = typeof body['prompt'] === 'string' ? body['prompt'] : undefined;
+        const requestedProjectId =
+          typeof body['projectId'] === 'string' ? body['projectId'] : undefined;
         const rawConfig =
           typeof body['config'] === 'object' && body['config'] !== null
             ? body['config']
@@ -802,10 +1153,27 @@ export class HttpRouter {
           return this.sendJson(res, 404, { error: 'Device not found or not owned by you' });
         }
 
+        let project = requestedProjectId
+          ? await this.db.projects.findById(requestedProjectId)
+          : await this.db.projects.findByRoot(authUser.id, resolve(projectRoot));
+        if (project && project.userId !== authUser.id)
+          return this.sendJson(res, 404, { error: 'Project not found' });
+        if (!project) {
+          const root = resolve(projectRoot);
+          project = await this.db.projects.create({
+            id: `proj_${randomUUID().replace(/-/g, '').slice(0, 24)}`,
+            userId: authUser.id,
+            name: basename(root),
+            root,
+            preferences: { protectedBranches: ['main', 'master'] },
+          });
+        }
+
         const sessionId = `sess_${randomUUID().replace(/-/g, '')}`;
         const sessionConfig: SessionConfig = (rawConfig as unknown as SessionConfig) || {
           agent: agentId,
           projectRoot,
+          projectId: project.id,
           prompt,
         };
 
@@ -817,7 +1185,7 @@ export class HttpRouter {
           agentId,
           projectRoot,
           state: 'initializing',
-          trustProfile: device.defaultTrustProfile,
+          trustProfile: project.preferences.defaultTrustProfile ?? device.defaultTrustProfile,
           config: sessionConfig,
           startedAt: new Date(),
         });
@@ -871,6 +1239,136 @@ export class HttpRouter {
 
         if (segments.length === 4 && method === 'GET') {
           return this.sendJson(res, 200, session);
+        }
+
+        if (segments.length === 6 && segments[4] === 'git') {
+          const operation = segments[5];
+          if (!operation) return this.sendJson(res, 404, { error: 'Git operation is required' });
+          if (!['branch', 'commit', 'push', 'status'].includes(operation)) {
+            return this.sendJson(res, 404, { error: 'Unknown Git operation' });
+          }
+          if (
+            (operation === 'status' && method !== 'GET') ||
+            (operation !== 'status' && method !== 'POST')
+          ) {
+            return this.sendJson(res, 405, { error: 'Method not allowed' });
+          }
+
+          const branch =
+            typeof body['branch'] === 'string'
+              ? body['branch']
+              : operation === 'branch' && typeof body['name'] === 'string'
+                ? body['name']
+                : undefined;
+          const remote = typeof body['remote'] === 'string' ? body['remote'] : 'origin';
+          const force = body['force'] === true;
+          const capability =
+            operation === 'branch'
+              ? 'git.branch_create'
+              : operation === 'commit'
+                ? 'git.commit'
+                : operation === 'push'
+                  ? 'git.push'
+                  : 'filesystem.read';
+          const sessionProject = session.projectId
+            ? await this.db.projects.findById(session.projectId)
+            : null;
+          const protectedBranch =
+            body['protected'] === true ||
+            Boolean(
+              branch &&
+              (sessionProject?.preferences.protectedBranches.includes(branch) ||
+                branch === 'main' ||
+                branch === 'master'),
+            );
+          const riskClass =
+            operation === 'status'
+              ? 'low'
+              : operation === 'branch'
+                ? protectedBranch
+                  ? 'medium'
+                  : 'low'
+                : operation === 'commit'
+                  ? 'medium'
+                  : 'high';
+          const resource = branch ?? session.projectRoot;
+          const decision = await this.policyService.evaluate(capability, riskClass, {
+            resource,
+            ...(operation === 'push' ? { force } : {}),
+            ...(session.projectId ? { projectId: session.projectId } : {}),
+            deviceId: session.deviceId,
+            sessionId,
+            userId: authUser.id,
+          });
+
+          if (decision.decision === 'deny') {
+            return this.sendJson(res, 403, { decision: 'deny', reason: decision.reason });
+          }
+
+          const commandType = operation === 'branch' ? 'git.branch_create' : `git.${operation}`;
+          const commandPayload: Record<string, unknown> = {
+            sessionId,
+            projectRoot: session.projectRoot,
+            ...(branch ? { branch } : {}),
+            ...(operation === 'branch' && typeof body['fromRef'] === 'string'
+              ? { fromRef: body['fromRef'] }
+              : {}),
+            ...(operation === 'commit' && typeof body['message'] === 'string'
+              ? { message: body['message'] }
+              : {}),
+            ...(operation === 'commit' && Array.isArray(body['files'])
+              ? { files: body['files'] }
+              : {}),
+            ...(operation === 'push' ? { remote, force } : {}),
+          };
+          if (operation === 'branch' && !branch)
+            return this.sendJson(res, 400, { error: 'branch is required' });
+          if (
+            operation === 'commit' &&
+            (typeof body['message'] !== 'string' || !body['message'].trim())
+          )
+            return this.sendJson(res, 400, { error: 'message is required' });
+          if (operation === 'push' && !branch)
+            return this.sendJson(res, 400, { error: 'branch is required' });
+
+          if (decision.decision === 'require_approval') {
+            const approval = await this.approvalWorkflow.createApproval({
+              sessionId,
+              deviceId: session.deviceId,
+              userId: authUser.id,
+              actionType: capability,
+              description: `${operation} ${branch ?? ''}`.trim(),
+              details: {
+                pendingCommand: { commandType, payload: commandPayload },
+                riskClass,
+                resource,
+              },
+              policyVersion: decision.policyVersion,
+              matchedRules: decision.matchedRules,
+              ...(decision.requiredRole ? { requiredRole: decision.requiredRole } : {}),
+              expiresAt: decision.expiresAt,
+            });
+            return this.sendJson(res, 202, { decision: 'require_approval', approval });
+          }
+
+          const commandResult = await this.tunnelServer.sendCommandToDevice(
+            session.deviceId,
+            commandType,
+            commandPayload,
+          );
+          const commandAck =
+            typeof commandResult.payload === 'object' && commandResult.payload !== null
+              ? (commandResult.payload as { result?: unknown })
+              : null;
+          return this.sendJson(res, commandResult.delivered ? 200 : 503, {
+            decision: 'allow',
+            delivered: commandResult.delivered,
+            acknowledged: commandResult.acknowledged,
+            result:
+              commandAck && 'result' in commandAck
+                ? commandAck.result
+                : (commandResult.payload ?? null),
+          });
         }
 
         if (segments.length === 5 && segments[4] === 'trust-profile' && method === 'PATCH') {
@@ -996,6 +1494,17 @@ export class HttpRouter {
           return this.sendJson(res, 200, await this.summaryGenerator.generate(sessionId, from));
         }
 
+        if (segments.length === 5 && segments[4] === 'review' && method === 'GET') {
+          return this.sendJson(
+            res,
+            200,
+            await this.reviewOrchestrator.get(
+              sessionId,
+              url.searchParams.get('refresh') === 'true',
+            ),
+          );
+        }
+
         if (segments.length === 5 && segments[4] === 'approvals' && method === 'GET') {
           const approvals = await this.db.approvals.listBySession(sessionId);
           return this.sendJson(res, 200, approvals);
@@ -1011,14 +1520,68 @@ export class HttpRouter {
           if (!approvalId) return this.sendJson(res, 400, { error: 'Approval ID is required' });
           const approved = typeof body['approved'] === 'boolean' ? body['approved'] : undefined;
           const reason = typeof body['reason'] === 'string' ? body['reason'] : undefined;
-          const feedback = typeof body['feedback'] === 'string' ? body['feedback'] : undefined;  // §7.3 — new optional field for voice feedback
+          const feedback = typeof body['feedback'] === 'string' ? body['feedback'] : undefined; // §7.3 — new optional field for voice feedback
 
           if (approved === undefined) {
             return this.sendJson(res, 400, { error: '"approved" boolean is required' });
           }
 
+          const currentApproval = await this.approvalWorkflow.getApproval(approvalId);
+          if (
+            !currentApproval ||
+            currentApproval.sessionId !== sessionId ||
+            currentApproval.userId !== authUser.id
+          ) {
+            return this.sendJson(res, 404, { error: 'Approval not found' });
+          }
+          if (
+            currentApproval.requiredRole &&
+            authUser.role !== 'owner' &&
+            authUser.role !== currentApproval.requiredRole
+          ) {
+            return this.sendJson(res, 403, {
+              error: `${currentApproval.requiredRole} role is required`,
+            });
+          }
+          if (approved && currentApproval.actionType.startsWith('git.')) {
+            const details = currentApproval.details ?? {};
+            const pending =
+              typeof details['pendingCommand'] === 'object' && details['pendingCommand'] !== null
+                ? (details['pendingCommand'] as { payload?: Record<string, unknown> })
+                : undefined;
+            const reEvaluation = await this.policyService.evaluate(
+              currentApproval.actionType as Capability,
+              (details['riskClass'] as 'low' | 'medium' | 'high' | 'critical') ?? 'high',
+              {
+                ...(typeof details['resource'] === 'string'
+                  ? { resource: details['resource'] }
+                  : {}),
+                ...(session.projectId ? { projectId: session.projectId } : {}),
+                ...(typeof pending?.payload?.['force'] === 'boolean'
+                  ? { force: pending.payload['force'] }
+                  : {}),
+                deviceId: session.deviceId,
+                sessionId,
+                userId: authUser.id,
+              },
+            );
+            if (reEvaluation.decision === 'deny') {
+              await this.approvalWorkflow.handlePolicyChange(approvalId, 'deny');
+              return this.sendJson(res, 409, {
+                error: 'Approval superseded by current policy',
+                decision: reEvaluation,
+              });
+            }
+          }
+
           // Use the approval workflow state machine (CAS — first valid decision wins)
-          const result = await this.approvalWorkflow.submitDecision(approvalId, authUser.id, approved, reason, feedback);
+          const result = await this.approvalWorkflow.submitDecision(
+            approvalId,
+            authUser.id,
+            approved,
+            reason,
+            feedback,
+          );
 
           if (result.conflict) {
             return this.sendJson(res, 409, {
@@ -1040,46 +1603,44 @@ export class HttpRouter {
             });
           }
 
-          // Re-evaluate against current policy (§7.3 — policy change after request)
-          // Wrap in try-catch to avoid breaking the approval flow if policy service fails
-          try {
-            const policyReEvaluation = await this.policyService.evaluate(
-              'process.exec', // Default capability for re-evaluation
-              'medium',
-              {
-                deviceId: session.deviceId,
-                sessionId,
-                userId: authUser.id,
-              },
-            );
-
-            // If policy now denies, auto-deny (policy_superseded)
-            if (policyReEvaluation.decision === 'deny') {
-              await this.approvalWorkflow.handlePolicyChange(approvalId, 'deny');
-            }
-          } catch {
-            // Policy re-evaluation failed — continue with the approval decision anyway
-            // The audit log will capture the decision regardless
-          }
-
           const decision = approved ? 'granted' : 'denied';
-          const tunnelResult = await this.tunnelServer.sendCommandToDevice(
-            session.deviceId,
-            'session.approve',
-            {
-              sessionId,
-              approvalId,
-              decision,
-              reason,
-            },
-          );
+          const pendingCommand = approved && result.record?.details?.['pendingCommand'];
+          const pendingControlAction = approved && result.record?.details?.['pendingControlAction'];
+          const executable =
+            typeof pendingCommand === 'object' && pendingCommand !== null
+              ? (pendingCommand as { commandType?: unknown; payload?: unknown })
+              : null;
+          const controlAction =
+            typeof pendingControlAction === 'object' && pendingControlAction !== null
+              ? (pendingControlAction as Record<string, unknown>)
+              : null;
+          const tunnelResult =
+            controlAction?.['type'] === 'github.pull_request_create'
+              ? await this.executeApprovedGitHubPullRequest(authUser.id, controlAction)
+              : executable && typeof executable.commandType === 'string'
+                ? await this.tunnelServer.sendCommandToDevice(
+                    session.deviceId,
+                    executable.commandType,
+                    executable.payload ?? {},
+                  )
+                : await this.tunnelServer.sendCommandToDevice(session.deviceId, 'session.approve', {
+                    sessionId,
+                    approvalId,
+                    decision,
+                    reason,
+                  });
 
           // Record the decision in audit log
           await this.auditLog.record({
             actor: { type: 'user', id: authUser.id },
             sessionId,
             deviceId: session.deviceId,
-            action: 'approval.decision',
+            action:
+              controlAction?.['type'] === 'github.pull_request_create'
+                ? 'git.pull_request_create.approval_granted'
+                : executable && typeof executable.commandType === 'string'
+                  ? `${executable.commandType}.approval_${decision}`
+                  : 'approval.decision',
             decision,
             ...(result.record?.policyVersion ? { policyVersion: result.record.policyVersion } : {}),
           });
@@ -1111,7 +1672,8 @@ export class HttpRouter {
           const sessionRecord = await this.db.sessions.findById(sessionId);
           const adapterResult =
             typeof diff.payload === 'object' && diff.payload !== null
-              ? (diff.payload as { diff?: string }).diff
+              ? ((diff.payload as { result?: { diff?: string }; diff?: string }).result?.diff ??
+                (diff.payload as { diff?: string }).diff)
               : undefined;
           return this.sendJson(res, 202, {
             sessionId,
@@ -1172,12 +1734,26 @@ export class HttpRouter {
         if (!(await this.policyService.canManagePolicy(authUser.id))) {
           return this.sendJson(res, 403, { error: 'Only admins can create policy versions' });
         }
-        const description = typeof body['description'] === 'string' ? body['description'] : '';
-        const rules = Array.isArray(body['rules']) ? body['rules'] : [];
-        if (!description) {
-          return this.sendJson(res, 400, { error: 'description is required' });
+        // Was: `const rules = Array.isArray(body['rules']) ? body['rules'] : []`
+        // — an unvalidated `any[]` handed straight to the Policy Engine's
+        // rule set. A malformed rule (a typo'd `effect`, a missing
+        // `priority`, an invalid `capability` enum value) would have
+        // silently become part of the security-critical policy
+        // configuration rather than being rejected at authoring time. The
+        // matching zod schema already existed in @freebuff/schemas; it was
+        // just never called from this endpoint.
+        const parsed = CreatePolicyVersionSchema.safeParse(body);
+        if (!parsed.success) {
+          return this.sendJson(res, 400, {
+            error: 'Invalid policy version payload',
+            details: parsed.error.flatten(),
+          });
         }
-        const version = await this.policyService.createPolicyVersion(authUser.id, description, rules);
+        const version = await this.policyService.createPolicyVersion(
+          authUser.id,
+          parsed.data.description,
+          parsed.data.rules,
+        );
         return this.sendJson(res, 201, version);
       }
 
@@ -1224,17 +1800,21 @@ export class HttpRouter {
         const deviceId = typeof body['deviceId'] === 'string' ? body['deviceId'] : undefined;
         const sessionId = typeof body['sessionId'] === 'string' ? body['sessionId'] : undefined;
         const userId = typeof body['userId'] === 'string' ? body['userId'] : undefined;
+        const force = typeof body['force'] === 'boolean' ? body['force'] : undefined;
 
         if (!capability || !deviceId || !userId) {
-          return this.sendJson(res, 400, { error: 'capability, deviceId, and userId are required' });
+          return this.sendJson(res, 400, {
+            error: 'capability, deviceId, and userId are required',
+          });
         }
 
         const decision = await this.policyService.evaluate(
-          capability as 'filesystem.read' | 'filesystem.write' | 'filesystem.delete' | 'process.exec' | 'network.access' | 'package.install' | 'git.commit' | 'git.push' | 'deployment.execute' | 'secret.read',
+          capability as Capability,
           riskClass as 'low' | 'medium' | 'high' | 'critical',
           {
             ...(resource ? { resource } : {}),
             ...(projectId ? { projectId } : {}),
+            ...(force !== undefined ? { force } : {}),
             deviceId,
             ...(sessionId ? { sessionId } : {}),
             userId,
@@ -1332,30 +1912,121 @@ export class HttpRouter {
     return cookies;
   }
 
+  /**
+   * Best-effort client IP for rate-limiting purposes. Trusts
+   * X-Forwarded-For's first entry when present (this API is expected to run
+   * behind a reverse proxy/load balancer in any real deployment — see the
+   * deployment checklist), falling back to the raw socket address for local
+   * dev / direct connections. This is a rate-limiting signal, not an
+   * authentication one — it does not need to be spoof-proof, only good
+   * enough that casual abuse from a single source gets throttled.
+   */
+  private getClientIp(req: IncomingMessage): string {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (typeof forwarded === 'string' && forwarded.length > 0) {
+      return forwarded.split(',')[0]!.trim();
+    }
+    if (Array.isArray(forwarded) && forwarded.length > 0) {
+      return forwarded[0]!.trim();
+    }
+    return req.socket.remoteAddress ?? 'unknown';
+  }
+
   private setRefreshCookie(res: ServerResponse, token: string): void {
     const maxAge = this.config.refreshTokenExpiresInSec || 604800;
+    // §4.5 of the pre-deployment audit: `Secure` was missing entirely, so
+    // this cookie could be transmitted in the clear over a misconfigured or
+    // non-TLS connection. Gated on config rather than inspecting the
+    // request's own TLS state, since a proxy-terminated connection often
+    // makes that detection unreliable (see `handleRequest`'s own
+    // `socketEncrypted` guess for the same underlying problem).
+    const secure = this.config.secureCookies ? '; Secure' : '';
     res.setHeader(
       'Set-Cookie',
-      `refreshToken=${token}; Path=/api/v1/auth; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`,
+      `refreshToken=${token}; Path=/api/v1/auth; HttpOnly; SameSite=Lax${secure}; Max-Age=${maxAge}`,
     );
   }
 
   private clearRefreshCookie(res: ServerResponse): void {
+    const secure = this.config.secureCookies ? '; Secure' : '';
     res.setHeader(
       'Set-Cookie',
-      'refreshToken=; Path=/api/v1/auth; HttpOnly; SameSite=Lax; Max-Age=0',
+      `refreshToken=; Path=/api/v1/auth; HttpOnly; SameSite=Lax${secure}; Max-Age=0`,
     );
   }
 
+  /**
+   * SECURITY: this previously reflected `req.headers.origin` back verbatim
+   * and unconditionally set `Access-Control-Allow-Credentials: true`. That
+   * combination lets *any* website the victim visits make a credentialed
+   * fetch() to this API — the browser attaches the httpOnly refresh-token
+   * cookie automatically, and the reflected origin satisfies the browser's
+   * CORS check, so the attacker's own page (no XSS needed) could read the
+   * JSON response directly. This is exactly the class of attack the
+   * httpOnly-cookie design (Phase 4 §2.3) was meant to close off — an open
+   * CORS policy with credentials enabled undoes it completely.
+   *
+   * Fixed: only echo the request's Origin, and only enable credentials, when
+   * that origin is in the configured allowlist (`config.corsOrigins`). An
+   * unlisted origin gets no CORS headers at all — the browser then blocks
+   * the response from being read, which is the correct, safe default.
+   * `corsOrigins: ['*']` (the config default, intended for local dev) never
+   * enables credentials, since a wildcard origin combined with credentials
+   * is unsafe regardless of what any individual browser currently enforces.
+   */
   private setCORS(req: IncomingMessage, res: ServerResponse): void {
-    const origin = req.headers.origin || '*';
-    res.setHeader('Access-Control-Allow-Origin', origin);
+    const origin = req.headers.origin;
+    const allowedOrigins = this.config.corsOrigins;
+    const allowAll = allowedOrigins.includes('*');
+
+    if (allowAll) {
+      // Dev/wildcard mode: reflect nothing, allow unauthenticated (no
+      // cookie) cross-origin requests only. Never combined with credentials.
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    } else if (origin && allowedOrigins.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Vary', 'Origin');
+    } else {
+      // Origin missing or not on the allowlist: emit no CORS headers.
+      // The browser will block the response from being read by that origin.
+      return;
+    }
+
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
     res.setHeader(
       'Access-Control-Allow-Headers',
       'Content-Type,Authorization,X-Request-ID,X-Client-Type',
     );
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+
+  private async executeApprovedGitHubPullRequest(
+    userId: string,
+    action: Record<string, unknown>,
+  ): Promise<{
+    acknowledged: boolean;
+    delivered: boolean;
+    sequence: number | null;
+    payload?: unknown;
+  }> {
+    const repository = typeof action['repository'] === 'string' ? action['repository'] : '';
+    const [owner, repo] = repository.split('/');
+    const title = typeof action['title'] === 'string' ? action['title'] : '';
+    const head = typeof action['head'] === 'string' ? action['head'] : '';
+    const base = typeof action['base'] === 'string' ? action['base'] : '';
+    if (!owner || !repo || !title || !head || !base)
+      throw new Error('Stored pull request action is invalid');
+    const token = await this.githubTokens.get(userId);
+    if (!token) throw new Error('GitHub is not connected');
+    const pullRequest = await new GitHubClient(token).createPullRequest(
+      owner,
+      repo,
+      title,
+      head,
+      base,
+      typeof action['description'] === 'string' ? action['description'] : undefined,
+    );
+    return { acknowledged: true, delivered: true, sequence: null, payload: pullRequest };
   }
 
   private sendJson(res: ServerResponse, status: number, data: unknown): void {
@@ -1389,9 +2060,7 @@ export class HttpRouter {
         });
       }
     }
-    return versions.sort((a, b) =>
-      b.createdAt.localeCompare(a.createdAt)
-    );
+    return versions.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   private async getActivePolicyVersion() {

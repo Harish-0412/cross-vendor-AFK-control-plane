@@ -1,8 +1,8 @@
 // freebuff/control-plane/src/db/firestore-store.ts
 // Cloud Firestore persistence layer implementing IDatabase
 
-import { randomUUID } from 'node:crypto';
-import crypto from 'node:crypto';
+import crypto, { randomUUID } from 'node:crypto';
+
 import type { Firestore } from 'firebase-admin/firestore';
 
 import type {
@@ -14,6 +14,8 @@ import type {
   StoredEvent,
   AuditEvent,
   PushSubscriptionRecord,
+  ProjectRecord,
+  IntegrationCredentialRecord,
 } from '../types';
 
 import type {
@@ -28,7 +30,23 @@ import type {
   IPushSubscriptionRepository,
   CreateDeviceRecord,
   CreateSessionRecord,
+  IProjectRepository,
+  IIntegrationCredentialRepository,
 } from './types';
+
+/**
+ * `DocumentSnapshot.data()` is typed as `DocumentData | undefined`, where
+ * `DocumentData = { [field: string]: any }` — every spread of that value
+ * (`{...d, ...}`, used throughout this file to merge Firestore's raw fields
+ * with normalized ones like `createdAt`/`updatedAt`) silently produced an
+ * `any`-typed object, which is why this file had 6+ `no-unsafe-assignment`
+ * lint errors despite every individual field access looking reasonable. One
+ * narrowing point here means every call site spreads a `Record<string,
+ * unknown>` instead.
+ */
+function docData(doc: { data(): Record<string, unknown> | undefined }): Record<string, unknown> {
+  return doc.data() ?? {};
+}
 
 function toDate(val: unknown): Date {
   if (!val) return new Date();
@@ -56,10 +74,12 @@ export class FirestoreUserRepository implements IUserRepository {
   constructor(private db: Firestore) {}
   private col = () => this.db.collection('users');
 
-  async create(data: Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'passwordHash'> & {
-    id?: string;
-    passwordHash?: string;
-  }): Promise<User> {
+  async create(
+    data: Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'passwordHash'> & {
+      id?: string;
+      passwordHash?: string;
+    },
+  ): Promise<User> {
     const id = data.id || `usr_${randomUUID().replace(/-/g, '')}`;
     const now = new Date();
     const user: User = {
@@ -69,7 +89,9 @@ export class FirestoreUserRepository implements IUserRepository {
       createdAt: now,
       updatedAt: now,
     };
-    await this.col().doc(id).set(cleanUndefined(user as unknown as Record<string, unknown>));
+    await this.col()
+      .doc(id)
+      .set(cleanUndefined(user as unknown as Record<string, unknown>));
     return user;
   }
 
@@ -126,9 +148,11 @@ export class FirestoreUserRepository implements IUserRepository {
   async update(id: string, updates: Partial<User>): Promise<User | null> {
     const existing = await this.findById(id);
     if (!existing) return null;
-    await this.col().doc(id).set(cleanUndefined({ ...updates, updatedAt: new Date() }), {
-      merge: true,
-    });
+    await this.col()
+      .doc(id)
+      .set(cleanUndefined({ ...updates, updatedAt: new Date() }), {
+        merge: true,
+      });
     return this.findById(id);
   }
 }
@@ -148,14 +172,16 @@ export class FirestoreDeviceRepository implements IDeviceRepository {
       createdAt: now,
       updatedAt: now,
     };
-    await this.col().doc(device.id).set(cleanUndefined(device as unknown as Record<string, unknown>));
+    await this.col()
+      .doc(device.id)
+      .set(cleanUndefined(device as unknown as Record<string, unknown>));
     return device;
   }
 
   async findById(id: string): Promise<DeviceRecord | null> {
     const doc = await this.col().doc(id).get();
     if (!doc.exists) return null;
-    const d = doc.data()!;
+    const d = docData(doc);
     return {
       ...d,
       id: doc.id,
@@ -170,7 +196,7 @@ export class FirestoreDeviceRepository implements IDeviceRepository {
     const snap = await this.col().where('gatewayId', '==', gatewayId).limit(1).get();
     if (snap.empty) return null;
     const doc = snap.docs[0]!;
-    const d = doc.data();
+    const d = docData(doc);
     return {
       ...d,
       id: doc.id,
@@ -184,7 +210,7 @@ export class FirestoreDeviceRepository implements IDeviceRepository {
   async listByUser(userId: string): Promise<DeviceRecord[]> {
     const snap = await this.col().where('userId', '==', userId).get();
     return snap.docs.map((doc) => {
-      const d = doc.data();
+      const d = docData(doc);
       return {
         ...d,
         id: doc.id,
@@ -246,14 +272,16 @@ export class FirestorePairingRepository implements IPairingRepository {
       ...data,
       createdAt: new Date(),
     };
-    await this.col().doc(id).set(cleanUndefined(pairing as unknown as Record<string, unknown>));
+    await this.col()
+      .doc(id)
+      .set(cleanUndefined(pairing as unknown as Record<string, unknown>));
     return pairing;
   }
 
   async findById(id: string): Promise<PairingSession | null> {
     const doc = await this.col().doc(id).get();
     if (!doc.exists) return null;
-    const d = doc.data()!;
+    const d = docData(doc);
     return {
       ...d,
       id: doc.id,
@@ -266,7 +294,7 @@ export class FirestorePairingRepository implements IPairingRepository {
     const snap = await this.col().where('code', '==', code).limit(1).get();
     if (snap.empty) return null;
     const doc = snap.docs[0]!;
-    const d = doc.data();
+    const d = docData(doc);
     return {
       ...d,
       id: doc.id,
@@ -279,7 +307,7 @@ export class FirestorePairingRepository implements IPairingRepository {
     const snap = await this.col().where('deviceId', '==', deviceId).limit(1).get();
     if (snap.empty) return null;
     const doc = snap.docs[0]!;
-    const d = doc.data();
+    const d = docData(doc);
     return {
       ...d,
       id: doc.id,
@@ -320,14 +348,16 @@ export class FirestoreSessionRepository implements ISessionRepository {
       createdAt: now,
       updatedAt: now,
     };
-    await this.col().doc(session.id).set(cleanUndefined(session as unknown as Record<string, unknown>));
+    await this.col()
+      .doc(session.id)
+      .set(cleanUndefined(session as unknown as Record<string, unknown>));
     return session;
   }
 
   async findById(id: string): Promise<SessionRecord | null> {
     const doc = await this.col().doc(id).get();
     if (!doc.exists) return null;
-    const d = doc.data()!;
+    const d = docData(doc);
     return {
       ...d,
       id: doc.id,
@@ -359,7 +389,7 @@ export class FirestoreSessionRepository implements ISessionRepository {
 
     const snap = await query.get();
     return snap.docs.map((doc) => {
-      const d = doc.data();
+      const d = docData(doc);
       return {
         ...d,
         id: doc.id,
@@ -373,7 +403,7 @@ export class FirestoreSessionRepository implements ISessionRepository {
   async listByDevice(deviceId: string): Promise<SessionRecord[]> {
     const snap = await this.col().where('deviceId', '==', deviceId).get();
     return snap.docs.map((doc) => {
-      const d = doc.data();
+      const d = docData(doc);
       return {
         ...d,
         id: doc.id,
@@ -398,6 +428,95 @@ export class FirestoreSessionRepository implements ISessionRepository {
   }
 }
 
+export class FirestoreProjectRepository implements IProjectRepository {
+  constructor(private db: Firestore) {}
+  private col = () => this.db.collection('projects');
+
+  async create(data: Omit<ProjectRecord, 'createdAt' | 'updatedAt'>): Promise<ProjectRecord> {
+    const now = new Date();
+    const project = { ...data, createdAt: now, updatedAt: now };
+    await this.col()
+      .doc(project.id)
+      .set(cleanUndefined(project as unknown as Record<string, unknown>));
+    return project;
+  }
+  async findById(id: string): Promise<ProjectRecord | null> {
+    const doc = await this.col().doc(id).get();
+    if (!doc.exists) return null;
+    const data = doc.data()!;
+    return {
+      ...data,
+      id: doc.id,
+      createdAt: toDate(data['createdAt']),
+      updatedAt: toDate(data['updatedAt']),
+    } as ProjectRecord;
+  }
+  async findByRoot(userId: string, root: string): Promise<ProjectRecord | null> {
+    const snap = await this.col()
+      .where('userId', '==', userId)
+      .where('root', '==', root)
+      .limit(1)
+      .get();
+    return snap.empty ? null : this.findById(snap.docs[0]!.id);
+  }
+  async listByUser(userId: string): Promise<ProjectRecord[]> {
+    const snap = await this.col().where('userId', '==', userId).get();
+    return Promise.all(snap.docs.map((doc) => this.findById(doc.id))).then((items) =>
+      items.filter((item): item is ProjectRecord => item !== null),
+    );
+  }
+  async update(id: string, updates: Partial<ProjectRecord>): Promise<ProjectRecord | null> {
+    if (!(await this.findById(id))) return null;
+    await this.col()
+      .doc(id)
+      .set(cleanUndefined({ ...updates, updatedAt: new Date() } as Record<string, unknown>), {
+        merge: true,
+      });
+    return this.findById(id);
+  }
+}
+
+export class FirestoreIntegrationCredentialRepository implements IIntegrationCredentialRepository {
+  constructor(private db: Firestore) {}
+  private col = () => this.db.collection('integrationCredentials');
+  private id(userId: string, provider: string): string {
+    return `${provider}_${userId}`;
+  }
+  async upsert(
+    data: Omit<IntegrationCredentialRecord, 'id' | 'createdAt' | 'updatedAt'>,
+  ): Promise<IntegrationCredentialRecord> {
+    const id = this.id(data.userId, data.provider);
+    const existing = await this.find(data.userId, data.provider);
+    const now = new Date();
+    const record = { ...data, id, createdAt: existing?.createdAt ?? now, updatedAt: now };
+    await this.col().doc(id).set(record);
+    return record;
+  }
+  async find(
+    userId: string,
+    provider: IntegrationCredentialRecord['provider'],
+  ): Promise<IntegrationCredentialRecord | null> {
+    const doc = await this.col().doc(this.id(userId, provider)).get();
+    if (!doc.exists) return null;
+    const data = doc.data()!;
+    return {
+      ...data,
+      id: doc.id,
+      createdAt: toDate(data['createdAt']),
+      updatedAt: toDate(data['updatedAt']),
+    } as IntegrationCredentialRecord;
+  }
+  async delete(
+    userId: string,
+    provider: IntegrationCredentialRecord['provider'],
+  ): Promise<boolean> {
+    const record = await this.find(userId, provider);
+    if (!record) return false;
+    await this.col().doc(record.id).delete();
+    return true;
+  }
+}
+
 // -------------------------------------------------------------------------
 // Event Repository
 // -------------------------------------------------------------------------
@@ -413,7 +532,9 @@ export class FirestoreEventRepository implements IEventRepository {
       ...data,
       storedAt,
     };
-    await this.col().doc(id).set(cleanUndefined(event as unknown as Record<string, unknown>));
+    await this.col()
+      .doc(id)
+      .set(cleanUndefined(event as unknown as Record<string, unknown>));
     return event;
   }
 
@@ -426,7 +547,7 @@ export class FirestoreEventRepository implements IEventRepository {
       .get();
 
     return snap.docs.map((doc) => {
-      const d = doc.data();
+      const d = docData(doc);
       return {
         ...d,
         id: doc.id,
@@ -461,14 +582,16 @@ export class FirestoreApprovalRepository implements IApprovalRepository {
       ...data,
       requestedAt: new Date(),
     };
-    await this.col().doc(id).set(cleanUndefined(approval as unknown as Record<string, unknown>));
+    await this.col()
+      .doc(id)
+      .set(cleanUndefined(approval as unknown as Record<string, unknown>));
     return approval;
   }
 
   async findById(id: string): Promise<ApprovalRecord | null> {
     const doc = await this.col().doc(id).get();
     if (!doc.exists) return null;
-    const d = doc.data()!;
+    const d = docData(doc);
     return {
       ...d,
       id: doc.id,
@@ -482,14 +605,16 @@ export class FirestoreApprovalRepository implements IApprovalRepository {
   async listBySession(sessionId: string): Promise<ApprovalRecord[]> {
     const snap = await this.col().where('sessionId', '==', sessionId).get();
     return snap.docs.map((doc) => {
-      const d = doc.data();
+      const d = docData(doc);
       return {
         ...d,
         id: doc.id,
         requestedAt: toDate(d['requestedAt']),
         decidedAt: d['decidedAt'] ? toDate(d['decidedAt']) : undefined,
         reminderSentAt: d['reminderSentAt'] ? toDate(d['reminderSentAt']) : undefined,
-        fallbackTriggeredAt: d['fallbackTriggeredAt'] ? toDate(d['fallbackTriggeredAt']) : undefined,
+        fallbackTriggeredAt: d['fallbackTriggeredAt']
+          ? toDate(d['fallbackTriggeredAt'])
+          : undefined,
       } as unknown as ApprovalRecord;
     });
   }
@@ -503,14 +628,16 @@ export class FirestoreApprovalRepository implements IApprovalRepository {
     const snap = await query.orderBy('requestedAt', 'desc').limit(500).get();
 
     return snap.docs.map((doc) => {
-      const d = doc.data();
+      const d = docData(doc);
       return {
         ...d,
         id: doc.id,
         requestedAt: toDate(d['requestedAt']),
         decidedAt: d['decidedAt'] ? toDate(d['decidedAt']) : undefined,
         reminderSentAt: d['reminderSentAt'] ? toDate(d['reminderSentAt']) : undefined,
-        fallbackTriggeredAt: d['fallbackTriggeredAt'] ? toDate(d['fallbackTriggeredAt']) : undefined,
+        fallbackTriggeredAt: d['fallbackTriggeredAt']
+          ? toDate(d['fallbackTriggeredAt'])
+          : undefined,
       } as unknown as ApprovalRecord;
     });
   }
@@ -522,14 +649,16 @@ export class FirestoreApprovalRepository implements IApprovalRepository {
       .get();
 
     return snap.docs.map((doc) => {
-      const d = doc.data();
+      const d = docData(doc);
       return {
         ...d,
         id: doc.id,
         requestedAt: toDate(d['requestedAt']),
         decidedAt: d['decidedAt'] ? toDate(d['decidedAt']) : undefined,
         reminderSentAt: d['reminderSentAt'] ? toDate(d['reminderSentAt']) : undefined,
-        fallbackTriggeredAt: d['fallbackTriggeredAt'] ? toDate(d['fallbackTriggeredAt']) : undefined,
+        fallbackTriggeredAt: d['fallbackTriggeredAt']
+          ? toDate(d['fallbackTriggeredAt'])
+          : undefined,
       } as unknown as ApprovalRecord;
     });
   }
@@ -537,14 +666,16 @@ export class FirestoreApprovalRepository implements IApprovalRepository {
   async listAllPending(): Promise<ApprovalRecord[]> {
     const snap = await this.col().where('status', '==', 'pending').get();
     return snap.docs.map((doc) => {
-      const d = doc.data();
+      const d = docData(doc);
       return {
         ...d,
         id: doc.id,
         requestedAt: toDate(d['requestedAt']),
         decidedAt: d['decidedAt'] ? toDate(d['decidedAt']) : undefined,
         reminderSentAt: d['reminderSentAt'] ? toDate(d['reminderSentAt']) : undefined,
-        fallbackTriggeredAt: d['fallbackTriggeredAt'] ? toDate(d['fallbackTriggeredAt']) : undefined,
+        fallbackTriggeredAt: d['fallbackTriggeredAt']
+          ? toDate(d['fallbackTriggeredAt'])
+          : undefined,
       } as unknown as ApprovalRecord;
     });
   }
@@ -585,7 +716,9 @@ export class FirestorePushSubscriptionRepository implements IPushSubscriptionRep
       createdAt: existing ? toDate(existing.data()['createdAt']) : now,
       updatedAt: now,
     };
-    await this.col().doc(id).set(cleanUndefined(record as unknown as Record<string, unknown>));
+    await this.col()
+      .doc(id)
+      .set(cleanUndefined(record as unknown as Record<string, unknown>));
     return record;
   }
 
@@ -604,7 +737,9 @@ export class FirestorePushSubscriptionRepository implements IPushSubscriptionRep
 
   async delete(userId: string, target: string): Promise<boolean> {
     const subscriptions = await this.listByUser(userId);
-    const record = subscriptions.find((item) => item.endpoint === target || item.fcmToken === target);
+    const record = subscriptions.find(
+      (item) => item.endpoint === target || item.fcmToken === target,
+    );
     if (!record) return false;
     await this.col().doc(record.id).delete();
     return true;
@@ -618,7 +753,9 @@ export class FirestoreAuditRepository implements IAuditRepository {
   constructor(private db: Firestore) {}
   private col = () => this.db.collection('audit');
 
-  async append(data: Omit<AuditEvent, 'id' | 'sequence' | 'hash' | 'previousHash'>): Promise<AuditEvent> {
+  async append(
+    data: Omit<AuditEvent, 'id' | 'sequence' | 'hash' | 'previousHash'>,
+  ): Promise<AuditEvent> {
     const id = `aud_${randomUUID().replace(/-/g, '')}`;
     const sequence = (await this.getHighestSequence()) + 1;
     const timestamp = data.timestamp || new Date();
@@ -627,8 +764,9 @@ export class FirestoreAuditRepository implements IAuditRepository {
     const previousHash = previousSnap.empty
       ? '0'.repeat(64)
       : String(previousSnap.docs[0]!.data()['hash']);
-    const payloadToHash = JSON.stringify({ ...data, previousHash, sequence }, (_key, value) =>
-      value instanceof Date ? value.toISOString() : value,
+    const payloadToHash = JSON.stringify(
+      { ...data, previousHash, sequence },
+      (_key: string, value: unknown) => (value instanceof Date ? value.toISOString() : value),
     );
     const hash = crypto.createHash('sha256').update(payloadToHash).digest('hex');
 
@@ -641,7 +779,9 @@ export class FirestoreAuditRepository implements IAuditRepository {
       timestamp,
     };
 
-    await this.col().doc(id).set(cleanUndefined(entry as unknown as Record<string, unknown>));
+    await this.col()
+      .doc(id)
+      .set(cleanUndefined(entry as unknown as Record<string, unknown>));
     return entry;
   }
 
@@ -667,7 +807,7 @@ export class FirestoreAuditRepository implements IAuditRepository {
 
     const snap = await query.get();
     return snap.docs.map((doc) => {
-      const d = doc.data();
+      const d = docData(doc);
       return {
         ...d,
         id: doc.id,
@@ -685,7 +825,7 @@ export class FirestoreAuditRepository implements IAuditRepository {
   async findById(id: string): Promise<AuditEvent | null> {
     const doc = await this.col().doc(id).get();
     if (!doc.exists) return null;
-    const d = doc.data()!;
+    const d = docData(doc);
     return {
       ...d,
       id: doc.id,
@@ -712,6 +852,8 @@ export class FirestoreDatabase implements IDatabase {
   public devices: IDeviceRepository;
   public pairings: IPairingRepository;
   public sessions: ISessionRepository;
+  public projects: IProjectRepository;
+  public integrationCredentials: IIntegrationCredentialRepository;
   public events: IEventRepository;
   public approvals: IApprovalRepository;
   public pushSubscriptions: IPushSubscriptionRepository;
@@ -722,6 +864,8 @@ export class FirestoreDatabase implements IDatabase {
     this.devices = new FirestoreDeviceRepository(this.firestore);
     this.pairings = new FirestorePairingRepository(this.firestore);
     this.sessions = new FirestoreSessionRepository(this.firestore);
+    this.projects = new FirestoreProjectRepository(this.firestore);
+    this.integrationCredentials = new FirestoreIntegrationCredentialRepository(this.firestore);
     this.events = new FirestoreEventRepository(this.firestore);
     this.approvals = new FirestoreApprovalRepository(this.firestore);
     this.pushSubscriptions = new FirestorePushSubscriptionRepository(this.firestore);

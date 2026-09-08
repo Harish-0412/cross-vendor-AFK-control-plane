@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import type { PolicyRule, PolicyVersion, TrustProfile } from '@freebuff/protocol';
+
+import type { PolicyRule, PolicyVersion } from '@freebuff/protocol';
+
 import type { IDatabase } from '../db/types';
 
 /**
@@ -77,9 +79,7 @@ export class PolicyStore {
       }
     }
 
-    return policyVersions.sort(
-      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
-    );
+    return policyVersions.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   }
 
   /**
@@ -133,55 +133,6 @@ export class PolicyStore {
     );
 
     return maxVersion + 1;
-  }
-
-  /**
-   * Evaluate an action against the current policy version.
-   * Returns the decision and the policy version used.
-   */
-  async evaluate(
-    context: {
-      capability: string;
-      riskClass: string;
-      resource?: string;
-      projectId?: string;
-      trustProfile: TrustProfile;
-      deviceStatus: 'trusted' | 'revoked' | 'suspended';
-      userId: string;
-    },
-    policyVersion: PolicyVersion | null,
-  ): Promise<{
-    decision: 'allow' | 'deny' | 'require_approval';
-    policyVersion: string;
-    reason?: string;
-    requiredRole?: 'owner' | 'admin';
-    expiresAt?: Date;
-    matchedRules?: string[];
-  }> {
-    const { evaluate } = require('@freebuff/policy-engine');
-    const pv = policyVersion ?? await this.getActiveVersion();
-
-    const result = evaluate(
-      {
-        capability: context.capability as never,
-        riskClass: context.riskClass as never,
-        resource: context.resource,
-        projectId: context.projectId,
-        trustProfile: context.trustProfile,
-        deviceStatus: context.deviceStatus,
-        userId: context.userId,
-      },
-      pv,
-    );
-
-    return {
-      decision: result.decision,
-      policyVersion: result.policyVersion,
-      reason: 'reason' in result ? result.reason : undefined,
-      requiredRole: 'requiredRole' in result ? result.requiredRole : undefined,
-      expiresAt: 'expiresAt' in result ? result.expiresAt : undefined,
-      matchedRules: 'matchedRules' in result ? result.matchedRules : undefined,
-    };
   }
 
   /**

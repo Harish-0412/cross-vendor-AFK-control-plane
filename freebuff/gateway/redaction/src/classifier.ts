@@ -1,5 +1,5 @@
-import { Classifier, DataClassification, Redactor } from './types';
 import { createRedactor } from './redactor';
+import { type Classifier, type DataClassification, type Redactor } from './types';
 
 export class DefaultClassifier implements Classifier {
   private redactor: Redactor;
@@ -10,7 +10,7 @@ export class DefaultClassifier implements Classifier {
 
   classify(text: string): DataClassification {
     const redactionResult = this.redactor.redact(text);
-    
+
     const categories: string[] = [];
     let pii = false;
     let secrets = false;
@@ -18,7 +18,7 @@ export class DefaultClassifier implements Classifier {
 
     for (const match of redactionResult.matches) {
       categories.push(match.type);
-      
+
       switch (match.type) {
         case 'private_key':
         case 'ssh_key':
@@ -55,7 +55,7 @@ export class DefaultClassifier implements Classifier {
       categories: [...new Set(categories)],
       pii,
       secrets,
-      credentials
+      credentials,
     };
   }
 
@@ -71,7 +71,7 @@ export class DefaultClassifier implements Classifier {
       /\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/, // Phone
     ];
 
-    return piiPatterns.some(pattern => pattern.test(text));
+    return piiPatterns.some((pattern) => pattern.test(text));
   }
 }
 
@@ -103,20 +103,28 @@ export class DataBoundary {
     return {
       text: processedText,
       classification,
-      blocked
+      blocked,
     };
   }
 
-  processObject(obj: any): { object: any; classification: DataClassification; blocked: boolean } {
+  processObject<T>(obj: T): {
+    object: T | null;
+    classification: DataClassification;
+    blocked: boolean;
+  } {
     const text = JSON.stringify(obj);
     const result = this.process(text);
-    
+
     if (result.blocked) {
       return { object: null, classification: result.classification, blocked: true };
     }
 
     try {
-      return { object: JSON.parse(result.text), classification: result.classification, blocked: false };
+      return {
+        object: JSON.parse(result.text) as T,
+        classification: result.classification,
+        blocked: false,
+      };
     } catch {
       return { object: obj, classification: result.classification, blocked: false };
     }
@@ -131,5 +139,5 @@ export const CLASSIFICATION_LEVELS = {
   public: 0,
   internal: 1,
   confidential: 2,
-  restricted: 3
+  restricted: 3,
 } as const;

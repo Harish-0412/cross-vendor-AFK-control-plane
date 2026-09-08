@@ -5,6 +5,8 @@ import type {
   SessionConfig,
   SessionState,
   TrustProfile,
+  GitReviewBundle,
+  ProjectPreferences,
 } from '@freebuff/protocol';
 
 export interface User {
@@ -77,6 +79,7 @@ export interface SessionRecord {
   gatewayId: string;
   agentId: string;
   projectRoot: string;
+  projectId?: string | undefined;
   state: SessionState;
   trustProfile: TrustProfile;
   config: SessionConfig;
@@ -86,6 +89,28 @@ export interface SessionRecord {
   completedAt?: Date | undefined;
   error?: string | undefined;
   tokensUsed?: number | undefined;
+  reviewBundle?: GitReviewBundle | undefined;
+}
+
+export interface ProjectRecord {
+  id: string;
+  userId: string;
+  name: string;
+  root: string;
+  preferences: ProjectPreferences;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface IntegrationCredentialRecord {
+  id: string;
+  userId: string;
+  provider: 'github';
+  ciphertext: string;
+  iv: string;
+  authTag: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface PushSubscriptionRecord {
@@ -157,4 +182,19 @@ export interface ControlPlaneConfig {
   corsOrigins: string[];
   pairingCodeTtlSec: number;
   heartbeatTimeoutMs: number;
+  githubClientId?: string;
+  githubClientSecret?: string;
+  githubCallbackUrl?: string;
+  credentialEncryptionSecret?: string;
+  /**
+   * Whether the refresh-token cookie gets the `Secure` attribute (§4.5 of
+   * the pre-deployment audit — it was missing entirely, so the cookie could
+   * be sent in the clear over a misconfigured/non-TLS connection). Defaults
+   * to `NODE_ENV === 'production'`. Explicit override exists because a
+   * proxy-terminated-TLS deployment may need this true even when
+   * `NODE_ENV` isn't set to `production` in the app process itself, or a
+   * staging environment may want it true to catch cookie-handling bugs
+   * before production.
+   */
+  secureCookies: boolean;
 }

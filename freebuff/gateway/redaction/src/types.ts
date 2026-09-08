@@ -66,7 +66,7 @@ export interface RedactionRule {
   fields?: string[];
 }
 
-export type SecretType = 
+export type SecretType =
   | 'api_key'
   | 'aws_access_key'
   | 'aws_secret_key'

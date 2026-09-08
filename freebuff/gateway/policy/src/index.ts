@@ -2,8 +2,20 @@
  * §5 — Gateway-side policy module.
  *
  * Ships a READ-ONLY CACHE of the active PolicyVersion, pulled from the
- * Control Plane over the tunnel and signed by it (so the Gateway can verify
- * it hasn't been tampered with in transit or on disk).
+ * Control Plane over the tunnel via the caller-supplied `fetchPolicyVersion`
+ * callback.
+ *
+ * IMPORTANT — signature verification is NOT performed by this class. The
+ * design intent (§5 of the Phase 5 plan) is that the cached policy is signed
+ * by the Control Plane so tampering in transit or on disk can be detected;
+ * this class has no code path that checks a signature, so that guarantee
+ * only holds if `fetchPolicyVersion` itself verifies the response before
+ * resolving (e.g. the tunnel transport layer authenticates the Control
+ * Plane, or the callback checks a detached signature before returning). A
+ * `fetchPolicyVersion` that resolves with unverified data gives this cache
+ * unverified data — audited and documented here rather than silently
+ * assumed, since the previous version of this docstring implied the class
+ * itself performed a check it does not perform.
  *
  * Runs the SAME evaluation function from packages/policy-engine as the
  * Control Plane, giving the agent adapter a fast local answer so a HIGH-risk
@@ -15,6 +27,7 @@
  * for HIGH/CRITICAL actions.
  */
 
+import { evaluate } from '@freebuff/policy-engine';
 import type {
   Capability,
   Decision,
@@ -22,7 +35,6 @@ import type {
   PolicyVersion,
   TrustProfile,
 } from '@freebuff/protocol';
-import { evaluate } from '@freebuff/policy-engine';
 
 export interface CachedPolicyVersion {
   version: PolicyVersion;
@@ -33,7 +45,16 @@ export interface CachedPolicyVersion {
 export interface PolicyCacheOptions {
   /** Maximum age of cached policy before it must be refreshed (default 5 min) */
   cacheTtlMs?: number;
-  /** Callback to fetch the latest policy version from the control plane */
+  /**
+   * Fetch the latest policy version from the control plane. This callback is
+   * responsible for authenticating the response (verifying the Control
+   * Plane's signature, or relying on an already-authenticated transport) —
+   * `GatewayPolicyCache` does not verify anything itself and will cache
+   * whatever this resolves with. Return `null` on any failure (network
+   * error, verification failure) rather than resolving with unverified or
+   * partial data; a `null` here is treated as "keep serving the existing
+   * cache until it expires, then evaluate with no policy version."
+   */
   fetchPolicyVersion: () => Promise<PolicyVersion | null>;
   /** Callback to confirm a local ALLOW / APPROVAL_REQUIRED with the control plane */
   confirmWithControlPlane: (
@@ -65,19 +86,28 @@ export class GatewayPolicyCache {
 
   /**
    * Get the current cached policy version, refreshing if expired.
+   *
+   * BUG FIXED HERE: `refreshCache()` leaves `this.cache` untouched when
+   * `fetchPolicy()` fails (returns null) or throws — by design, so a
+   * transient failure doesn't discard a still-being-attempted refresh's
+   * prior good data. But every return path here used to be
+   * `this.cache?.version ?? null`, which reads whatever is *currently*
+   * cached with no re-check of freshness — so once the cache had expired
+   * and a refresh attempt failed, this kept returning the same stale,
+   * already-expired version forever (until some future refresh happened to
+   * succeed), silently violating the "no more than cacheTtlMs stale"
+   * guarantee this class's whole safety argument depends on. Every return
+   * path now re-checks freshness before returning a cached value.
    */
   async getPolicyVersion(): Promise<PolicyVersion | null> {
-    if (
-      this.cache &&
-      new Date() < new Date(this.cache.expiresAt.getTime())
-    ) {
-      return this.cache.version;
+    if (this.isCacheFresh()) {
+      return this.cache!.version;
     }
 
     // Prevent concurrent refreshes
     if (this.pendingRefresh) {
       await this.pendingRefresh;
-      return this.cache?.version ?? null;
+      return this.isCacheFresh() ? this.cache!.version : null;
     }
 
     this.pendingRefresh = this.refreshCache();
@@ -87,21 +117,30 @@ export class GatewayPolicyCache {
       this.pendingRefresh = null;
     }
 
-    return this.cache?.version ?? null;
+    return this.isCacheFresh() ? this.cache!.version : null;
   }
 
   /**
    * Refresh the policy cache from the control plane.
    */
   private async refreshCache(): Promise<void> {
-    const version = await this.fetchPolicy();
+    // A rejected fetchPolicy() (network error, transport failure) must
+    // degrade the same way a resolved-null does — leave the cache as-is and
+    // let getPolicyVersion's freshness re-check decide whether that's still
+    // usable. Previously an exception here propagated out of
+    // getPolicyVersion uncaught, which is a worse failure mode for a local
+    // advisory check than simply reporting "no fresh policy available."
+    let version: PolicyVersion | null;
+    try {
+      version = await this.fetchPolicy();
+    } catch {
+      return;
+    }
     if (version) {
       this.cache = {
         version,
         fetchedAt: new Date(),
-        expiresAt: new Date(
-          Date.now() + this.cacheTtlMs,
-        ),
+        expiresAt: new Date(Date.now() + this.cacheTtlMs),
       };
     }
   }

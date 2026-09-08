@@ -125,6 +125,18 @@ export interface HealthModuleOptions {
 
   /** Custom health check functions to register */
   checks?: Array<{ name: string; check: HealthCheckFn }>;
+
+  /**
+   * Override for how CPU/memory usage is measured. Defaults to reading real
+   * OS-level metrics (os.loadavg/totalmem/freemem). Tests should inject a
+   * deterministic fixture here instead of relying on the ambient load of
+   * whatever machine happens to run the suite — the module's own >90%
+   * thresholds are real machine conditions a shared CI runner or a parallel
+   * `pnpm -r test` invocation can genuinely cross, which previously made
+   * `getStatus`/`getReport` flaky (passing in isolation, intermittently
+   * failing under load) rather than deterministic.
+   */
+  resourceUsageProvider?: () => { cpuPercent: number; memoryUsedPercent: number };
 }
 
 export const DEFAULT_HEALTH_OPTIONS: Required<

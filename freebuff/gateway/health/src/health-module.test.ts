@@ -48,14 +48,21 @@ describe('HealthModule', () => {
   });
 
   test('getStatus returns healthy for clean system', async () => {
+    // Regression: this used to read real OS CPU/memory with no injection
+    // point, so it passed in isolation but failed intermittently under
+    // `pnpm -r test` (the whole workspace running in parallel genuinely
+    // pushes machine load past the module's own 90% "unhealthy" threshold).
+    // A "clean system" test must supply a clean reading, not hope the CI
+    // runner happens to be idle.
     health = createHealthModule({
       gatewayId: 'gw_test',
       deviceId: 'dev_test',
       heartbeatIntervalMs: 0,
+      resourceUsageProvider: () => ({ cpuPercent: 5, memoryUsedPercent: 20 }),
     });
 
     const status = await health.getStatus();
-    expect(status).toMatch(/^(healthy|degraded)$/); // may be degraded if load is high
+    expect(status).toBe('healthy');
   });
 
   test('registerCheck and unregisterCheck work', async () => {
@@ -126,6 +133,11 @@ describe('HealthModule', () => {
       gatewayId: 'gw_test',
       deviceId: 'dev_test',
       heartbeatIntervalMs: 0,
+      // Same regression as above: without a clean, injected reading, real
+      // machine load under a parallel test run could push the built-in
+      // resource check to 'unhealthy' on its own, masking whether the
+      // custom check's 'degraded' status is what actually drove the result.
+      resourceUsageProvider: () => ({ cpuPercent: 5, memoryUsedPercent: 20 }),
     });
 
     health.registerCheck('degraded-check', () => ({
@@ -295,5 +307,21 @@ describe('HealthModule', () => {
 
     const report = await health.getReport();
     expect(report.status).toBe('healthy');
+  });
+
+  test('resourceUsageProvider injection drives the resource check deterministically', async () => {
+    health = createHealthModule({
+      gatewayId: 'gw_test',
+      deviceId: 'dev_test',
+      heartbeatIntervalMs: 0,
+      resourceUsageProvider: () => ({ cpuPercent: 95, memoryUsedPercent: 10 }),
+    });
+
+    const report = await health.getReport();
+    expect(report.resources.cpuPercent).toBe(95);
+    expect(report.status).toBe('unhealthy');
+    const resourceComponent = report.components.find((c) => c.name === 'resources');
+    expect(resourceComponent?.status).toBe('unhealthy');
+    expect(resourceComponent?.message).toContain('CPU usage critically high');
   });
 });

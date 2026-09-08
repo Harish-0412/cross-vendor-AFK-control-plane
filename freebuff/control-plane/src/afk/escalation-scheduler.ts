@@ -1,5 +1,6 @@
-import type { ApprovalRecord } from '../types';
 import type { IDatabase } from '../db/types';
+import type { ApprovalRecord } from '../types';
+
 import { approvalReminderNotification, type PushNotification } from './notification-templates';
 
 export interface ApprovalPushSender {
@@ -43,10 +44,18 @@ export class EscalationScheduler {
     const timers: NodeJS.Timeout[] = [];
 
     if (!approval.reminderSentAt && now < approval.expiresAt.getTime()) {
-      timers.push(this.setTimer(Math.max(0, reminderAt - now), () => this.sendReminder(approval.id)));
+      timers.push(
+        this.setTimer(Math.max(0, reminderAt - now), () => this.sendReminder(approval.id)),
+      );
     }
-    if (this.options.onFallbackDue && !approval.fallbackTriggeredAt && now < approval.expiresAt.getTime()) {
-      timers.push(this.setTimer(Math.max(0, fallbackAt - now), () => this.triggerFallback(approval.id)));
+    if (
+      this.options.onFallbackDue &&
+      !approval.fallbackTriggeredAt &&
+      now < approval.expiresAt.getTime()
+    ) {
+      timers.push(
+        this.setTimer(Math.max(0, fallbackAt - now), () => this.triggerFallback(approval.id)),
+      );
     }
     if (timers.length > 0) this.timers.set(approval.id, timers);
   }

@@ -32,11 +32,18 @@ import {
   GATEWAY_VERSION,
   DEFAULT_GATEWAY_FEATURES,
 } from '@freebuff/protocol';
+import {
+  type RedactionProxy,
+  createRedactionProxy,
+  createRedactor,
+  DefaultClassifier,
+} from '@freebuff/redaction';
 import { type TunnelClient, createTunnelClient } from '@freebuff/tunnel';
-import { type RedactionProxy, createRedactionProxy, createRedactor, DefaultClassifier } from '@freebuff/redaction';
 
 import { type AgentManager, createAgentManager } from './agent-manager';
 import { type EventBus, createEventBus } from './event-bus';
+import { collectDiff, commit, createBranch, getStatus, push } from './git/git-operations';
+import { runProjectTests } from './git/test-runner';
 import { type ProjectManager, createProjectManager } from './project-manager';
 import {
   type SessionRegistry,
@@ -97,21 +104,26 @@ export class GatewayImpl implements GatewayCore {
       deviceId: this.deviceId,
       gatewayId: this.gatewayId,
     });
-    
+    this.tunnelClient.setCommandHandler({
+      handleCommand: (command) => this.handleTunnelCommand(command),
+    });
+
     // Wire up redaction proxy
     this.redactionProxy = createRedactionProxy(
-      createRedactor({ 
-        ...(this.options.redaction.customPatterns ? {
-          customPatterns: this.options.redaction.customPatterns.map(p => ({
-            name: p.name,
-            type: 'custom',
-            pattern: new RegExp(p.pattern, 'gi'),
-            ...(p.replacement ? { placeholder: p.replacement } : {})
-          }))
-        } : {})
+      createRedactor({
+        ...(this.options.redaction.customPatterns
+          ? {
+              customPatterns: this.options.redaction.customPatterns.map((p) => ({
+                name: p.name,
+                type: 'custom',
+                pattern: new RegExp(p.pattern, 'gi'),
+                ...(p.replacement ? { placeholder: p.replacement } : {}),
+              })),
+            }
+          : {}),
       }),
       new DefaultClassifier(),
-      { enabled: this.options.redaction.enabled }
+      { enabled: this.options.redaction.enabled },
     );
 
     // Wire health module checks for gateway components
@@ -220,6 +232,87 @@ export class GatewayImpl implements GatewayCore {
 
   getDeviceId(): string {
     return this.deviceId;
+  }
+
+  private async handleTunnelCommand(
+    command: unknown,
+  ): Promise<{ success: boolean; result?: unknown; error?: string }> {
+    const value = command as { commandType?: unknown; payload?: unknown };
+    const commandType = typeof value?.commandType === 'string' ? value.commandType : '';
+    const payload =
+      typeof value?.payload === 'object' && value.payload !== null
+        ? (value.payload as Record<string, unknown>)
+        : {};
+    const sessionId = typeof payload['sessionId'] === 'string' ? payload['sessionId'] : undefined;
+    try {
+      switch (commandType) {
+        case 'session.start': {
+          const config = payload['config'] as SessionConfig;
+          return { success: true, result: await this.createSession(config) };
+        }
+        case 'session.stop':
+          if (!sessionId) throw new Error('sessionId is required');
+          await this.stopSession(
+            sessionId,
+            String(payload['reason'] ?? 'Control Plane request'),
+            Boolean(payload['force']),
+          );
+          return { success: true };
+        case 'session.message':
+          if (!sessionId || typeof payload['message'] !== 'string')
+            throw new Error('sessionId and message are required');
+          await this.sendMessage(sessionId, payload['message']);
+          return { success: true };
+        case 'session.diff_collection': {
+          const root = this.commandProjectRoot(payload);
+          return { success: true, result: { diff: await collectDiff(root) } };
+        }
+        case 'session.run_tests':
+          return { success: true, result: await runProjectTests(this.commandProjectRoot(payload)) };
+        case 'git.branch_create': {
+          const root = this.commandProjectRoot(payload);
+          const branch = this.requiredString(payload, 'branch');
+          const fromRef = typeof payload['fromRef'] === 'string' ? payload['fromRef'] : undefined;
+          return { success: true, result: await createBranch(root, branch, fromRef) };
+        }
+        case 'git.commit': {
+          const root = this.commandProjectRoot(payload);
+          const files = Array.isArray(payload['files'])
+            ? payload['files'].filter((item): item is string => typeof item === 'string')
+            : undefined;
+          return {
+            success: true,
+            result: await commit(root, this.requiredString(payload, 'message'), files),
+          };
+        }
+        case 'git.push':
+          return {
+            success: true,
+            result: await push(
+              this.commandProjectRoot(payload),
+              this.requiredString(payload, 'branch'),
+              typeof payload['remote'] === 'string' ? payload['remote'] : 'origin',
+              Boolean(payload['force']),
+            ),
+          };
+        case 'git.status':
+          return { success: true, result: await getStatus(this.commandProjectRoot(payload)) };
+        default:
+          return { success: false, error: `Unsupported command: ${commandType || '(missing)'}` };
+      }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  private commandProjectRoot(payload: Record<string, unknown>): string {
+    return this.requiredString(payload, 'projectRoot');
+  }
+
+  private requiredString(payload: Record<string, unknown>, field: string): string {
+    const value = payload[field];
+    if (typeof value !== 'string' || !value) throw new Error(`${field} is required`);
+    return value;
   }
 
   async getStatus(): Promise<GatewayStatus> {

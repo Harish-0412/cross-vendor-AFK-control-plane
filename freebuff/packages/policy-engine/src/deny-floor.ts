@@ -12,10 +12,13 @@ import type { Capability } from '@freebuff/protocol';
 export const DENY_OVERRIDE_FLOOR: ReadonlyArray<{
   capability: Capability;
   resourcePattern?: string;
+  force?: boolean;
 }> = [
   { capability: 'deployment.execute', resourcePattern: 'production/**' },
   { capability: 'filesystem.delete', resourcePattern: '**/.git/**' },
   { capability: 'secret.read', resourcePattern: '**/.env*' },
+  { capability: 'git.push', resourcePattern: 'main', force: true },
+  { capability: 'git.push', resourcePattern: 'master', force: true },
 ];
 
 /**
@@ -25,15 +28,29 @@ export const DENY_OVERRIDE_FLOOR: ReadonlyArray<{
 export function denyFloorMatches(
   capability: Capability,
   resource?: string,
+  force?: boolean,
 ): { matched: true; ruleId: string } | { matched: false } {
   for (const floorEntry of DENY_OVERRIDE_FLOOR) {
     if (floorEntry.capability !== capability) continue;
-    if (floorEntry.resourcePattern && resource) {
-      if (globMatches(resource, floorEntry.resourcePattern)) {
-        return { matched: true, ruleId: `deny-floor:${floorEntry.capability}` };
-      }
-    } else {
-      // No resource pattern => matches any resource for this capability
+    if (floorEntry.force !== undefined && floorEntry.force !== force) continue;
+
+    if (!floorEntry.resourcePattern) {
+      // No resource pattern on this floor entry => it denies the capability
+      // outright, regardless of resource.
+      return { matched: true, ruleId: `deny-floor:${floorEntry.capability}` };
+    }
+
+    // This entry is scoped to a resource pattern. Bug fixed here: the
+    // previous `if (pattern && resource) {...} else { match-anything }`
+    // treated a *missing* resource as equivalent to "no pattern on this
+    // entry" and matched unconditionally — so e.g. `git.push` evaluated
+    // without a `resource` field was denied by the floor even when it was
+    // an ordinary push to a feature branch, nowhere near `force:main`. A
+    // resource-scoped floor entry must only match when the resource is
+    // actually present AND actually matches; otherwise this entry simply
+    // does not apply and evaluation continues to the next floor entry (or
+    // falls through to the normal rule/risk-class pipeline).
+    if (resource && globMatches(resource, floorEntry.resourcePattern)) {
       return { matched: true, ruleId: `deny-floor:${floorEntry.capability}` };
     }
   }

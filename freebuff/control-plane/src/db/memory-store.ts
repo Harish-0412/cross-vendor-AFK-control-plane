@@ -1,5 +1,4 @@
-import { randomUUID } from 'node:crypto';
-import crypto from 'node:crypto';
+import crypto, { randomUUID } from 'node:crypto';
 
 import type {
   User,
@@ -10,6 +9,8 @@ import type {
   StoredEvent,
   AuditEvent,
   PushSubscriptionRecord,
+  ProjectRecord,
+  IntegrationCredentialRecord,
 } from '../types';
 
 import type {
@@ -24,15 +25,19 @@ import type {
   IPushSubscriptionRepository,
   CreateDeviceRecord,
   CreateSessionRecord,
+  IProjectRepository,
+  IIntegrationCredentialRepository,
 } from './types';
 
 export class MemoryUserRepository implements IUserRepository {
   private users = new Map<string, User>();
 
-  async create(data: Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'passwordHash'> & {
-    id?: string;
-    passwordHash?: string;
-  }): Promise<User> {
+  async create(
+    data: Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'passwordHash'> & {
+      id?: string;
+      passwordHash?: string;
+    },
+  ): Promise<User> {
     const now = new Date();
     const user: User = {
       id: data.id || `usr_${randomUUID().replace(/-/g, '')}`,
@@ -238,6 +243,71 @@ export class MemorySessionRepository implements ISessionRepository {
   }
 }
 
+export class MemoryProjectRepository implements IProjectRepository {
+  private projects = new Map<string, ProjectRecord>();
+
+  async create(data: Omit<ProjectRecord, 'createdAt' | 'updatedAt'>): Promise<ProjectRecord> {
+    const now = new Date();
+    const project = { ...data, createdAt: now, updatedAt: now };
+    this.projects.set(project.id, project);
+    return project;
+  }
+
+  async findById(id: string): Promise<ProjectRecord | null> {
+    return this.projects.get(id) ?? null;
+  }
+  async findByRoot(userId: string, root: string): Promise<ProjectRecord | null> {
+    return (
+      [...this.projects.values()].find(
+        (project) => project.userId === userId && project.root === root,
+      ) ?? null
+    );
+  }
+  async listByUser(userId: string): Promise<ProjectRecord[]> {
+    return [...this.projects.values()].filter((project) => project.userId === userId);
+  }
+  async update(id: string, updates: Partial<ProjectRecord>): Promise<ProjectRecord | null> {
+    const project = this.projects.get(id);
+    if (!project) return null;
+    Object.assign(project, updates, { updatedAt: new Date() });
+    return project;
+  }
+}
+
+export class MemoryIntegrationCredentialRepository implements IIntegrationCredentialRepository {
+  private records = new Map<string, IntegrationCredentialRecord>();
+  private key(userId: string, provider: string): string {
+    return `${provider}:${userId}`;
+  }
+  async upsert(
+    data: Omit<IntegrationCredentialRecord, 'id' | 'createdAt' | 'updatedAt'>,
+  ): Promise<IntegrationCredentialRecord> {
+    const key = this.key(data.userId, data.provider);
+    const existing = this.records.get(key);
+    const now = new Date();
+    const record = {
+      ...data,
+      id: existing?.id ?? `cred_${randomUUID().replace(/-/g, '')}`,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    this.records.set(key, record);
+    return record;
+  }
+  async find(
+    userId: string,
+    provider: IntegrationCredentialRecord['provider'],
+  ): Promise<IntegrationCredentialRecord | null> {
+    return this.records.get(this.key(userId, provider)) ?? null;
+  }
+  async delete(
+    userId: string,
+    provider: IntegrationCredentialRecord['provider'],
+  ): Promise<boolean> {
+    return this.records.delete(this.key(userId, provider));
+  }
+}
+
 export class MemoryEventRepository implements IEventRepository {
   private events: StoredEvent[] = [];
 
@@ -272,7 +342,9 @@ export class MemoryAuditRepository implements IAuditRepository {
   private events: AuditEvent[] = [];
   private nextSequence = 1;
 
-  async append(data: Omit<AuditEvent, 'id' | 'sequence' | 'hash' | 'previousHash'>): Promise<AuditEvent> {
+  async append(
+    data: Omit<AuditEvent, 'id' | 'sequence' | 'hash' | 'previousHash'>,
+  ): Promise<AuditEvent> {
     const previousHash = this.events.at(-1)?.hash ?? '0'.repeat(64);
     const entry = {
       ...data,
@@ -328,8 +400,12 @@ export class MemoryAuditRepository implements IAuditRepository {
       if (evt.previousHash !== expectedPrevHash) {
         return { valid: false, firstBrokenIndex: i };
       }
-      // Recompute: canonicalize without hash field, append previousHash
-      const { hash, ...rest } = evt;
+      // Recompute: canonicalize without hash field, append previousHash.
+      // `hash` is destructured out on purpose (to exclude it from `rest`
+      // before re-hashing) and never read directly — `evt.hash` is used
+      // below instead — hence the `_`-prefixed name to tell the linter this
+      // binding is intentionally unused, not a forgotten one.
+      const { hash: _hash, ...rest } = evt;
       const canonical = this.canonicalize(rest);
       const recomputed = this.computeHash(canonical);
       if (recomputed !== evt.hash) {
@@ -348,7 +424,7 @@ export class MemoryAuditRepository implements IAuditRepository {
       obj[k] = sorted[k];
     }
     // Date serialization: ISO string
-    return JSON.stringify(obj, (_key, value) => {
+    return JSON.stringify(obj, (_key: string, value: unknown) => {
       if (value instanceof Date) return value.toISOString();
       return value;
     });
@@ -415,10 +491,11 @@ export class MemoryPushSubscriptionRepository implements IPushSubscriptionReposi
     data: Omit<PushSubscriptionRecord, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<PushSubscriptionRecord> {
     const target = data.channel === 'web-push' ? data.endpoint : data.fcmToken;
-    const existing = Array.from(this.subscriptions.values()).find((item) =>
-      item.userId === data.userId &&
-      item.channel === data.channel &&
-      (item.channel === 'web-push' ? item.endpoint : item.fcmToken) === target,
+    const existing = Array.from(this.subscriptions.values()).find(
+      (item) =>
+        item.userId === data.userId &&
+        item.channel === data.channel &&
+        (item.channel === 'web-push' ? item.endpoint : item.fcmToken) === target,
     );
     const now = new Date();
     const record: PushSubscriptionRecord = {
@@ -436,8 +513,8 @@ export class MemoryPushSubscriptionRepository implements IPushSubscriptionReposi
   }
 
   async delete(userId: string, target: string): Promise<boolean> {
-    const match = Array.from(this.subscriptions.values()).find((item) =>
-      item.userId === userId && (item.endpoint === target || item.fcmToken === target),
+    const match = Array.from(this.subscriptions.values()).find(
+      (item) => item.userId === userId && (item.endpoint === target || item.fcmToken === target),
     );
     return match ? this.subscriptions.delete(match.id) : false;
   }
@@ -448,6 +525,8 @@ export class MemoryDatabase implements IDatabase {
   public devices = new MemoryDeviceRepository();
   public pairings = new MemoryPairingRepository();
   public sessions = new MemorySessionRepository();
+  public projects = new MemoryProjectRepository();
+  public integrationCredentials = new MemoryIntegrationCredentialRepository();
   public events = new MemoryEventRepository();
   public approvals = new MemoryApprovalRepository();
   public pushSubscriptions = new MemoryPushSubscriptionRepository();

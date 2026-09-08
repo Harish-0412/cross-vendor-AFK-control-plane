@@ -23,13 +23,13 @@ export const PolicyRuleSchema = z.object({
         'package.install',
         'git.commit',
         'git.push',
+        'git.branch_create',
+        'git.pull_request_create',
         'deployment.execute',
         'secret.read',
       ])
       .optional(),
-    riskClass: z
-      .enum(['low', 'medium', 'high', 'critical'])
-      .optional(),
+    riskClass: z.enum(['low', 'medium', 'high', 'critical']).optional(),
     resourcePattern: z.string().optional(),
     projectId: z.string().optional(),
     trustProfile: z
@@ -83,15 +83,15 @@ export const PolicyEvaluateRequestSchema = z.object({
       'package.install',
       'git.commit',
       'git.push',
+      'git.branch_create',
+      'git.pull_request_create',
       'deployment.execute',
       'secret.read',
     ])
     .optional(),
-  riskClass: z
-    .enum(['low', 'medium', 'high', 'critical'])
-    .optional()
-    .default('low'),
+  riskClass: z.enum(['low', 'medium', 'high', 'critical']).optional().default('low'),
   resource: z.string().optional(),
+  force: z.boolean().optional(),
   projectId: z.string().optional(),
   trustProfile: z
     .enum(['supervised', 'trusted-afk', 'read-only', 'locked', 'default'])
@@ -114,14 +114,7 @@ export const AuditEventSchema = z.object({
   sessionId: z.string().optional(),
   deviceId: z.string().optional(),
   action: z.string(),
-  decision: z.enum([
-    'allow',
-    'deny',
-    'require_approval',
-    'granted',
-    'denied',
-    'timeout',
-  ]),
+  decision: z.enum(['allow', 'deny', 'require_approval', 'granted', 'denied', 'timeout']),
   policyVersion: z.string().optional(),
   matchedRules: z.array(z.string()).optional(),
   previousHash: z.string().length(64),
@@ -142,14 +135,7 @@ export const AuditListQuerySchema = z.object({
   actorType: z.enum(['user', 'device', 'system']).optional(),
   actorId: z.string().optional(),
   decision: z
-    .enum([
-      'allow',
-      'deny',
-      'require_approval',
-      'granted',
-      'denied',
-      'timeout',
-    ])
+    .enum(['allow', 'deny', 'require_approval', 'granted', 'denied', 'timeout'])
     .optional(),
   fromSequence: z.number().int().min(0).optional(),
   limit: z.number().int().min(1).max(1000).optional(),

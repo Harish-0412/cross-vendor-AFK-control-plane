@@ -1,7 +1,6 @@
-import { randomUUID } from 'node:crypto';
-import type { ApprovalRecord } from '../types';
 import type { IDatabase } from '../db/types';
 import type { TunnelServer } from '../tunnel/tunnel-server';
+import type { ApprovalRecord, SessionRecord } from '../types';
 
 /**
  * §7.3 — Approval workflow state machine.
@@ -17,10 +16,15 @@ import type { TunnelServer } from '../tunnel/tunnel-server';
  */
 
 export class ApprovalWorkflow {
+  private onApprovalCreated?: (approval: ApprovalRecord) => void | Promise<void>;
   constructor(
     private db: IDatabase,
-    private tunnelServer: TunnelServer,  // §7.4 — required for feedback dispatch
+    private tunnelServer: TunnelServer, // §7.4 — required for feedback dispatch
   ) {}
+
+  setOnApprovalCreated(listener: (approval: ApprovalRecord) => void | Promise<void>): void {
+    this.onApprovalCreated = listener;
+  }
 
   /**
    * Submit a decision on a pending approval.
@@ -39,7 +43,7 @@ export class ApprovalWorkflow {
     decidedBy: string,
     approved: boolean,
     reason?: string,
-    feedback?: string,  // §7.3 — new optional field for voice feedback (Hackathon Feature B)
+    feedback?: string, // §7.3 — new optional field for voice feedback (Hackathon Feature B)
   ): Promise<{ success: boolean; record: ApprovalRecord | null; conflict?: boolean }> {
     // Fetch the current record
     const record = await this.db.approvals.findById(approvalId);
@@ -67,7 +71,11 @@ export class ApprovalWorkflow {
         status: 'timeout',
         reason: 'Approval request expired before a decision was made',
       });
-      return { success: false, record: await this.db.approvals.findById(approvalId), conflict: false };
+      return {
+        success: false,
+        record: await this.db.approvals.findById(approvalId),
+        conflict: false,
+      };
     }
 
     // CAS: update only if still pending
@@ -81,7 +89,11 @@ export class ApprovalWorkflow {
 
     if (!updated) {
       // Concurrent modification — someone else decided first
-      return { success: false, record: await this.db.approvals.findById(approvalId), conflict: true };
+      return {
+        success: false,
+        record: await this.db.approvals.findById(approvalId),
+        conflict: true,
+      };
     }
 
     // §7.3 — Denial with feedback: dispatch feedback as session.message
@@ -97,7 +109,7 @@ export class ApprovalWorkflow {
             message: feedback,
           },
           10_000,
-          false,  // fire-and-forget — don't block the decision response
+          false, // fire-and-forget — don't block the decision response
         );
       } catch (err) {
         // Log but don't fail the decision — the denial is already recorded
@@ -209,10 +221,7 @@ export class ApprovalWorkflow {
     expiresAt?: Date;
   }): Promise<ApprovalRecord> {
     const now = new Date();
-    const id = `appr_${randomUUID().replace(/-/g, '')}`;
-
-    const record: ApprovalRecord = {
-      id,
+    const approval = await this.db.approvals.create({
       sessionId: data.sessionId,
       deviceId: data.deviceId,
       userId: data.userId,
@@ -220,15 +229,13 @@ export class ApprovalWorkflow {
       description: data.description,
       details: data.details,
       status: 'pending',
-      requestedAt: now,
       policyVersion: data.policyVersion,
       matchedRules: data.matchedRules,
       requiredRole: data.requiredRole,
       expiresAt: data.expiresAt || new Date(now.getTime() + 30 * 60 * 1000), // 30 min default
-    };
-
-    await this.db.approvals.create(record);
-    return record;
+    });
+    await this.onApprovalCreated?.(approval);
+    return approval;
   }
 
   /**
@@ -244,7 +251,7 @@ export class ApprovalWorkflow {
   private async listAllSessions(): Promise<string[]> {
     // Access the underlying session store to get all session IDs
     const repo = this.db.sessions as unknown as {
-      sessions?: Map<string, import('../types').SessionRecord>;
+      sessions?: Map<string, SessionRecord>;
     };
     if (repo.sessions) {
       return Array.from(repo.sessions.keys());
