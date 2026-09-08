@@ -9,6 +9,8 @@ Freebuff doesn't replace your agents — it makes them interchangeable execution
 📄 **Full architecture, threat model, and implementation spec:** [Executive_Summary_Enhanced.docx](./docs/Executive_Summary_Enhanced.docx)
 This README covers **building and running the project**. For the full design rationale, security fixes, and diagrams, read the doc above.
 
+https://github.com/user-attachments/assets/3febb055-0e3e-4abe-84b2-0a4750dd995e
+
 ---
 
 ## Table of Contents
