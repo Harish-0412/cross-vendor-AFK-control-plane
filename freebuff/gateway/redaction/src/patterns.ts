@@ -72,13 +72,13 @@ export const BUILTIN_PATTERNS: CustomPattern[] = [
   },
   {
     name: 'aws_secret_access_key',
-    pattern: /(?:aws[_-]?secret[_-]?access[_-]?key|aws_secret_key)[\s:=]["']([A-Za-z0-9\/+=]{40})/gi,
+    pattern: /(?:aws[_-]?secret[_-]?access[_-]?key|aws_secret_key)\s*[:=]\s*["']?([A-Za-z0-9\/+=]{40})["']?/gi,
     type: 'aws_secret_key',
     placeholder: '[REDACTED_AWS_SECRET_KEY]'
   },
   {
     name: 'aws_session_token',
-    pattern: /(?:aws[_-]?session[_-]?token)[\s:=]["']([A-Za-z0-9\/+=]+)/gi,
+    pattern: /(?:aws[_-]?session[_-]?token)\s*[:=]\s*["']?([A-Za-z0-9\/+=]+)["']?/gi,
     type: 'aws_secret_key',
     placeholder: '[REDACTED_AWS_SESSION_TOKEN]'
   },
@@ -206,7 +206,7 @@ export const BUILTIN_PATTERNS: CustomPattern[] = [
   },
   {
     name: 'generic_database_url',
-    pattern: /(?:database[_-]?url|db[_-]?url|datasource)[\s:=]["']([^"']+)["']/gi,
+    pattern: /(?:database[_-]?url|db[_-]?url|datasource)\s*[:=]\s*["']?([^"'\s]+)["']?/gi,
     type: 'database_url',
     placeholder: '[REDACTED_DB_URL]'
   },
@@ -214,7 +214,7 @@ export const BUILTIN_PATTERNS: CustomPattern[] = [
   // Passwords
   {
     name: 'password_assignment',
-    pattern: /(?:password|passwd|pwd|pass|secret|api[_-]?secret)[\s:=]["']([^"'\s]{8,})["']/gi,
+    pattern: /(?:password|passwd|pwd|pass|secret|api[_-]?secret)\s*[:=]\s*["']?([^"'\s]{8,})["']?/gi,
     type: 'password',
     placeholder: '[REDACTED_PASSWORD]'
   },

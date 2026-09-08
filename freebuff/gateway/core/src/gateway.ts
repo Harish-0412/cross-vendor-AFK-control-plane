@@ -33,6 +33,7 @@ import {
   DEFAULT_GATEWAY_FEATURES,
 } from '@freebuff/protocol';
 import { type TunnelClient, createTunnelClient } from '@freebuff/tunnel';
+import { type RedactionProxy, createRedactionProxy, createRedactor, DefaultClassifier } from '@freebuff/redaction';
 
 import { type AgentManager, createAgentManager } from './agent-manager';
 import { type EventBus, createEventBus } from './event-bus';
@@ -49,6 +50,7 @@ export interface GatewayModules {
   checkpointStore: CheckpointStore;
   healthModule: HealthModule;
   tunnelClient: TunnelClient;
+  redactionProxy: RedactionProxy;
 }
 
 export class GatewayImpl implements GatewayCore {
@@ -69,6 +71,7 @@ export class GatewayImpl implements GatewayCore {
   private readonly checkpointStore: CheckpointStore;
   private readonly healthModule: HealthModule;
   private readonly tunnelClient: TunnelClient;
+  private readonly redactionProxy: RedactionProxy;
   private shuttingDown = false;
   private totalSessionsEver = 0;
 
@@ -94,6 +97,22 @@ export class GatewayImpl implements GatewayCore {
       deviceId: this.deviceId,
       gatewayId: this.gatewayId,
     });
+    
+    // Wire up redaction proxy
+    this.redactionProxy = createRedactionProxy(
+      createRedactor({ 
+        ...(this.options.redaction.customPatterns ? {
+          customPatterns: this.options.redaction.customPatterns.map(p => ({
+            name: p.name,
+            type: 'custom',
+            pattern: new RegExp(p.pattern, 'gi'),
+            ...(p.replacement ? { placeholder: p.replacement } : {})
+          }))
+        } : {})
+      }),
+      new DefaultClassifier(),
+      { enabled: this.options.redaction.enabled }
+    );
 
     // Wire health module checks for gateway components
     this.healthModule.registerCheck('session-registry', () => ({
@@ -141,6 +160,15 @@ export class GatewayImpl implements GatewayCore {
       metrics: { ...this.tunnelClient.getStats() } as unknown as Record<string, unknown>,
     }));
 
+    this.healthModule.registerCheck('redaction-proxy', () => ({
+      name: 'redaction-proxy',
+      status: 'healthy',
+      message: 'Redaction active',
+      lastCheckedAt: new Date(),
+      durationMs: 0,
+      metrics: { ...this.redactionProxy.getStats() } as unknown as Record<string, unknown>,
+    }));
+
     this.agents.register(createMockAdapter());
 
     this.emitGatewayEvent({ type: 'gateway.started', timestamp: new Date() });
@@ -154,6 +182,7 @@ export class GatewayImpl implements GatewayCore {
       checkpointStore: this.checkpointStore,
       healthModule: this.healthModule,
       tunnelClient: this.tunnelClient,
+      redactionProxy: this.redactionProxy,
     };
   }
 
@@ -531,9 +560,12 @@ export class GatewayImpl implements GatewayCore {
     const stream = adapter.streamEvents(effectiveId);
     const wire = async () => {
       try {
-        for await (const event of stream) {
+        for await (let event of stream) {
           // Session may have been cleaned up; skip if so
           if (!this.registry.get(gatewaySessionId)) break;
+
+          // Redact event before it reaches storage or transmission
+          event = this.redactionProxy.redactEvent(event);
 
           this.registry.appendEvent(gatewaySessionId, event);
           this.bus.publish(event);

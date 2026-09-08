@@ -162,6 +162,9 @@ importers:
       '@freebuff/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@freebuff/redaction':
+        specifier: workspace:*
+        version: link:../redaction
       '@freebuff/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas
@@ -267,6 +270,19 @@ importers:
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
+      vitest:
+        specifier: ^1.5.0
+        version: 1.6.1(@types/node@20.19.43)
+
+  gateway/redaction:
+    dependencies:
+      '@freebuff/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@freebuff/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+    devDependencies:
       vitest:
         specifier: ^1.5.0
         version: 1.6.1(@types/node@20.19.43)
