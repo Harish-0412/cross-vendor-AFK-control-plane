@@ -2,7 +2,9 @@ import type {
   Capability,
   Decision,
   PolicyEvaluationContext,
+  PolicyRule,
   PolicyVersion,
+  RiskClass,
   TrustProfile,
 } from '@freebuff/protocol';
 import { evaluate } from '@freebuff/policy-engine';
@@ -27,7 +29,7 @@ import { AuditLog } from './audit-log';
 export class PolicyEngineService {
   constructor(
     private db: IDatabase,
-    private config: ControlPlaneConfig,
+    _config: ControlPlaneConfig,
     private auditLog: AuditLog,
   ) {}
 
@@ -44,7 +46,6 @@ export class PolicyEngineService {
     context: {
       resource?: string;
       projectId?: string;
-      trustProfile?: TrustProfile;
       deviceId: string;
       sessionId?: string;
       userId: string;
@@ -55,6 +56,9 @@ export class PolicyEngineService {
 
     // Check device status
     const device = await this.db.devices.findById(context.deviceId);
+    const session = context.sessionId
+      ? await this.db.sessions.findById(context.sessionId)
+      : null;
     const deviceStatus: 'trusted' | 'revoked' | 'suspended' =
       device?.status === 'trusted' || device?.status === 'pairing'
         ? 'trusted'
@@ -68,9 +72,9 @@ export class PolicyEngineService {
     const evalContext: PolicyEvaluationContext = {
       capability,
       riskClass,
-      resource: context.resource,
-      projectId: context.projectId,
-      trustProfile: context.trustProfile ?? 'default',
+      ...(context.resource ? { resource: context.resource } : {}),
+      ...(context.projectId ? { projectId: context.projectId } : {}),
+      trustProfile: session?.trustProfile ?? device?.defaultTrustProfile ?? 'default',
       deviceStatus,
       userId: context.userId,
     };
@@ -81,12 +85,14 @@ export class PolicyEngineService {
     // Record in audit log
     await this.auditLog.record({
       actor: { type: 'device', id: context.deviceId },
-      sessionId: context.sessionId,
+      ...(context.sessionId ? { sessionId: context.sessionId } : {}),
       deviceId: context.deviceId,
       action: capability,
       decision: decision.decision === 'allow' ? 'allow' : decision.decision === 'deny' ? 'deny' : 'require_approval',
       policyVersion: decision.policyVersion,
-      matchedRules: 'matchedRules' in decision ? decision.matchedRules : undefined,
+      ...('matchedRules' in decision && decision.matchedRules
+        ? { matchedRules: decision.matchedRules }
+        : {}),
     });
 
     return decision;
@@ -103,7 +109,7 @@ export class PolicyEngineService {
     context: {
       resource?: string;
       projectId?: string;
-      trustProfile?: TrustProfile;
+      trustProfile: TrustProfile;
       deviceStatus: 'trusted' | 'revoked' | 'suspended';
       userId: string;
     },
@@ -111,9 +117,9 @@ export class PolicyEngineService {
     const evalContext: PolicyEvaluationContext = {
       capability,
       riskClass,
-      resource: context.resource,
-      projectId: context.projectId,
-      trustProfile: context.trustProfile ?? 'default',
+      ...(context.resource ? { resource: context.resource } : {}),
+      ...(context.projectId ? { projectId: context.projectId } : {}),
+      trustProfile: context.trustProfile,
       deviceStatus: context.deviceStatus,
       userId: context.userId,
     };
@@ -160,7 +166,7 @@ export class PolicyEngineService {
       description: string;
       match: {
         capability?: Capability;
-        riskClass?: string;
+        riskClass?: RiskClass;
         resourcePattern?: string;
         projectId?: string;
         trustProfile?: TrustProfile;
@@ -172,21 +178,14 @@ export class PolicyEngineService {
   ): Promise<PolicyVersion> {
     const now = new Date();
     const id = `p_${randomUUID().replace(/-/g, '')}`;
-    const existingVersions = this.getAllPolicyVersions();
-    const versionNumber = existingVersions.length + 1;
+    const allUsers = await this.db.users.list();
+    const versionNumber = allUsers.filter((user) => user.metadata?._policyVersion).length + 1;
 
     const version: PolicyVersion = {
       id,
       version: `p_${versionNumber}`,
       description,
-      rules: rules.map((r) => ({
-        ...r,
-        match: {
-          ...r.match,
-          capability: r.match?.capability,
-          riskClass: r.match?.riskClass,
-        },
-      })),
+      rules: rules as PolicyRule[],
       createdAt: now,
       createdBy,
       isActive: false,
@@ -238,7 +237,9 @@ export class PolicyEngineService {
     }
 
     // Get the activated version
-    const targetEntry = policyEntries.find((e) => e.metadata?._policyVersion?.id === versionId);
+    const targetEntry = policyEntries.find((entry) =>
+      (entry.metadata?._policyVersion as PolicyVersion | undefined)?.id === versionId,
+    );
     if (!targetEntry) return null;
 
     const activatedVersion = targetEntry.metadata!._policyVersion as PolicyVersion;
@@ -252,16 +253,6 @@ export class PolicyEngineService {
     });
 
     return { ...activatedVersion, isActive: true };
-  }
-
-  /**
-   * Get all policy versions.
-   */
-  getAllPolicyVersions(): PolicyVersion[] {
-    const allUsers = this.db.users.list();
-    // This is synchronous but returns a Promise in the actual implementation
-    // For the in-memory store, we need to handle this differently
-    return [];
   }
 
   /**
@@ -296,6 +287,11 @@ export class PolicyEngineService {
     }
 
     return null;
+  }
+
+  async canManagePolicy(userId: string): Promise<boolean> {
+    const user = await this.db.users.findById(userId);
+    return user?.role === 'admin' || user?.role === 'owner';
   }
 }
 

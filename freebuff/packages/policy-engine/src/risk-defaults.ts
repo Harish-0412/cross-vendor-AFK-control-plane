@@ -24,12 +24,17 @@ export interface RiskClassDefaults {
  * - 'supervised': MEDIUM promoted to require_approval (everything MEDIUM+ needs approval)
  * - 'trusted-afk': only HIGH+ requires approval (AFK Mode per Phase 7)
  * - 'read-only': any WRITE-class capability is denied outright
+ * - 'locked': every capability is denied (observation only)
  * - 'default': standard defaults (LOW/MEDIUM allow, HIGH/CRITICAL require approval)
  */
 export function riskClassDefaults(
   riskClass: RiskClass,
   trustProfile: TrustProfile,
 ): RiskClassDefaults {
+  if (trustProfile === 'locked') {
+    return { riskClass, defaultEffect: 'deny' };
+  }
+
   // read-only profile: deny any write-class capability
   if (trustProfile === 'read-only') {
     if (
@@ -45,7 +50,7 @@ export function riskClassDefaults(
       if (riskClass === 'low') {
         return { riskClass: 'low', defaultEffect: 'allow' };
       }
-      return { riskClass, defaultEffect: 'deny', requiredRole: undefined };
+      return { riskClass, defaultEffect: 'deny' };
     }
   }
 

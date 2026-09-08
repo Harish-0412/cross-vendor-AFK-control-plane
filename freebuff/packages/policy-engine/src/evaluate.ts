@@ -1,11 +1,8 @@
 import type {
-  Capability,
   Decision,
   PolicyEvaluationContext,
   PolicyRule,
   PolicyVersion,
-  RiskClass,
-  TrustProfile,
 } from '@freebuff/protocol';
 import { denyFloorMatches } from './deny-floor';
 import { sortRulesForEvaluation } from './specificity';
@@ -67,7 +64,7 @@ export function evaluate(
           return {
             decision: 'require_approval',
             policyVersion: policyVersion.version,
-            requiredRole: rule.requiredRole,
+            ...(rule.requiredRole ? { requiredRole: rule.requiredRole } : {}),
             expiresAt,
             matchedRules: [rule.id],
             reason: rule.description,
@@ -95,14 +92,14 @@ export function evaluate(
     return {
       decision: 'deny',
       policyVersion: policyVersion?.version ?? 'none',
-      reason: `Action denied by read-only trust profile (risk class: ${context.riskClass})`,
+      reason: `Action denied by ${context.trustProfile} trust profile (risk class: ${context.riskClass})`,
     };
   }
   // require_approval
   return {
     decision: 'require_approval',
     policyVersion: policyVersion?.version ?? 'none',
-    requiredRole: defaults.requiredRole,
+    ...(defaults.requiredRole ? { requiredRole: defaults.requiredRole } : {}),
     expiresAt: new Date(Date.now() + 30 * 60 * 1000),
     matchedRules: [],
     reason: `Risk class ${context.riskClass} requires approval under ${context.trustProfile} profile`,

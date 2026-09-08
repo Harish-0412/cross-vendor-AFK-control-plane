@@ -104,6 +104,25 @@ Reuse `frontend/`'s Tailwind + shadcn/ui foundation (Radix primitives, `class-va
 
 **Definition of done:** a user can register, log in, get redirected to `/`, refresh the page and stay logged in (silent refresh), and log out (which must call the existing `/api/v1/auth/logout` **and** clear the refresh cookie — the current `logout` endpoint is a no-op acknowledgment per its own comment ("stateless; client discards tokens"), which is correct for the JWT itself but the cookie still needs an explicit `Set-Cookie: refreshToken=; Max-Age=0` from the server).
 
+### Subphase 4.1a — QR Pairing Scan (Hackathon Feature A)
+
+**Deliverables:**
+- Camera capture UI using `getUserMedia` API with torch/flashlight toggle for low-light scanning
+- JS QR decoder (e.g., `jsqr` or `zxing-wasm`) processing video frames in real-time
+- Integration with existing pairing-confirmation API: decoded `qrPayload` → `parseQrPayload()` → pairing confirmation flow
+- Fallback to manual code entry when camera permission is denied or unavailable
+- Visual feedback: scanning animation, success/failure states, fingerprint preview before confirmation
+
+**Architecture note — security preserved:** The QR code contains the **fingerprint**, not the private key. Scanning the QR is a faster way to execute the exact verification step that already exists — the phone still shows the words/fingerprint for a final glance before confirming, and the actual device certificate still only gets issued through the existing pairing-manager state machine. This is a UX improvement, not a new trust root.
+
+**Implementation details:**
+- `apps/web/src/components/pairing/QRScanner.tsx`: Camera capture + video frame processing
+- `apps/web/src/lib/qr-decoder.ts`: Wrapper around QR decoding library with error handling
+- `apps/web/src/hooks/useCamera.ts`: Camera permission management and stream lifecycle
+- No changes to `@freebuff/protocol` or Control Plane — purely additive on the client side
+
+**Definition of done:** a user can scan a QR code displayed on the Gateway's terminal during pairing, the decoded fingerprint matches the displayed words, and pairing completes successfully. Camera permission denial gracefully falls back to manual code entry.
+
 ### Subphase 4.2 — Home, Machine, and Agent screens (read-only)
 
 The three screens that answer "what is happening?" — Home lists machines/running agents/needs-attention/recently-completed (four `GET /api/v1/sessions?state=...` and `GET /api/v1/devices` queries, polled every 30s **and** kept live via `subscribe_device` on every listed device); Machine shows one device's online status, resource usage (from the Gateway's existing health-module heartbeat data — this requires the control plane to persist and expose the heartbeat payload it already receives, a small additive change, see §5.1), and its agents/sessions; Agent shows one adapter's declared capabilities (`AgentAdapter.installOrDetect()`'s result, already typed in `@freebuff/protocol`) and current task.
@@ -126,13 +145,55 @@ The highest-stakes screen in Phase 4, and the direct UI counterpart to Phase 5's
 
 **Architecture note — this screen must degrade honestly when Phase 5 isn't done yet.** Until Phase 5 lands, "what policy triggered it" has no real answer — the current `ApprovalRecord` has only `actionType`/`description`/`details`. The screen should render a "Policy: not yet enforced (manual approval only)" state rather than fabricate a policy explanation, so Phase 4 can ship and be tested against Phase 3 alone without lying to the user about a guarantee the system doesn't provide yet. Once Phase 5 ships `matched_rules`/`policy_version`/`required_role` on the approval payload, this screen renders them — additively, no rework.
 
-**Definition of done:** an approval created by the mock adapter's existing approval-request flow (`gateway/adapters/mock/src/mock-adapter.ts:392`) appears on the phone within one WebSocket round-trip, and approving/denying it unblocks (or fails) the session, verified end-to-end.
+#### Subphase 4.4a — Voice Feedback on Approval Decisions (Hackathon Feature B)
+
+**Deliverables:**
+- "Reject with Feedback" voice-capture control using Web Speech API (`SpeechRecognition`)
+- Real-time transcription display with edit capability (user can refine the transcript before submitting)
+- Integration with existing approval decision endpoint: voice transcript → `feedback` field → `POST /approvals/:id/decision { approved: false, feedback: transcript }`
+- Audio recording indicator (pulsing microphone icon) with visual waveform feedback
+- Fallback to text input when speech recognition is unavailable or permission is denied
+
+**Architecture note — hard dependency on Phase 5:** This subphase requires the Phase 5 edit that adds the optional `feedback?: string` field to the approval decision endpoint and the `ApprovalWorkflow.submitDecision` method. Without Phase 5's `session.message` dispatch on denial with feedback, the transcript has nowhere to go. Sequence accordingly: Phase 5 edit first, then this subphase.
+
+**Implementation details:**
+- `apps/web/src/components/approval/VoiceFeedback.tsx`: Speech recognition UI with recording controls
+- `apps/web/src/hooks/useSpeechRecognition.ts`: Web Speech API wrapper with fallback handling
+- `apps/web/src/lib/speech-config.ts`: Language model configuration, noise cancellation settings
+- Client-side only: transcription happens in the browser, no server-side speech processing
+- The transcript is just the string that fills the existing `feedback` field — no new event type, no protocol ambiguity
+
+**Voice-to-text stays entirely client-side:** The browser's Web Speech API transcribes locally, and the transcript is submitted through the same decision-endpoint call the Approve/Deny buttons already use. No new server-side speech processing, no new event type, no protocol ambiguity. This is exactly the pattern described in `docs/HACKATHON_2026_FEATURE_INTEGRATION.md` §2.
+
+**Definition of done:** a user can tap the microphone button, speak a reason for rejection, see the transcription in real-time, edit it if needed, and submit it — the denial with feedback reaches the agent as a `session.message` command (verified via mock adapter's `sendMessage` call), and the session continues with the corrective instruction.
 
 ### Subphase 4.5 — Diff review screen
 
 Files changed, summary, patch, tests, risk indicators, commit/PR action. **This screen has a hard dependency the roadmap itself doesn't call out explicitly: it needs a real agent adapter that produces real diffs (Phase 8) to be meaningfully tested**, since the mock adapter has no filesystem effect. Build the screen against a **fixture** diff (a canned unified-diff string) for Phase 4's own test suite, and treat live integration with a real adapter's actual diff output as part of Phase 9 (Git, Diff Review and Project Workspaces), which the roadmap already scopes as its own phase for exactly this reason. Phase 4 ships the component; Phase 9 wires it to something real.
 
-**Definition of done:** given a diff payload matching the shape `GET /api/v1/sessions/:id/diff` already returns (implemented in `HttpRouter`), the screen renders a readable, syntax-highlighted patch view with per-file expand/collapse, on a phone-width viewport.
+#### Subphase 4.5a — Client-side Diff Summarization (Hackathon Feature C)
+
+**Deliverables:**
+- WebGPU-based small model (WebLLM or ONNX Runtime Web / Transformers.js) running entirely in the browser
+- Diff summarization pipeline: unified diff → tokenization → on-device inference → human-readable summary
+- UI integration: summary card at the top of the diff review screen, expandable for details
+- Loading state with progress indicator (model download + inference)
+- Fallback to server-side summary when WebGPU is unavailable (feature-detection, graceful degradation)
+
+**Critical technical caveat (stated here to prevent implementation errors):**
+A Progressive Web App **cannot access a phone's NPU silicon directly** — there is no web API that hands a page a handle to Snapdragon/MediaTek NPU delegate hardware. What a PWA *can* do, genuinely on-device and genuinely local-first, is run a small quantized model via **WebGPU** (WebLLM, or a small ONNX Runtime Web / Transformers.js model) — real on-device inference, real "not sent to a cloud LTF," just running on the GPU compute path rather than a literal NPU tensor accelerator. For a browser-only PWA, **this is what "on-device AI" honestly means**, and it's still a completely legitimate, still-impressive claim: no network round trip, no cloud API key, works offline.
+
+**If literal NPU delegate access is a hard rubric requirement**, the only honest way to get it is a **thin native Android wrapper** around the same PWA (a Trusted Web Activity or Capacitor shell — the web app's code doesn't change, only its packaging), using MediaPipe Tasks or TFLite with the NNAPI delegate, which *does* route to the device's NPU on supported hardware. This is a real fork in the plan — see `docs/HACKATHON_2026_FEATURE_INTEGRATION.md` §6 for the exact phase-structure implication.
+
+**Implementation details:**
+- `apps/web/src/lib/diff-summarizer.ts`: Model loading, tokenization, and inference pipeline
+- `apps/web/src/components/diff/SummaryCard.tsx`: Summary display with expand/collapse
+- `apps/web/src/hooks/useWebGPU.ts`: WebGPU availability detection and context management
+- Model choice: WebLLM (Llama-3.2-1B-Instruct quantized) or Phi-3-mini-4k-instruct via ONNX Runtime Web
+- First-run model download cached in browser's IndexedDB for offline use
+- Summary consumes the same diff payload the screen already renders — no Control Plane changes needed
+
+**Definition of done:** given a fixture diff, the screen renders an AI-generated summary (2-3 sentences describing what changed and why) within 2 seconds on a mid-range phone, with a loading indicator during model initialization. When WebGPU is unavailable, the summary card shows a fallback message or fetches from a server-side endpoint.
 
 ### Subphase 4.6 — Push notifications (Web Push / VAPID)
 
@@ -233,6 +294,8 @@ None of these require touching the tunnel protocol, the session lifecycle, or an
 
 ## 7. Phase 4 Definition of Done (DoD)
 
+### Core DoD (Product Roadmap)
+
 Matches the roadmap's own DoD, made concrete and testable:
 
 - [ ] Register, log in, silent-refresh survives a page reload, log out clears the session server-side and client-side.
@@ -245,6 +308,41 @@ Matches the roadmap's own DoD, made concrete and testable:
 - [ ] Lighthouse PWA score: installable, offline app-shell, no console errors.
 - [ ] Zero hand-rolled duplicate types — every wire type imported from `@freebuff/protocol`/`@freebuff/schemas`.
 
+---
+
+### Hackathon-Track DoD (Feature A, B, C Integration)
+
+**These items are in addition to the Core DoD above.** "Phase 4 done" for the product roadmap and "Phase 4 done" for the hackathon demo remain two distinguishable, both-satisfiable claims.
+
+#### Feature A — Visual Pairing (QR Scan)
+- [ ] QR scanner component renders and captures camera input on supported devices
+- [ ] Decoded QR payload matches the displayed fingerprint words
+- [ ] Pairing completes successfully via QR scan (end-to-end test)
+- [ ] Camera permission denial gracefully falls back to manual code entry
+- [ ] QR scanner works on both iOS Safari and Android Chrome (verified on real devices)
+
+#### Feature B — Voice Feedback on Approvals
+- [ ] "Reject with Feedback" voice-capture control renders and activates microphone
+- [ ] Real-time transcription displays with edit capability
+- [ ] Submitted feedback reaches the agent as a `session.message` command (verified via mock adapter)
+- [ ] Speech recognition unavailable gracefully falls back to text input
+- [ ] Voice feedback works on both iOS Safari and Android Chrome (verified on real devices)
+- [ ] **Hard dependency:** Phase 5's `feedback` field on approval decision endpoint is implemented and tested
+
+#### Feature C — On-device Diff Summarization
+- [ ] WebGPU-based model loads and runs inference in the browser
+- [ ] Diff summary renders within 2 seconds on a mid-range phone
+- [ ] Summary card displays at the top of the diff review screen
+- [ ] WebGPU unavailable gracefully degrades (fallback message or server-side summary)
+- [ ] Model download cached in IndexedDB for offline use
+- [ ] **Technical caveat stated:** WebGPU inference, not NPU delegate — documented in the UI and in this plan
+
+#### Hardware Integration (Optional)
+- [ ] iQOO Office Kit bridge feature-detected and contained in `apps/web/src/integrations/office-kit/`
+- [ ] Clipboard and file sharing work on iQOO hardware
+- [ ] Feature is invisible on non-iQOO hardware (no errors, no performance impact)
+- [ ] Containment test passed: `office-kit/` directory can be deleted without affecting other code
+
 ## 8. Do NOT Build Yet (per roadmap, reaffirmed)
 
 - A code editor or terminal emulator (this is a decision tool, not an IDE)
@@ -254,3 +352,50 @@ Matches the roadmap's own DoD, made concrete and testable:
 - Actual push notification delivery (Phase 7)
 - Live diff against a real adapter (Phase 9)
 - Any policy/rule authoring UI (Phase 5 backend first; a policy *designer* UI is explicitly out of scope for Phase 5 too, per its own roadmap section)
+
+### §8.x — iQOO Office Kit Bridge (Optional, Hardware-Demo-Scoped)
+
+**⚠️ OPTIONAL SECTION — Not part of the core DoD checklist**
+
+This section describes an optional integration with iQOO's proprietary Office Kit bridge for clipboard/file operations on iQOO hardware. It is **explicitly fenced off from the core architecture** — this is a demo-hardware integration, not a platform feature.
+
+**Containment boundary:**
+- All Office Kit integration code lives entirely in `apps/web/src/integrations/office-kit/`
+- This directory imports nothing from `@freebuff/protocol`, `gateway/*`, or `control-plane/*`
+- This directory is imported by nothing in the core application
+- **Containment test:** if this directory were deleted entirely, nothing else in the repository should need to change
+
+**Feature detection pattern:**
+```typescript
+// apps/web/src/integrations/office-kit/index.ts
+export const useOfficeKitBridge = () => {
+  // Feature-detect the Office Kit API
+  const isAvailable = typeof window !== 'undefined' && 'officeKit' in window;
+  
+  return {
+    isAvailable,
+    clipboard: {
+      read: isAvailable ? () => window.officeKit.clipboard.read() : Promise.resolve(''),
+      write: isAvailable ? (text: string) => window.officeKit.clipboard.write(text) : Promise.resolve(),
+    },
+    file: {
+      open: isAvailable ? (path: string) => window.officeKit.file.open(path) : Promise.resolve(),
+      share: isAvailable ? (path: string) => window.officeKit.file.share(path) : Promise.resolve(),
+    },
+  };
+};
+```
+
+**Integration points (all optional, all feature-detected):**
+- Clipboard sync: when viewing a diff, the user can copy a file path or code snippet to the phone's clipboard via Office Kit (if available)
+- File sharing: the user can share a changed file from the diff review screen to other apps via Office Kit's share sheet
+- No impact on existing Phase 4 tests — all Office Kit calls are guarded by feature detection and gracefully no-op when unavailable
+
+**Definition of done (hackathon-specific):**
+- On iQOO hardware with Office Kit available: clipboard and file sharing work from the diff review screen
+- On any other hardware: the feature is invisible, no errors, no performance impact
+- The `office-kit/` directory can be deleted without affecting any other code
+
+---
+
+**Note:** This section is documented here for completeness but is NOT required for the core Phase 4 DoD. It is a hackathon demo enhancement that showcases hardware integration without compromising the vendor-neutral architecture.

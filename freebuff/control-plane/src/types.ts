@@ -1,11 +1,20 @@
-import type { DeviceStatus, EventEnvelope, SessionConfig, SessionState } from '@freebuff/protocol';
+import type {
+  DeviceStatus,
+  EventEnvelope,
+  NotificationPreferences,
+  SessionConfig,
+  SessionState,
+  TrustProfile,
+} from '@freebuff/protocol';
 
 export interface User {
   id: string;
   email: string;
   passwordHash: string;
   name: string;
-  role: 'user' | 'admin';
+  role: 'user' | 'admin' | 'owner';
+  metadata?: Record<string, unknown>;
+  notificationPreferences?: NotificationPreferences;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -21,6 +30,7 @@ export interface DeviceRecord {
   fingerprintHex: string;
   fingerprintWords: string[];
   status: DeviceStatus; // 'unpaired' | 'pairing' | 'trusted' | 'suspended' | 'revoked'
+  defaultTrustProfile: TrustProfile;
   lastSeenAt?: Date | undefined;
   createdAt: Date;
   updatedAt: Date;
@@ -68,6 +78,7 @@ export interface SessionRecord {
   agentId: string;
   projectRoot: string;
   state: SessionState;
+  trustProfile: TrustProfile;
   config: SessionConfig;
   startedAt: Date;
   createdAt: Date;
@@ -75,6 +86,17 @@ export interface SessionRecord {
   completedAt?: Date | undefined;
   error?: string | undefined;
   tokensUsed?: number | undefined;
+}
+
+export interface PushSubscriptionRecord {
+  id: string;
+  userId: string;
+  channel: 'web-push' | 'fcm';
+  endpoint?: string;
+  keys?: { p256dh: string; auth: string };
+  fcmToken?: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface ApprovalRecord {

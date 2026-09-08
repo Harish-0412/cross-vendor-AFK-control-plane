@@ -37,7 +37,7 @@ export default function PairDevicePage() {
     setError(null);
 
     try {
-      const data = await apiClient.post<PairingSessionResponse>("/api/v1/devices/pair/verify", {
+      const data = await apiClient.post<PairingSessionResponse>("/api/v1/devices/pair", {
         code: cleanCode,
       });
       setPairingData(data);

@@ -2,7 +2,7 @@ export type RiskClass = 'low' | 'medium' | 'high' | 'critical';
 
 export type Decision =
   | { decision: 'allow'; policyVersion: string }
-  | { decision: 'deny'; policyVersion: string; reason: string }
+  | { decision: 'deny'; policyVersion: string; reason: string; matchedRules?: string[] }
   | {
       decision: 'require_approval'
       policyVersion: string
@@ -12,7 +12,7 @@ export type Decision =
       reason: string
     };
 
-export type TrustProfile = 'supervised' | 'trusted-afk' | 'read-only' | 'default';
+export type TrustProfile = 'supervised' | 'trusted-afk' | 'read-only' | 'locked' | 'default';
 
 export interface PolicyRule {
   id: string;

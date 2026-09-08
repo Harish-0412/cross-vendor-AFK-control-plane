@@ -10,6 +10,7 @@
     { "path": "./packages/protocol" },
     { "path": "./packages/schemas" },
     { "path": "./packages/config" },
+    { "path": "./packages/attention-engine" },
     { "path": "./gateway/adapters/mock" },
     { "path": "./gateway/checkpoint" },
     { "path": "./gateway/health" },

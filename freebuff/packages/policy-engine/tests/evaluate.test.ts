@@ -63,6 +63,37 @@ describe('Policy Engine §9.1 — Allowed action', () => {
   });
 });
 
+describe('Phase 7 trust-profile behavior', () => {
+  it('allows a HIGH-risk action only for the explicitly scoped trusted-afk rule', () => {
+    const policy = makePolicyVersion({
+      rules: [{
+        id: 'trusted-afk-push',
+        description: 'Allow pushes while deliberately AFK',
+        match: { capability: 'git.push', riskClass: 'high', trustProfile: 'trusted-afk' },
+        effect: 'allow',
+        priority: 100,
+      }],
+    });
+
+    expect(evaluate(makeContext({ capability: 'git.push', riskClass: 'high' }), policy).decision)
+      .toBe('require_approval');
+    expect(evaluate(makeContext({
+      capability: 'git.push',
+      riskClass: 'high',
+      trustProfile: 'trusted-afk',
+    }), policy).decision).toBe('allow');
+  });
+
+  it('denies LOW-risk filesystem reads only under locked', () => {
+    const decisions = (['default', 'supervised', 'trusted-afk', 'read-only'] as const).map(
+      (trustProfile) => evaluate(makeContext({ trustProfile }), makePolicyVersion()).decision,
+    );
+    expect(decisions).toEqual(['allow', 'allow', 'allow', 'allow']);
+    expect(evaluate(makeContext({ trustProfile: 'locked' }), makePolicyVersion()).decision)
+      .toBe('deny');
+  });
+});
+
 // ── §9 Test Case 2: Denied action (deny floor) ───────────────────────────
 
 describe('Policy Engine §9.2 — Denied action (deny floor)', () => {

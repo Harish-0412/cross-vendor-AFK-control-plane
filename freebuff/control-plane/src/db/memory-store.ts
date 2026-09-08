@@ -9,6 +9,7 @@ import type {
   ApprovalRecord,
   StoredEvent,
   AuditEvent,
+  PushSubscriptionRecord,
 } from '../types';
 
 import type {
@@ -19,16 +20,24 @@ import type {
   ISessionRepository,
   IEventRepository,
   IApprovalRepository,
+  IAuditRepository,
+  IPushSubscriptionRepository,
+  CreateDeviceRecord,
+  CreateSessionRecord,
 } from './types';
 
 export class MemoryUserRepository implements IUserRepository {
   private users = new Map<string, User>();
 
-  async create(data: Omit<User, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<User> {
+  async create(data: Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'passwordHash'> & {
+    id?: string;
+    passwordHash?: string;
+  }): Promise<User> {
     const now = new Date();
     const user: User = {
       id: data.id || `usr_${randomUUID().replace(/-/g, '')}`,
       ...data,
+      passwordHash: data.passwordHash ?? '',
       createdAt: now,
       updatedAt: now,
     };
@@ -53,15 +62,23 @@ export class MemoryUserRepository implements IUserRepository {
   async list(): Promise<User[]> {
     return Array.from(this.users.values());
   }
+
+  async update(id: string, updates: Partial<User>): Promise<User | null> {
+    const user = this.users.get(id);
+    if (!user) return null;
+    Object.assign(user, updates, { updatedAt: new Date() });
+    return user;
+  }
 }
 
 export class MemoryDeviceRepository implements IDeviceRepository {
   private devices = new Map<string, DeviceRecord>();
 
-  async create(data: Omit<DeviceRecord, 'createdAt' | 'updatedAt'>): Promise<DeviceRecord> {
+  async create(data: CreateDeviceRecord): Promise<DeviceRecord> {
     const now = new Date();
     const device: DeviceRecord = {
       ...data,
+      defaultTrustProfile: data.defaultTrustProfile ?? 'default',
       createdAt: now,
       updatedAt: now,
     };
@@ -175,10 +192,11 @@ export class MemoryPairingRepository implements IPairingRepository {
 export class MemorySessionRepository implements ISessionRepository {
   private sessions = new Map<string, SessionRecord>();
 
-  async create(data: Omit<SessionRecord, 'createdAt' | 'updatedAt'>): Promise<SessionRecord> {
+  async create(data: CreateSessionRecord): Promise<SessionRecord> {
     const now = new Date();
     const session: SessionRecord = {
       ...data,
+      trustProfile: data.trustProfile ?? 'default',
       createdAt: now,
       updatedAt: now,
     };
@@ -254,8 +272,8 @@ export class MemoryAuditRepository implements IAuditRepository {
   private events: AuditEvent[] = [];
   private nextSequence = 1;
 
-  async append(data: Omit<AuditEvent, 'id' | 'sequence' | 'hash'>): Promise<AuditEvent> {
-    const previousHash = this.events.length > 0 ? this.events[this.events.length - 1].hash : '0'.repeat(64);
+  async append(data: Omit<AuditEvent, 'id' | 'sequence' | 'hash' | 'previousHash'>): Promise<AuditEvent> {
+    const previousHash = this.events.at(-1)?.hash ?? '0'.repeat(64);
     const entry = {
       ...data,
       previousHash,
@@ -287,14 +305,15 @@ export class MemoryAuditRepository implements IAuditRepository {
     if (options?.actorType) result = result.filter((e) => e.actor.type === options.actorType);
     if (options?.actorId) result = result.filter((e) => e.actor.id === options.actorId);
     if (options?.decision) result = result.filter((e) => e.decision === options.decision);
-    if (options?.fromSequence) result = result.filter((e) => e.sequence >= options.fromSequence);
+    const fromSequence = options?.fromSequence;
+    if (fromSequence !== undefined) result = result.filter((e) => e.sequence >= fromSequence);
     if (options?.limit) result = result.slice(-options.limit);
     return result;
   }
 
   async getHighestSequence(): Promise<number> {
     if (this.events.length === 0) return 0;
-    return this.events[this.events.length - 1].sequence;
+    return this.events[this.events.length - 1]!.sequence;
   }
 
   async findById(id: string): Promise<AuditEvent | null> {
@@ -320,7 +339,7 @@ export class MemoryAuditRepository implements IAuditRepository {
     return { valid: true };
   }
 
-  private canonicalize(entry: Omit<AuditEvent, 'hash'>): string {
+  private canonicalize(entry: Record<string, unknown> | Omit<AuditEvent, 'hash'>): string {
     const sorted = { ...entry } as Record<string, unknown>;
     // Sort keys recursively (top-level is sufficient for our schema)
     const keys = Object.keys(sorted).sort();
@@ -329,7 +348,7 @@ export class MemoryAuditRepository implements IAuditRepository {
       obj[k] = sorted[k];
     }
     // Date serialization: ISO string
-    return JSON.stringify(obj, (key, value) => {
+    return JSON.stringify(obj, (_key, value) => {
       if (value instanceof Date) return value.toISOString();
       return value;
     });
@@ -363,6 +382,14 @@ export class MemoryApprovalRepository implements IApprovalRepository {
     return Array.from(this.approvals.values()).filter((a) => a.sessionId === sessionId);
   }
 
+  async listByUser(userId: string, status?: string): Promise<ApprovalRecord[]> {
+    return Array.from(this.approvals.values()).filter((a) => {
+      if (a.userId !== userId) return false;
+      if (status && a.status !== status) return false;
+      return true;
+    });
+  }
+
   async listPending(userId: string): Promise<ApprovalRecord[]> {
     return Array.from(this.approvals.values()).filter(
       (a) => a.userId === userId && a.status === 'pending',
@@ -377,6 +404,41 @@ export class MemoryApprovalRepository implements IApprovalRepository {
   }
 }
 
+export class MemoryPushSubscriptionRepository implements IPushSubscriptionRepository {
+  private subscriptions = new Map<string, PushSubscriptionRecord>();
+
+  async upsert(
+    data: Omit<PushSubscriptionRecord, 'id' | 'createdAt' | 'updatedAt'>,
+  ): Promise<PushSubscriptionRecord> {
+    const target = data.channel === 'web-push' ? data.endpoint : data.fcmToken;
+    const existing = Array.from(this.subscriptions.values()).find((item) =>
+      item.userId === data.userId &&
+      item.channel === data.channel &&
+      (item.channel === 'web-push' ? item.endpoint : item.fcmToken) === target,
+    );
+    const now = new Date();
+    const record: PushSubscriptionRecord = {
+      ...data,
+      id: existing?.id ?? `push_${randomUUID().replace(/-/g, '')}`,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    this.subscriptions.set(record.id, record);
+    return record;
+  }
+
+  async listByUser(userId: string): Promise<PushSubscriptionRecord[]> {
+    return Array.from(this.subscriptions.values()).filter((item) => item.userId === userId);
+  }
+
+  async delete(userId: string, target: string): Promise<boolean> {
+    const match = Array.from(this.subscriptions.values()).find((item) =>
+      item.userId === userId && (item.endpoint === target || item.fcmToken === target),
+    );
+    return match ? this.subscriptions.delete(match.id) : false;
+  }
+}
+
 export class MemoryDatabase implements IDatabase {
   public users = new MemoryUserRepository();
   public devices = new MemoryDeviceRepository();
@@ -384,5 +446,6 @@ export class MemoryDatabase implements IDatabase {
   public sessions = new MemorySessionRepository();
   public events = new MemoryEventRepository();
   public approvals = new MemoryApprovalRepository();
+  public pushSubscriptions = new MemoryPushSubscriptionRepository();
   public audit = new MemoryAuditRepository();
 }

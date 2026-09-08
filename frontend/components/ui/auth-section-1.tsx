@@ -134,21 +134,16 @@ export default function AuthSectionOne({ mode = "signup" }: AuthSectionOneProps)
               </h1>
               <p className="mt-1.5 text-sm text-muted-foreground">
                 {isSignup
-                  ? "Brainstorm in chat, build in cowork"
+                  ? "Create your control plane account to supervise agents from anywhere"
                   : "Control your remote agents anywhere"}
               </p>
             </div>
 
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <div className="mt-6 grid gap-3">
               <SocialButton
                 icon={<GoogleIcon />}
                 label={isSignup ? "Sign up with Google" : "Sign in with Google"}
                 onClick={handleGoogleAuth}
-                disabled={submitting}
-              />
-              <SocialButton
-                icon={<AppleIcon />}
-                label={isSignup ? "Sign up with Apple" : "Sign in with Apple"}
                 disabled={submitting}
               />
             </div>
@@ -275,9 +270,9 @@ export default function AuthSectionOne({ mode = "signup" }: AuthSectionOneProps)
                 Vendor-Neutral AFK Control Plane
               </span>
               <h2 className="mt-6 max-w-[500px] text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-[-0.04em] text-white leading-[1.05]">
-                Think fast,
+                Go AFK.
                 <br />
-                Build faster
+                Your agents keep building
               </h2>
               <p className="mt-4 max-w-[420px] text-sm sm:text-base text-white/70 leading-relaxed">
                 Supervise, review, and steer your autonomous AI coding agents across all your machines from anywhere.
@@ -400,16 +395,4 @@ function GoogleIcon() {
   );
 }
 
-function AppleIcon() {
-  return (
-    <svg
-      width="15"
-      height="15"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <path d="M17.05 12.54c-.03-3.02 2.47-4.47 2.58-4.54-1.41-2.06-3.6-2.34-4.38-2.37-1.86-.19-3.64 1.1-4.58 1.1-.95 0-2.42-1.07-3.98-1.04-2.05.03-3.94 1.19-4.99 3.02-2.13 3.69-.54 9.16 1.53 12.15 1.01 1.46 2.22 3.1 3.81 3.04 1.53-.06 2.11-.99 3.96-.99s2.37.99 3.99.96c1.65-.03 2.69-1.49 3.69-2.96 1.16-1.69 1.64-3.33 1.66-3.41-.04-.02-3.2-1.23-3.24-4.87ZM14.03 3.66c.84-1.02 1.41-2.43 1.25-3.84-1.21.05-2.68.81-3.55 1.83-.78.9-1.46 2.34-1.28 3.72 1.35.1 2.73-.69 3.58-1.71Z" />
-    </svg>
-  );
-}
+

@@ -13,6 +13,8 @@ import { PolicyEngineService, ApprovalWorkflow, AuditLog } from './policy/index'
 
 import { FirestoreDatabase } from './db/firestore-store';
 import { getFirebaseFirestore, isFirebaseAdminConfigured } from './auth/firebase-admin';
+import { AfkOrchestrator } from './afk/afk-orchestrator';
+import { PushSender } from './afk/push-sender';
 
 export class ControlPlane {
   public db: IDatabase;
@@ -24,6 +26,8 @@ export class ControlPlane {
   public policyService: PolicyEngineService;
   public approvalWorkflow: ApprovalWorkflow;
   public auditLog: AuditLog;
+  public pushSender: PushSender;
+  public afkOrchestrator: AfkOrchestrator;
   private server?: http.Server | undefined;
   private actualPort = 0;
 
@@ -55,28 +59,35 @@ export class ControlPlane {
 
     this.clientServer = new ClientServer(this.registry, this.config.jwtSecret, this.db);
 
+    this.pushSender = new PushSender(this.db);
+    this.afkOrchestrator = new AfkOrchestrator(this.db, this.registry, this.pushSender);
+
     // Wire real-time event forwarding from Gateway tunnel to Web Client subscribers
     this.tunnelServer.setOnEventBroadcast((storedEvent) => {
       this.clientServer.broadcastEvent(storedEvent);
+      void this.afkOrchestrator.handleEvent(storedEvent).catch((error: unknown) => {
+        // Delivery failures are isolated from event persistence and WebSocket fan-out.
+        // eslint-disable-next-line no-console
+        console.warn('[Freebuff Control Plane] AFK notification pipeline failed:', error);
+      });
     });
 
     // Policy Engine (Phase 5)
     this.auditLog = new AuditLog(this.db);
     this.policyService = new PolicyEngineService(this.db, this.config, this.auditLog);
-    this.approvalWorkflow = new ApprovalWorkflow(this.db);
+    this.approvalWorkflow = new ApprovalWorkflow(this.db, this.tunnelServer);  // §7.4 — TunnelServer injected for feedback dispatch
 
     // Wire policy evaluator into tunnel server (§7.2)
     this.tunnelServer.setPolicyEvaluator(
       (capability, riskClass, context, _policyVersion) => {
-        return this.policyService.evaluateWithVersion(
+        return this.policyService.evaluate(
           capability,
           riskClass,
-          null, // Use current policy version from service
           {
-            resource: context.resource,
-            projectId: context.projectId,
-            trustProfile: context.trustProfile ?? 'default',
-            deviceStatus: 'trusted', // Tunnel server already authenticated the device
+            ...(context.resource ? { resource: context.resource } : {}),
+            ...(context.projectId ? { projectId: context.projectId } : {}),
+            deviceId: context.deviceId,
+            ...(context.sessionId ? { sessionId: context.sessionId } : {}),
             userId: context.userId,
           },
         );

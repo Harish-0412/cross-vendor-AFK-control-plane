@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ApprovalRecord } from '../types';
 import type { IDatabase } from '../db/types';
+import type { TunnelServer } from '../tunnel/tunnel-server';
 
 /**
  * §7.3 — Approval workflow state machine.
@@ -12,10 +13,14 @@ import type { IDatabase } from '../db/types';
  * - First valid decision wins (CAS — compare-and-swap on status = 'pending')
  * - Expired approvals transition to 'timeout'
  * - Revoked device approvals transition to 'superseded'
+ * - Denial with feedback dispatches feedback as session.message (§7.3, §7.4)
  */
 
 export class ApprovalWorkflow {
-  constructor(private db: IDatabase) {}
+  constructor(
+    private db: IDatabase,
+    private tunnelServer: TunnelServer,  // §7.4 — required for feedback dispatch
+  ) {}
 
   /**
    * Submit a decision on a pending approval.
@@ -23,12 +28,18 @@ export class ApprovalWorkflow {
    * Uses CAS (compare-and-swap): only succeeds if the approval is still
    * in 'pending' status. Returns the updated record, or null if the
    * approval was already decided (first valid decision wins).
+   *
+   * @param feedback - Optional corrective instruction when denying.
+   *                   When present and approved === false, the feedback text
+   *                   is dispatched to the session as a session.message command
+   *                   via the TunnelServer (§7.3, §7.4).
    */
   async submitDecision(
     approvalId: string,
     decidedBy: string,
     approved: boolean,
     reason?: string,
+    feedback?: string,  // §7.3 — new optional field for voice feedback (Hackathon Feature B)
   ): Promise<{ success: boolean; record: ApprovalRecord | null; conflict?: boolean }> {
     // Fetch the current record
     const record = await this.db.approvals.findById(approvalId);
@@ -71,6 +82,27 @@ export class ApprovalWorkflow {
     if (!updated) {
       // Concurrent modification — someone else decided first
       return { success: false, record: await this.db.approvals.findById(approvalId), conflict: true };
+    }
+
+    // §7.3 — Denial with feedback: dispatch feedback as session.message
+    // This is NOT a new decision status — it is 'denied' with a side effect.
+    // The feedback is sent via the same path POST /sessions/:id/prompt uses.
+    if (!approved && feedback && feedback.trim().length > 0) {
+      try {
+        await this.tunnelServer.sendCommandToDevice(
+          record.deviceId,
+          'session.message',
+          {
+            sessionId: record.sessionId,
+            message: feedback,
+          },
+          10_000,
+          false,  // fire-and-forget — don't block the decision response
+        );
+      } catch (err) {
+        // Log but don't fail the decision — the denial is already recorded
+        console.error('[approval-workflow] Failed to dispatch feedback as session.message:', err);
+      }
     }
 
     return { success: true, record: updated };

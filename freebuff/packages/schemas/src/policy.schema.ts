@@ -33,7 +33,7 @@ export const PolicyRuleSchema = z.object({
     resourcePattern: z.string().optional(),
     projectId: z.string().optional(),
     trustProfile: z
-      .enum(['supervised', 'trusted-afk', 'read-only', 'default'])
+      .enum(['supervised', 'trusted-afk', 'read-only', 'locked', 'default'])
       .optional(),
   }),
   effect: z.enum(['allow', 'deny', 'require_approval']),
@@ -94,7 +94,7 @@ export const PolicyEvaluateRequestSchema = z.object({
   resource: z.string().optional(),
   projectId: z.string().optional(),
   trustProfile: z
-    .enum(['supervised', 'trusted-afk', 'read-only', 'default'])
+    .enum(['supervised', 'trusted-afk', 'read-only', 'locked', 'default'])
     .optional()
     .default('default'),
   deviceId: z.string().min(1),

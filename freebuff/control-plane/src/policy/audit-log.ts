@@ -1,4 +1,3 @@
-import crypto from 'node:crypto';
 import type { AuditEvent } from '../types';
 import type { IDatabase } from '../db/types';
 
@@ -30,15 +29,15 @@ export class AuditLog {
     matchedRules?: string[];
   }): Promise<AuditEvent> {
     // Delegate to the repository — it handles hash computation and chain integrity
-    const eventData: Omit<AuditEvent, 'id' | 'sequence' | 'hash'> = {
+    const eventData: Omit<AuditEvent, 'id' | 'sequence' | 'hash' | 'previousHash'> = {
       timestamp: new Date(),
       actor: entry.actor,
-      sessionId: entry.sessionId,
-      deviceId: entry.deviceId,
+      ...(entry.sessionId ? { sessionId: entry.sessionId } : {}),
+      ...(entry.deviceId ? { deviceId: entry.deviceId } : {}),
       action: entry.action,
       decision: entry.decision,
-      policyVersion: entry.policyVersion,
-      matchedRules: entry.matchedRules,
+      ...(entry.policyVersion ? { policyVersion: entry.policyVersion } : {}),
+      ...(entry.matchedRules ? { matchedRules: entry.matchedRules } : {}),
     };
 
     // Store in the audit repository (hash computed by repository)
@@ -58,15 +57,7 @@ export class AuditLog {
     fromSequence?: number;
     limit?: number;
   }): Promise<AuditEvent[]> {
-    return this.db.audit.list({
-      sessionId: options?.sessionId,
-      deviceId: options?.deviceId,
-      actorType: options?.actorType,
-      actorId: options?.actorId,
-      decision: options?.decision,
-      fromSequence: options?.fromSequence,
-      limit: options?.limit,
-    });
+    return this.db.audit.list(options);
   }
 
   /**

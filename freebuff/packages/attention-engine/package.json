@@ -1,0 +1,30 @@
+{
+  "name": "@freebuff/attention-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pure notification attention classification for Freebuff events",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --build --dry",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@freebuff/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^1.5.0"
+  }
+}

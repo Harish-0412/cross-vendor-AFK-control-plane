@@ -2,14 +2,13 @@ import { randomUUID } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 
-import type { EventEnvelope, SessionState, Capability } from '@freebuff/protocol';
+import type { Decision, EventEnvelope, SessionState, Capability } from '@freebuff/protocol';
 import { WebSocketServer, type WebSocket } from 'ws';
 
 import type { IDatabase } from '../db/types';
 import type { StoredEvent } from '../types';
 
 import type { ConnectionRegistry } from './connection-registry';
-import { evaluate } from '@freebuff/policy-engine';
 import type { PolicyVersion } from '@freebuff/protocol';
 
 export interface TunnelServerOptions {
@@ -38,26 +37,18 @@ export class TunnelServer {
     }
   >();
   private onEventBroadcast?: (event: StoredEvent) => void;
-  private policyEvaluator?: (
+  private policyEvaluator: ((
     capability: Capability,
     riskClass: 'low' | 'medium' | 'high' | 'critical',
     context: {
       resource?: string;
       projectId?: string;
-      trustProfile?: string;
       deviceId: string;
       sessionId?: string;
       userId: string;
     },
     policyVersion: PolicyVersion | null,
-  ) => {
-    decision: 'allow' | 'deny' | 'require_approval';
-    policyVersion: string;
-    reason?: string;
-    requiredRole?: 'owner' | 'admin';
-    expiresAt?: Date;
-    matchedRules?: string[];
-  };
+  ) => Promise<Decision>) | undefined;
 
   constructor(db: IDatabase, registry: ConnectionRegistry, options: TunnelServerOptions = {}) {
     this.db = db;
@@ -333,13 +324,11 @@ export class TunnelServer {
             if (this.policyEvaluator && session && device) {
               const capability = (p.capability || p.action?.type || 'process.exec') as Capability;
               const riskClass = (p.riskClass || p.action?.riskLevel || 'medium') as 'low' | 'medium' | 'high' | 'critical';
-              const result = this.policyEvaluator(
+              const result = await this.policyEvaluator(
                 capability,
                 riskClass,
                 {
-                  resource: p.resource,
-                  projectId: session?.config?.projectRoot ? undefined : undefined,
-                  trustProfile: 'default',
+                  ...(p.resource ? { resource: p.resource } : {}),
                   deviceId: authedId,
                   sessionId: envelope.sessionId,
                   userId: session.userId,

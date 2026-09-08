@@ -8,10 +8,9 @@ const _geist = Geist({ subsets: ["latin"] })
 const _geistMono = Geist_Mono({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "SmartConnect — Go AFK. Your AI Agent Keeps Working.",
+  title: "FreeBuff AFK — Go AFK. Your AI Agent Keeps Working.",
   description:
-    "SmartConnect is the vendor-neutral AFK control plane for AI coding agents. Supervise, approve, and control your agents from anywhere — your phone, tablet, or any browser.",
-  generator: "v0.app",
+    "FreeBuff AFK is the vendor-neutral control plane for AI coding agents. Supervise, approve, and control your agents from anywhere — your phone, tablet, or any browser.",
 }
 
 export const viewport = {

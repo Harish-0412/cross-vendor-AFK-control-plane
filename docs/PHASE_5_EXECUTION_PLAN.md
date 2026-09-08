@@ -62,7 +62,7 @@ secret.read
 A capability's *default* severity — LOW / MEDIUM / HIGH / CRITICAL, exactly as scoped in the roadmap and already present as `ApprovalAction.riskLevel`. Risk class is **policy-configurable per rule** (a rule can escalate `git.push` from HIGH to CRITICAL for a specific project), but every capability has a **built-in default** so a project with zero custom policy is still safe by default — this is what makes the deny-floor meaningful even before a user ever writes a rule.
 
 ### 3.3 Trust Profile
-A named bundle of default behavior a user assigns to a device or session — e.g. `supervised` (everything MEDIUM+ requires approval), `trusted-afk` (only HIGH+ requires approval, for AFK Mode per Phase 7), `read-only` (any WRITE-class capability is denied outright, no approval possible). Trust profiles are **not** an escape hatch from the deny floor (§3.5) — they tune everything *below* it.
+A named bundle of default behavior a user assigns to a device or session — e.g. `supervised` (everything MEDIUM+ requires approval), `trusted-afk` (only HIGH+ requires approval, for AFK Mode per Phase 7), `read-only` (any WRITE-class capability is denied outright, no approval possible), and `locked` (observation only: every capability, including LOW-risk reads, is denied). Trust profiles are **not** an escape hatch from the deny floor (§3.5) — they tune everything *below* it.
 
 ### 3.4 Policy Rule
 The atomic, declarative unit of policy:
@@ -147,6 +147,7 @@ This is the core algorithm. It runs **once per proposed action**, server-side, a
      No matching rule? ──▶ fall through to step 4
      ▼
 4. RISK-CLASS DEFAULT (no explicit rule matched)
+     locked profile ──▶ DENY (terminal for every risk class; observation only)
      LOW      ──▶ ALLOW
      MEDIUM   ──▶ ALLOW   (configurable per trust profile — a 'supervised'
                             profile promotes MEDIUM to require_approval)
@@ -285,6 +286,33 @@ freebuff/control-plane/src/policy/
 
 Approval endpoints (`GET/POST .../approvals/...`) already exist from Phase 3 and are **extended, not replaced** — the decision endpoint now runs through `approval-workflow.ts` (§7.3) instead of directly mutating the record.
 
+**Approval decision endpoint extension — voice feedback field:**
+
+The existing `POST /api/v1/approvals/:id/decision` endpoint is extended with an optional `feedback` field:
+
+```typescript
+// Existing body (unchanged)
+interface ApprovalDecisionRequest {
+  approved: boolean;
+  reason?: string;
+}
+
+// Extended body (new optional field)
+interface ApprovalDecisionRequest {
+  approved: boolean;
+  reason?: string;
+  feedback?: string;  // NEW — corrective instruction when denying, sent as session.message
+}
+```
+
+**Behavior when `feedback` is present and `approved === false`:**
+1. The existing CAS-and-record-the-denial logic runs first (unchanged)
+2. After the denial is persisted, the `feedback` text is dispatched to the session as a `session.message` command via the same path `POST /sessions/:id/prompt` uses
+3. This is NOT a new decision status — it is `denied` with a side effect
+4. The `feedback` field is ignored when `approved === true` (no voice feedback on approval)
+
+**Why this belongs in the approval workflow, not as a separate endpoint:** the corrective instruction is causally tied to the denial — it only makes sense *because* the action was rejected. Routing it through the same decision call keeps the operation atomic and the audit trail coherent (one audit event for the denial, with the feedback captured in the event's metadata).
+
 ### 7.2 Where the evaluation actually gets invoked
 
 Two call sites, both new:
@@ -314,6 +342,46 @@ Required invariants, each directly answering a §9 test case:
 - **Expired approval**: a background sweep (or lazy check-on-read — lazy is simpler and sufficient at this scale, matching the project's $0-infra bias) transitions `pending → timeout` once `expiresAt` passes; a decision attempt against an already-timed-out approval is rejected.
 - **Revoked device approval**: `RevocationChecker` (Phase 2, already built and already exposes `onRevocation`) gets a **new listener registered in this phase**: on revocation, immediately transition every `pending` approval for that device to `superseded` and deny the underlying action. This is a direct, small integration into existing Phase 2 code (`gateway/certificate/src/revocation.ts`'s `RevocationStore.onRevocation`), not new infrastructure.
 - **Policy change after request** (§9): the decision handler re-evaluates the action against the **current** policy version at decision time, not just at request time. If the current version would now `deny` where the requested version said `require_approval`, the approval is auto-denied with reason `policy_superseded` rather than left pending for a human to grant something policy no longer permits. If the current version now says `allow`, the pending approval is **left as-is** (a human already has it queued; approving it is harmless, and auto-resolving it out from under a reviewer who has it open is worse UX than a redundant tap).
+- **Denial with feedback dispatches as session.message** (new — Hackathon Feature B dependency): a denial carrying non-empty `feedback` additionally dispatches that text to the session as a `session.message` command via the same path `POST /sessions/:id/prompt` uses. This is NOT a new decision status — it is `denied` with a side effect. The state machine's existing five terminal states (`pending/granted/denied/timeout/superseded`) remain unchanged — no sixth "redirected" status is needed, which keeps §9's existing test matrix valid without additions. **Cross-reference:** this invariant has a hard dependency on `ApprovalWorkflow` holding a reference to `TunnelServer` (see §7.4 below for the constructor injection requirement).
+
+---
+
+### 7.4 ApprovalWorkflow constructor — TunnelServer injection (critical, non-obvious change)
+
+**⚠️ This is NOT just adding a field — it changes the constructor signature that every existing test already calls.**
+
+The current `ApprovalWorkflow` is constructed with only `db` (the database repository). To support the denial-with-feedback invariant (§7.3), it needs a reference to `TunnelServer` to dispatch the `session.message` command.
+
+**Current constructor:**
+```typescript
+constructor(db: IDatabase) { ... }
+```
+
+**New constructor:**
+```typescript
+constructor(db: IDatabase, tunnelServer: TunnelServer) { ... }
+```
+
+**Impact on existing tests:**
+- Every test that constructs `ApprovalWorkflow` must be updated to pass a `TunnelServer` instance (or a mock)
+- This is a **breaking change to the test harness**, not just a feature addition
+- The `TunnelServer` dependency should be injected via the constructor (not imported directly) to maintain testability
+- A `MockTunnelServer` or `TunnelServerStub` should be added to the test utilities, implementing only the `sendCommandToDevice` method needed by the feedback dispatch
+
+**Why constructor injection, not a setter or a direct import:**
+- Constructor injection makes the dependency explicit and compile-time-enforced
+- A setter would allow construction without the dependency, deferring the error to runtime
+- A direct import would couple `ApprovalWorkflow` to the concrete `TunnelServer` class, making testing impossible without the full tunnel stack
+- This matches the pattern `HttpRouter` already uses for its own `TunnelServer` dependency (constructor injection)
+
+**Module layout table update:**
+
+| Module | Dependencies |
+|---|---|
+| `policy-store.ts` | `IDatabase` |
+| `policy-engine-service.ts` | `IDatabase`, `PolicyStore`, `packages/policy-engine` |
+| `approval-workflow.ts` | `IDatabase`, `TunnelServer` (NEW — for feedback dispatch) |
+| `audit-log.ts` | `IDatabase` |
 
 ---
 
@@ -378,6 +446,7 @@ The roadmap lists nine required scenarios. Each is given here as a specific, aut
 | 7 | Revoked device approval | Pending approval exists; device gets revoked via the existing `RevocationChecker` → approval transitions to `superseded`, the underlying action is denied, verified end-to-end through the Phase 2 revocation listener integration (§7.3) |
 | 8 | Policy change after request | Approval requested under version A (`require_approval`); before decision, version B activates and would `deny` the same action → approval auto-resolves to `denied`, reason `policy_superseded` |
 | 9 | Deny-override action | Any `PolicyRule` authored with `effect: 'allow'` targeting something on the deny floor → floor still wins (this is really the same guarantee as #2, tested again from the *rule-authoring* side: prove that no combination of authored rules, however permissive, can produce a different outcome for a floor-covered action) |
+| 10 | Denial with feedback delivers session.message | Deny an approval with `feedback: 'Use a different approach'` → verify the mock adapter's `sendMessage` is called with the feedback text as the message, end-to-end through the TunnelServer dispatch path (§7.3, §7.4) |
 
 Additional, non-roadmap-listed but implied by §5's two-tier model:
 

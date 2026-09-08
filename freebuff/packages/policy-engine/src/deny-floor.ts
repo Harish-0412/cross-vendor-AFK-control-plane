@@ -1,5 +1,4 @@
 import type { Capability } from '@freebuff/protocol';
-import type { PolicyRule } from '@freebuff/protocol';
 
 /**
  * §3.5 — Hardcoded, versioned-in-source deny-override floor.

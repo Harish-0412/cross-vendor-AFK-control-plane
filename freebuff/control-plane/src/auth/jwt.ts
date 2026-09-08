@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 export interface JwtPayload {
   sub: string; // userId or deviceId
   email?: string;
-  role?: 'user' | 'admin' | 'device';
+  role?: 'user' | 'admin' | 'owner' | 'device';
   type?: 'access' | 'refresh' | 'device';
   iat?: number;
   exp?: number;

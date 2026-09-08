@@ -5,10 +5,12 @@ import * as fs from 'node:fs';
 import { initializeApp, cert, getApps, getApp, type App } from 'firebase-admin/app';
 import { getAuth, type Auth, type DecodedIdToken } from 'firebase-admin/auth';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
+import { getMessaging, type Messaging } from 'firebase-admin/messaging';
 
 let adminApp: App | null = null;
 let adminAuth: Auth | null = null;
 let adminDb: Firestore | null = null;
+let adminMessaging: Messaging | null = null;
 
 export function isFirebaseAdminConfigured(): boolean {
   if (process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
@@ -27,6 +29,7 @@ export function initFirebaseAdmin(): App | null {
     adminApp = getApp();
     adminAuth = getAuth(adminApp);
     adminDb = getFirestore(adminApp);
+    adminMessaging = getMessaging(adminApp);
     return adminApp;
   }
 
@@ -60,6 +63,7 @@ export function initFirebaseAdmin(): App | null {
     if (adminApp) {
       adminAuth = getAuth(adminApp);
       adminDb = getFirestore(adminApp);
+      adminMessaging = getMessaging(adminApp);
       // eslint-disable-next-line no-console
       console.info('[Firebase Admin] Successfully initialized for project:', adminApp.options.projectId);
     }
@@ -83,6 +87,13 @@ export function getFirebaseFirestore(): Firestore | null {
     initFirebaseAdmin();
   }
   return adminDb;
+}
+
+export function getFirebaseMessaging(): Messaging | null {
+  if (!adminMessaging) {
+    initFirebaseAdmin();
+  }
+  return adminMessaging;
 }
 
 /**

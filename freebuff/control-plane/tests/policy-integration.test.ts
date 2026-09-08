@@ -169,28 +169,43 @@ describe('Policy Integration — Core Policy & Approval Logic', () => {
   });
 
   it('read-only trust profile denies write actions', async () => {
+    await cp.db.sessions.create({
+      id: 'sess_test', userId: 'usr_test', deviceId: 'dev_test', gatewayId: 'gw_test',
+      agentId: 'mock', projectRoot: '/tmp', state: 'running', trustProfile: 'read-only',
+      config: { adapter: 'mock', projectRoot: '/tmp' }, startedAt: new Date(),
+    });
     const result = await cp.policyService.evaluate(
       'filesystem.write',
       'medium',
-      { deviceId: 'dev_test', sessionId: 'sess_test', userId: 'usr_test', trustProfile: 'read-only' },
+      { deviceId: 'dev_test', sessionId: 'sess_test', userId: 'usr_test' },
     );
     expect(result.decision).toBe('deny');
   });
 
   it('supervised profile requires approval for medium-risk actions', async () => {
+    await cp.db.sessions.create({
+      id: 'sess_test', userId: 'usr_test', deviceId: 'dev_test', gatewayId: 'gw_test',
+      agentId: 'mock', projectRoot: '/tmp', state: 'running', trustProfile: 'supervised',
+      config: { adapter: 'mock', projectRoot: '/tmp' }, startedAt: new Date(),
+    });
     const result = await cp.policyService.evaluate(
       'network.access',
       'medium',
-      { deviceId: 'dev_test', sessionId: 'sess_test', userId: 'usr_test', trustProfile: 'supervised' },
+      { deviceId: 'dev_test', sessionId: 'sess_test', userId: 'usr_test' },
     );
     expect(result.decision).toBe('require_approval');
   });
 
   it('trusted-afk profile allows medium-risk without approval', async () => {
+    await cp.db.sessions.create({
+      id: 'sess_test', userId: 'usr_test', deviceId: 'dev_test', gatewayId: 'gw_test',
+      agentId: 'mock', projectRoot: '/tmp', state: 'running', trustProfile: 'trusted-afk',
+      config: { adapter: 'mock', projectRoot: '/tmp' }, startedAt: new Date(),
+    });
     const result = await cp.policyService.evaluate(
       'network.access',
       'medium',
-      { deviceId: 'dev_test', sessionId: 'sess_test', userId: 'usr_test', trustProfile: 'trusted-afk' },
+      { deviceId: 'dev_test', sessionId: 'sess_test', userId: 'usr_test' },
     );
     expect(result.decision).toBe('allow');
   });

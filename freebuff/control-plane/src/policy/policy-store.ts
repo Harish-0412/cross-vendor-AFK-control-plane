@@ -94,6 +94,7 @@ export class PolicyStore {
    * Activate a policy version (atomic swap — only one active at a time).
    */
   async activateVersion(versionId: string, activatedBy: string): Promise<PolicyVersion | null> {
+    void activatedBy;
     const versions = await this.listVersions();
     const target = versions.find((v) => v.id === versionId);
     if (!target) return null;

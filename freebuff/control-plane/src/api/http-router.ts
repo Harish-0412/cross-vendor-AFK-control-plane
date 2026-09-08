@@ -10,6 +10,18 @@ import type { IDatabase } from '../db/types';
 import type { ConnectionRegistry } from '../tunnel/connection-registry';
 import type { TunnelServer } from '../tunnel/tunnel-server';
 import type { ControlPlaneConfig, DeviceRecord } from '../types';
+
+const TRUST_PROFILES: readonly TrustProfile[] = [
+  'default',
+  'supervised',
+  'trusted-afk',
+  'read-only',
+  'locked',
+];
+
+function isTrustProfile(value: unknown): value is TrustProfile {
+  return typeof value === 'string' && TRUST_PROFILES.includes(value as TrustProfile);
+}
 import { PolicyEngineService, ApprovalWorkflow, AuditLog } from '../policy/index';
 
 export class HttpRouter {
@@ -58,7 +70,7 @@ export class HttpRouter {
 
     // 2. Read Request Body
     let body: Record<string, unknown> = {};
-    if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
+    if (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE') {
       try {
         body = await this.readJsonBody(req);
       } catch {
@@ -444,6 +456,7 @@ export class HttpRouter {
               lastSeenAt: d.lastSeenAt?.toISOString() ?? null,
               activeSessionCount,
               resourceUsage: d.resourceUsage ?? null,
+              defaultTrustProfile: d.defaultTrustProfile,
               createdAt: d.createdAt.toISOString(),
             };
           }),
@@ -494,6 +507,7 @@ export class HttpRouter {
             systemInfo: device.systemInfo ?? null,
             resourceUsage: device.resourceUsage ?? null,
             fingerprintHex: device.fingerprintHex,
+            defaultTrustProfile: device.defaultTrustProfile,
             activeSessions,
             recentSessions,
             totalSessionCount: sessions.length,
@@ -542,7 +556,7 @@ export class HttpRouter {
         // PATCH: Gateway reports platform, systemInfo, or friendlyName
         if (method === 'PATCH') {
           const device = await this.db.devices.findById(deviceId);
-          if (!device) {
+          if (!device || device.userId !== authUser.id) {
             return this.sendJson(res, 404, { error: 'Device not found' });
           }
 
@@ -568,6 +582,14 @@ export class HttpRouter {
           if (Array.isArray(body['fingerprintWords'])) {
             updates.fingerprintWords = body['fingerprintWords'] as string[];
           }
+          if (body['defaultTrustProfile'] !== undefined) {
+            if (!isTrustProfile(body['defaultTrustProfile'])) {
+              return this.sendJson(res, 400, {
+                error: `defaultTrustProfile must be one of: ${TRUST_PROFILES.join(', ')}`,
+              });
+            }
+            updates.defaultTrustProfile = body['defaultTrustProfile'];
+          }
 
           const updated = await this.db.devices.update(deviceId, updates);
 
@@ -576,8 +598,58 @@ export class HttpRouter {
             platform: updated?.platform ?? device.platform,
             friendlyName: updated?.friendlyName ?? device.friendlyName,
             systemInfo: updated?.systemInfo ?? device.systemInfo,
+            defaultTrustProfile: updated?.defaultTrustProfile ?? device.defaultTrustProfile,
           });
         }
+      }
+
+      // Phase 4 subscription plumbing, consumed by the Phase 7 push sender.
+      if (path === '/api/v1/push/subscribe' && method === 'POST') {
+        if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+        const subscription = body['subscription'];
+        const fcmToken = typeof body['fcmToken'] === 'string' ? body['fcmToken'] : undefined;
+
+        if (typeof subscription === 'object' && subscription !== null) {
+          const web = subscription as Record<string, unknown>;
+          const keys = web['keys'] as Record<string, unknown> | undefined;
+          if (
+            typeof web['endpoint'] !== 'string' ||
+            typeof keys?.['p256dh'] !== 'string' ||
+            typeof keys?.['auth'] !== 'string'
+          ) {
+            return this.sendJson(res, 400, { error: 'Invalid Web Push subscription' });
+          }
+          const record = await this.db.pushSubscriptions.upsert({
+            userId: authUser.id,
+            channel: 'web-push',
+            endpoint: web['endpoint'],
+            keys: { p256dh: keys['p256dh'], auth: keys['auth'] },
+          });
+          return this.sendJson(res, 201, { id: record.id, channel: record.channel });
+        }
+
+        if (fcmToken) {
+          const record = await this.db.pushSubscriptions.upsert({
+            userId: authUser.id,
+            channel: 'fcm',
+            fcmToken,
+          });
+          return this.sendJson(res, 201, { id: record.id, channel: record.channel });
+        }
+
+        return this.sendJson(res, 400, { error: 'subscription or fcmToken is required' });
+      }
+
+      if (path === '/api/v1/push/subscribe' && method === 'DELETE') {
+        if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+        const target = typeof body['endpoint'] === 'string'
+          ? body['endpoint']
+          : typeof body['fcmToken'] === 'string'
+            ? body['fcmToken']
+            : undefined;
+        if (!target) return this.sendJson(res, 400, { error: 'endpoint or fcmToken is required' });
+        const deleted = await this.db.pushSubscriptions.delete(authUser.id, target);
+        return this.sendJson(res, deleted ? 200 : 404, { success: deleted });
       }
 
       // --- SESSION MANAGEMENT ---
@@ -633,6 +705,7 @@ export class HttpRouter {
           agentId,
           projectRoot,
           state: 'initializing',
+          trustProfile: device.defaultTrustProfile,
           config: sessionConfig,
           startedAt: new Date(),
         });
@@ -686,6 +759,27 @@ export class HttpRouter {
 
         if (segments.length === 4 && method === 'GET') {
           return this.sendJson(res, 200, session);
+        }
+
+        if (segments.length === 5 && segments[4] === 'trust-profile' && method === 'PATCH') {
+          if (!isTrustProfile(body['trustProfile'])) {
+            return this.sendJson(res, 400, {
+              error: `trustProfile must be one of: ${TRUST_PROFILES.join(', ')}`,
+            });
+          }
+          const terminalStates = new Set(['completed', 'failed', 'cancelled', 'crashed']);
+          if (terminalStates.has(session.state)) {
+            return this.sendJson(res, 409, {
+              error: `Cannot change trust profile for ${session.state} session`,
+            });
+          }
+          const updated = await this.db.sessions.update(sessionId, {
+            trustProfile: body['trustProfile'],
+          });
+          return this.sendJson(res, 200, {
+            id: sessionId,
+            trustProfile: updated?.trustProfile ?? body['trustProfile'],
+          });
         }
 
         if (segments.length === 5 && segments[4] === 'prompt' && method === 'POST') {
@@ -796,13 +890,14 @@ export class HttpRouter {
           if (!approvalId) return this.sendJson(res, 400, { error: 'Approval ID is required' });
           const approved = typeof body['approved'] === 'boolean' ? body['approved'] : undefined;
           const reason = typeof body['reason'] === 'string' ? body['reason'] : undefined;
+          const feedback = typeof body['feedback'] === 'string' ? body['feedback'] : undefined;  // §7.3 — new optional field for voice feedback
 
           if (approved === undefined) {
             return this.sendJson(res, 400, { error: '"approved" boolean is required' });
           }
 
           // Use the approval workflow state machine (CAS — first valid decision wins)
-          const result = await this.approvalWorkflow.submitDecision(approvalId, authUser.id, approved, reason);
+          const result = await this.approvalWorkflow.submitDecision(approvalId, authUser.id, approved, reason, feedback);
 
           if (result.conflict) {
             return this.sendJson(res, 409, {
@@ -865,7 +960,7 @@ export class HttpRouter {
             deviceId: session.deviceId,
             action: 'approval.decision',
             decision,
-            policyVersion: result.record?.policyVersion,
+            ...(result.record?.policyVersion ? { policyVersion: result.record.policyVersion } : {}),
           });
 
           return this.sendJson(res, 200, {
@@ -909,6 +1004,31 @@ export class HttpRouter {
               : 'Diff collection was forwarded to the gateway. The result will also arrive as a session.workspace_diff event, or the gateway may return the diff inline via the command ack payload.',
           });
         }
+      }
+
+      // --- APPROVALS (cross-session listing for the web dashboard) ---
+      if (path === '/api/v1/approvals' && method === 'GET') {
+        if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+        const qStatus = url.searchParams.get('status');
+        const approvals = await this.db.approvals.listByUser(authUser.id, qStatus || undefined);
+        const mapped = approvals
+          .sort((a, b) => b.requestedAt.getTime() - a.requestedAt.getTime())
+          .map((a) => ({
+            id: a.id,
+            sessionId: a.sessionId,
+            deviceId: a.deviceId,
+            actionType: a.actionType,
+            description: a.description,
+            details: a.details ?? null,
+            status: a.status,
+            requestedAt: a.requestedAt.toISOString(),
+            decidedAt: a.decidedAt?.toISOString() ?? null,
+            decidedBy: a.decidedBy ?? null,
+            reason: a.reason ?? null,
+            policyVersion: a.policyVersion ?? null,
+            matchedRules: a.matchedRules ?? [],
+          }));
+        return this.sendJson(res, 200, mapped);
       }
 
       // --- POLICY ROUTES (Phase 5) ---
@@ -968,7 +1088,6 @@ export class HttpRouter {
         const riskClass = typeof body['riskClass'] === 'string' ? body['riskClass'] : 'low';
         const resource = typeof body['resource'] === 'string' ? body['resource'] : undefined;
         const projectId = typeof body['projectId'] === 'string' ? body['projectId'] : undefined;
-        const trustProfile = (typeof body['trustProfile'] === 'string' ? body['trustProfile'] : 'default') as 'low' | 'medium' | 'high' | 'critical';
         const deviceId = typeof body['deviceId'] === 'string' ? body['deviceId'] : undefined;
         const sessionId = typeof body['sessionId'] === 'string' ? body['sessionId'] : undefined;
         const userId = typeof body['userId'] === 'string' ? body['userId'] : undefined;
@@ -980,7 +1099,13 @@ export class HttpRouter {
         const decision = await this.policyService.evaluate(
           capability as 'filesystem.read' | 'filesystem.write' | 'filesystem.delete' | 'process.exec' | 'network.access' | 'package.install' | 'git.commit' | 'git.push' | 'deployment.execute' | 'secret.read',
           riskClass as 'low' | 'medium' | 'high' | 'critical',
-          { resource, projectId, trustProfile: trustProfile as TrustProfile, deviceId, sessionId, userId },
+          {
+            ...(resource ? { resource } : {}),
+            ...(projectId ? { projectId } : {}),
+            deviceId,
+            ...(sessionId ? { sessionId } : {}),
+            userId,
+          },
         );
 
         return this.sendJson(res, 200, decision);
@@ -1010,7 +1135,7 @@ export class HttpRouter {
 
         const events = await this.auditLog.list({
           ...filter,
-          fromSequence,
+          ...(fromSequence !== undefined ? { fromSequence } : {}),
           limit: limit ?? 100,
         });
         return this.sendJson(res, 200, events);
@@ -1026,80 +1151,6 @@ export class HttpRouter {
           valid: result.valid,
           firstBrokenIndex: result.firstBrokenIndex,
           timestamp: new Date().toISOString(),
-        });
-      }
-
-      // --- APPROVAL WORKFLOW (Phase 5 enhancement) ---
-      if (
-        segments.length === 7 &&
-        segments[4] === 'approvals' &&
-        segments[6] === 'decision' &&
-        method === 'POST'
-      ) {
-        const approvalId = segments[5];
-        if (!approvalId) return this.sendJson(res, 400, { error: 'Approval ID is required' });
-        const approved = typeof body['approved'] === 'boolean' ? body['approved'] : undefined;
-        const reason = typeof body['reason'] === 'string' ? body['reason'] : undefined;
-
-        if (approved === undefined) {
-          return this.sendJson(res, 400, { error: '"approved" boolean is required' });
-        }
-
-        // Use the approval workflow state machine instead of direct DB update
-        const result = await this.approvalWorkflow.submitDecision(approvalId, authUser.id, approved, reason);
-
-        if (result.conflict) {
-          return this.sendJson(res, 409, {
-            error: 'Approval already decided by another user',
-            currentStatus: result.record?.status,
-          });
-        }
-
-        if (!result.success) {
-          if (result.record?.status === 'timeout') {
-            return this.sendJson(res, 410, {
-              error: 'Approval request has expired',
-              status: 'timeout',
-            });
-          }
-          return this.sendJson(res, 400, {
-            error: 'Could not process approval decision',
-            status: result.record?.status,
-          });
-        }
-
-        const decision = approved ? 'granted' : 'denied';
-        const tunnelResult = await this.tunnelServer.sendCommandToDevice(
-          session.deviceId,
-          'session.approve',
-          {
-            sessionId,
-            approvalId,
-            decision,
-            reason,
-          },
-        );
-
-        // Record the decision in audit log
-        await this.auditLog.record({
-          actor: { type: 'user', id: authUser.id },
-          sessionId,
-          deviceId: session.deviceId,
-          action: 'approval.decision',
-          decision,
-          policyVersion: result.record?.policyVersion,
-        });
-
-        return this.sendJson(res, 200, {
-          success: true,
-          decision,
-          delivered: tunnelResult.delivered,
-          acknowledged: tunnelResult.acknowledged,
-          note: tunnelResult.acknowledged
-            ? 'Approval decision delivered to gateway and acknowledged.'
-            : tunnelResult.delivered
-              ? 'Approval decision forwarded to gateway; awaiting acknowledgment.'
-              : 'Gateway is offline; approval decision will be relayed when the device reconnects.',
         });
       }
 
@@ -1119,7 +1170,7 @@ export class HttpRouter {
   private issueTokenPair(
     userId: string,
     email: string,
-    role: 'user' | 'admin',
+    role: 'user' | 'admin' | 'owner',
   ): { accessToken: string; refreshToken: string } {
     const accessToken = signJwt(
       { sub: userId, email, role, type: 'access' },
@@ -1181,7 +1232,7 @@ export class HttpRouter {
   }
 
   private async getPolicyVersions() {
-    const versions: unknown[] = [];
+    const versions: Array<{ createdAt: string; [key: string]: unknown }> = [];
     const allUsers = await this.db.users.list();
     for (const user of allUsers) {
       if (user.metadata?._policyVersion) {
@@ -1205,7 +1256,7 @@ export class HttpRouter {
         });
       }
     }
-    return versions.sort((a: { createdAt: string }, b: { createdAt: string }) =>
+    return versions.sort((a, b) =>
       b.createdAt.localeCompare(a.createdAt)
     );
   }
