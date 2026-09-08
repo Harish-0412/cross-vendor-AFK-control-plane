@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
+import { motion } from "motion/react";
 import { useSearchParams } from "next/navigation";
 import {
   Activity,
@@ -176,7 +177,12 @@ export default function SessionsPage() {
 
   return (
     <div className="flex flex-col gap-6 max-w-7xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <motion.div
+        initial={{ opacity: 0, y: -12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+      >
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl lg:text-3xl font-bold tracking-tight text-foreground">Agent Sessions</h1>
           <p className="text-sm text-muted-foreground">
@@ -201,7 +207,7 @@ export default function SessionsPage() {
 
           <QuickLaunchModal devices={devices} onSessionLaunched={fetchSessionsAndDevices} />
         </div>
-      </div>
+      </motion.div>
 
       {/* Filter Tabs & Machine Selector */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-3">
@@ -270,11 +276,17 @@ export default function SessionsPage() {
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          {filteredSessions.map((s) => {
+          {filteredSessions.map((s, i) => {
             const deviceName = deviceMap[s.deviceId] || s.deviceId;
             return (
-              <Link href={`/sessions/${s.id}`} key={s.id}>
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-xl border border-border bg-card p-4 hover:border-primary/50 hover:shadow-md transition-all group">
+              <motion.div
+                key={s.id}
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35, delay: Math.min(i * 0.04, 0.35), ease: [0.22, 1, 0.36, 1] }}
+              >
+              <Link href={`/sessions/${s.id}`}>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-xl border border-border bg-card p-4 hover:border-primary/50 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 group">
                   <div className="flex items-start gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary shrink-0 mt-0.5 group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
                       <Bot className="h-5 w-5" />
@@ -327,6 +339,7 @@ export default function SessionsPage() {
                   </div>
                 </div>
               </Link>
+              </motion.div>
             );
           })}
         </div>

@@ -1,0 +1,4 @@
+{"event":"init","conversation_id":"171cc08f-5256-4224-9e91-a3a1e99e1fcd","init":{"cwd":"C:\\SideQuest\\AI Coding Agent AFK Control Plane\\freebuff","permission_mode":"request-review"}}
+{"event":"step_update","step_update":{"conversation_id":"171cc08f-5256-4224-9e91-a3a1e99e1fcd","step_index":0,"state":"DONE","step_type":"user_input"}}
+{"event":"step_update","step_update":{"conversation_id":"171cc08f-5256-4224-9e91-a3a1e99e1fcd","step_index":1,"state":"DONE","step_type":"agent_response","text_delta":"Freebuff adapter validation complete.\n","duration_seconds":2.0357349}}
+{"event":"result","result":{"conversation_id":"171cc08f-5256-4224-9e91-a3a1e99e1fcd","status":"SUCCESS","response":"Freebuff adapter validation complete.\n","duration_seconds":2.0877386,"num_turns":1}}

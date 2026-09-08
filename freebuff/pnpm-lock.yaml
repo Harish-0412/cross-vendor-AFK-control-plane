@@ -91,6 +91,22 @@ importers:
         specifier: ^1.5.0
         version: 1.6.1(@types/node@20.19.43)
 
+  gateway/adapters/antigravity:
+    dependencies:
+      '@freebuff/protocol':
+        specifier: workspace:*
+        version: link:../../../packages/protocol
+      '@freebuff/sandbox':
+        specifier: workspace:*
+        version: link:../../sandbox
+    devDependencies:
+      '@types/node':
+        specifier: ^20.12.0
+        version: 20.19.43
+      vitest:
+        specifier: ^1.5.0
+        version: 1.6.1(@types/node@20.19.43)
+
   gateway/adapters/mock:
     dependencies:
       '@freebuff/config':
@@ -103,6 +119,22 @@ importers:
         specifier: workspace:*
         version: link:../../../packages/schemas
     devDependencies:
+      vitest:
+        specifier: ^1.5.0
+        version: 1.6.1(@types/node@20.19.43)
+
+  gateway/adapters/opencode:
+    dependencies:
+      '@freebuff/protocol':
+        specifier: workspace:*
+        version: link:../../../packages/protocol
+      '@freebuff/sandbox':
+        specifier: workspace:*
+        version: link:../../sandbox
+    devDependencies:
+      '@types/node':
+        specifier: ^20.12.0
+        version: 20.19.43
       vitest:
         specifier: ^1.5.0
         version: 1.6.1(@types/node@20.19.43)

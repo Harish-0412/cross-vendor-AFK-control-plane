@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Monitor, Activity, ShieldAlert, User } from "lucide-react";
+import { LayoutDashboard, Monitor, Activity, ShieldAlert, Settings } from "lucide-react";
 
 export const mobileNavItems = [
   { name: "Home", href: "/dashboard", icon: LayoutDashboard },
   { name: "Devices", href: "/devices", icon: Monitor },
   { name: "Sessions", href: "/sessions", icon: Activity },
   { name: "Approvals", href: "/approvals", icon: ShieldAlert },
-  { name: "Profile", href: "/settings", icon: User },
+  { name: "Settings", href: "/settings", icon: Settings },
 ];
 
 export function MobileNav() {

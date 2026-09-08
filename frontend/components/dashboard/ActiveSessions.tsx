@@ -99,10 +99,10 @@ export function ActiveSessions({ sessions, deviceMap }: ActiveSessionsProps) {
           return (
             <div
               key={sess.id}
-              className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
+              className="group flex flex-col sm:flex-row sm:items-center justify-between gap-3 py-3 first:pt-0 last:pb-0 rounded-lg -mx-2 px-2 transition-colors hover:bg-muted/40"
             >
               <div className="flex items-start gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary shrink-0 mt-0.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary shrink-0 mt-0.5 transition-all duration-300 group-hover:bg-primary group-hover:text-primary-foreground group-hover:scale-105">
                   <Bot className="h-4 w-4" />
                 </div>
                 <div className="flex flex-col gap-0.5">

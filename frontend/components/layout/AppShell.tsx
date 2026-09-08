@@ -46,8 +46,16 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
+  // Redirecting to /login — render a brief splash instead of a blank screen
   if (!isAuthenticated) {
-    return null;
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Redirecting to sign in...</p>
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -6,7 +6,7 @@ import type { Decision, EventEnvelope, SessionState, Capability } from '@freebuf
 import { WebSocketServer, type WebSocket } from 'ws';
 
 import type { IDatabase } from '../db/types';
-import type { StoredEvent } from '../types';
+import type { ApprovalRecord, StoredEvent } from '../types';
 
 import type { ConnectionRegistry } from './connection-registry';
 import type { PolicyVersion } from '@freebuff/protocol';
@@ -37,6 +37,7 @@ export class TunnelServer {
     }
   >();
   private onEventBroadcast?: (event: StoredEvent) => void;
+  private onApprovalCreated?: (approval: ApprovalRecord) => void;
   private policyEvaluator: ((
     capability: Capability,
     riskClass: 'low' | 'medium' | 'high' | 'critical',
@@ -60,6 +61,10 @@ export class TunnelServer {
 
   setOnEventBroadcast(callback: (event: StoredEvent) => void): void {
     this.onEventBroadcast = callback;
+  }
+
+  setOnApprovalCreated(callback: (approval: ApprovalRecord) => void): void {
+    this.onApprovalCreated = callback;
   }
 
   setPolicyEvaluator(
@@ -341,7 +346,7 @@ export class TunnelServer {
               if ('expiresAt' in result) expiresAt = result.expiresAt;
             }
 
-            await this.db.approvals.create({
+            const approval = await this.db.approvals.create({
               sessionId: envelope.sessionId,
               deviceId: authedId,
               userId: session?.userId || 'usr_unknown',
@@ -354,6 +359,7 @@ export class TunnelServer {
               requiredRole,
               expiresAt,
             });
+            this.onApprovalCreated?.(approval);
           }
 
           if (this.onEventBroadcast) {

@@ -89,6 +89,25 @@ describe('Subphase 7.3 AFK push delivery', () => {
     expect(notification.title).toBe('Approval needed: git push to production');
     expect(notification.body).toBe('git push to production');
 
+    await db.events.append({
+      sessionId: 'sess_push', deviceId: 'dev_push', sequence: 2, eventType: 'session.file_changed',
+      envelope: {
+        eventId: 'evt_changed', eventType: 'session.file_changed', eventVersion: 1,
+        sessionId: 'sess_push', deviceId: 'dev_push', sequence: 2, occurredAt: new Date(),
+        payload: { path: 'src/new-feature.ts', action: 'modified' },
+      },
+    });
+    const completed = {
+      eventId: 'evt_completed', eventType: 'session.completed' as const, eventVersion: 1,
+      sessionId: 'sess_push', deviceId: 'dev_push', sequence: 3, occurredAt: new Date(), payload: {},
+    };
+    await orchestrator.handleEvent({
+      id: 'stored_completed', sessionId: 'sess_push', deviceId: 'dev_push', sequence: 3,
+      eventType: completed.eventType, envelope: completed, storedAt: new Date(),
+    });
+    expect(captured).toHaveLength(2);
+    expect((JSON.parse(captured[1]!) as { body: string }).body).toContain('✓ Modified 1 files');
+
     await db.sessions.update('sess_push', { trustProfile: 'supervised' });
     registry.registerClient({
       clientId: 'client_foreground', userId: user.id,
@@ -100,6 +119,6 @@ describe('Subphase 7.3 AFK push delivery', () => {
       id: 'stored_2', sessionId: 'sess_push', deviceId: 'dev_push', sequence: 2,
       eventType: envelope.eventType, envelope: { ...envelope, sequence: 2 }, storedAt: new Date(),
     });
-    expect(captured).toHaveLength(1);
+    expect(captured).toHaveLength(2);
   });
 });

@@ -474,6 +474,8 @@ export class FirestoreApprovalRepository implements IApprovalRepository {
       id: doc.id,
       requestedAt: toDate(d['requestedAt']),
       decidedAt: d['decidedAt'] ? toDate(d['decidedAt']) : undefined,
+      reminderSentAt: d['reminderSentAt'] ? toDate(d['reminderSentAt']) : undefined,
+      fallbackTriggeredAt: d['fallbackTriggeredAt'] ? toDate(d['fallbackTriggeredAt']) : undefined,
     } as unknown as ApprovalRecord;
   }
 
@@ -486,6 +488,8 @@ export class FirestoreApprovalRepository implements IApprovalRepository {
         id: doc.id,
         requestedAt: toDate(d['requestedAt']),
         decidedAt: d['decidedAt'] ? toDate(d['decidedAt']) : undefined,
+        reminderSentAt: d['reminderSentAt'] ? toDate(d['reminderSentAt']) : undefined,
+        fallbackTriggeredAt: d['fallbackTriggeredAt'] ? toDate(d['fallbackTriggeredAt']) : undefined,
       } as unknown as ApprovalRecord;
     });
   }
@@ -505,6 +509,8 @@ export class FirestoreApprovalRepository implements IApprovalRepository {
         id: doc.id,
         requestedAt: toDate(d['requestedAt']),
         decidedAt: d['decidedAt'] ? toDate(d['decidedAt']) : undefined,
+        reminderSentAt: d['reminderSentAt'] ? toDate(d['reminderSentAt']) : undefined,
+        fallbackTriggeredAt: d['fallbackTriggeredAt'] ? toDate(d['fallbackTriggeredAt']) : undefined,
       } as unknown as ApprovalRecord;
     });
   }
@@ -522,6 +528,23 @@ export class FirestoreApprovalRepository implements IApprovalRepository {
         id: doc.id,
         requestedAt: toDate(d['requestedAt']),
         decidedAt: d['decidedAt'] ? toDate(d['decidedAt']) : undefined,
+        reminderSentAt: d['reminderSentAt'] ? toDate(d['reminderSentAt']) : undefined,
+        fallbackTriggeredAt: d['fallbackTriggeredAt'] ? toDate(d['fallbackTriggeredAt']) : undefined,
+      } as unknown as ApprovalRecord;
+    });
+  }
+
+  async listAllPending(): Promise<ApprovalRecord[]> {
+    const snap = await this.col().where('status', '==', 'pending').get();
+    return snap.docs.map((doc) => {
+      const d = doc.data();
+      return {
+        ...d,
+        id: doc.id,
+        requestedAt: toDate(d['requestedAt']),
+        decidedAt: d['decidedAt'] ? toDate(d['decidedAt']) : undefined,
+        reminderSentAt: d['reminderSentAt'] ? toDate(d['reminderSentAt']) : undefined,
+        fallbackTriggeredAt: d['fallbackTriggeredAt'] ? toDate(d['fallbackTriggeredAt']) : undefined,
       } as unknown as ApprovalRecord;
     });
   }

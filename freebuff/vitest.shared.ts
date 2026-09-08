@@ -20,6 +20,8 @@ const packageSources: Record<string, string> = {
   '@freebuff/schemas': 'packages/schemas/src/index.ts',
   '@freebuff/config': 'packages/config/src/index.ts',
   '@freebuff/mock-adapter': 'gateway/adapters/mock/src/index.ts',
+  '@freebuff/opencode-adapter': 'gateway/adapters/opencode/src/index.ts',
+  '@freebuff/antigravity-adapter': 'gateway/adapters/antigravity/src/index.ts',
   '@freebuff/checkpoint': 'gateway/checkpoint/src/index.ts',
   '@freebuff/health': 'gateway/health/src/index.ts',
   '@freebuff/sandbox': 'gateway/sandbox/src/index.ts',

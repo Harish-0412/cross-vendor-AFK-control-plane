@@ -23,6 +23,7 @@ function isTrustProfile(value: unknown): value is TrustProfile {
   return typeof value === 'string' && TRUST_PROFILES.includes(value as TrustProfile);
 }
 import { PolicyEngineService, ApprovalWorkflow, AuditLog } from '../policy/index';
+import { SummaryGenerator } from '../afk/summary-generator';
 
 export class HttpRouter {
   private db: IDatabase;
@@ -32,6 +33,7 @@ export class HttpRouter {
   private policyService: PolicyEngineService;
   private approvalWorkflow: ApprovalWorkflow;
   private auditLog: AuditLog;
+  private summaryGenerator: SummaryGenerator;
 
   constructor(
     db: IDatabase,
@@ -49,6 +51,7 @@ export class HttpRouter {
     this.policyService = policyService;
     this.approvalWorkflow = approvalWorkflow;
     this.auditLog = auditLog;
+    this.summaryGenerator = new SummaryGenerator(db);
   }
 
   async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -603,6 +606,115 @@ export class HttpRouter {
         }
       }
 
+      // --- PHASE 7.6 — KILL SWITCH & LOCK (§2.5 of the Phase 7 plan) ---
+      // Both are device-scoped, ownership-checked, audited fan-out operations:
+      //  - kill-switch: cancel every active session for the device in one call
+      //  - lock: flip every active session to the 'locked' trust profile instead
+      //    ("stop acting, keep observing") and supersede pending approvals the
+      //    same way device revocation already does (Phase 5 §7.3 pattern).
+      if (
+        segments.length === 5 &&
+        segments[0] === 'api' &&
+        segments[1] === 'v1' &&
+        segments[2] === 'devices'
+      ) {
+        const deviceId = segments[3];
+        const action = segments[4];
+        if (!deviceId) return this.sendJson(res, 400, { error: 'Device ID is required' });
+        if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+        if (action !== 'kill-switch' && action !== 'lock') {
+          return this.sendJson(res, 404, { error: `Endpoint not found: ${method} ${path}` });
+        }
+        if (method !== 'POST') {
+          return this.sendJson(res, 405, { error: 'Method not allowed' });
+        }
+
+        const device = await this.db.devices.findById(deviceId);
+        if (!device || device.userId !== authUser.id) {
+          return this.sendJson(res, 404, { error: 'Device not found' });
+        }
+
+        const ACTIVE_STATES = new Set(['running', 'waiting_for_approval', 'initializing', 'paused']);
+        const sessions = await this.db.sessions.listByDevice(deviceId);
+        const active = sessions.filter((s) => ACTIVE_STATES.has(s.state));
+
+        const reason =
+          typeof body['reason'] === 'string'
+            ? body['reason']
+            : action === 'kill-switch'
+              ? 'Kill switch activated by user'
+              : 'Session locked by user';
+
+        const results: Array<{ sessionId: string; state: string; delivered: boolean; acknowledged: boolean }> = [];
+        for (const session of active) {
+          if (action === 'kill-switch') {
+            // Same command POST /sessions/:id/cancel already uses, looped (§2.5).
+            const result = await this.tunnelServer.sendCommandToDevice(
+              deviceId,
+              'session.stop',
+              { sessionId: session.id, force: true, reason },
+            );
+            await this.db.sessions.update(session.id, { state: 'cancelled' });
+            results.push({
+              sessionId: session.id,
+              state: 'cancelled',
+              delivered: result.delivered,
+              acknowledged: result.acknowledged,
+            });
+          } else {
+            // Lock: "stop acting, keep observing" — flip profile, don't terminate.
+            await this.db.sessions.update(session.id, { trustProfile: 'locked' });
+            // Fire-and-forget so the gateway observes the new profile immediately;
+            // enforcement is also re-read from the DB on the next policy evaluation.
+            try {
+              await this.tunnelServer.sendCommandToDevice(
+                deviceId,
+                'session.trust_profile',
+                { sessionId: session.id, trustProfile: 'locked' },
+                5_000,
+                false,
+              );
+            } catch {
+              // Offline gateway — profile is persisted; enforced on reconnect.
+            }
+            results.push({
+              sessionId: session.id,
+              state: 'locked',
+              delivered: false,
+              acknowledged: false,
+            });
+          }
+        }
+
+        // Supersede pending approvals — same pattern as device revocation
+        // (Phase 5 §7.3): a cancelled/locked session cannot meaningfully keep
+        // an approval pending, and 'superseded' keeps the state machine's
+        // five terminal states unchanged.
+        const supersededCount = await this.approvalWorkflow.revokeDeviceApprovals(deviceId, reason);
+
+        // Audit the safety control itself (§7.6 DoD — who hit the kill switch
+        // and when must be part of the tamper-evident record).
+        await this.auditLog.record({
+          actor: { type: 'user', id: authUser.id },
+          deviceId,
+          action: action === 'kill-switch' ? 'device.kill_switch' : 'device.lock',
+          decision: 'deny',
+        });
+
+        return this.sendJson(res, 200, {
+          success: true,
+          action,
+          deviceId,
+          activeSessionCount: active.length,
+          sessions: results,
+          approvalsSuperseded: supersededCount,
+          note:
+            action === 'kill-switch'
+              ? 'All active sessions cancelled. Pending approvals superseded.'
+              : 'All active sessions locked to observation-only. Pending approvals superseded.',
+        });
+      }
+
       // Phase 4 subscription plumbing, consumed by the Phase 7 push sender.
       if (path === '/api/v1/push/subscribe' && method === 'POST') {
         if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
@@ -875,6 +987,15 @@ export class HttpRouter {
           return this.sendJson(res, 200, events);
         }
 
+        if (segments.length === 5 && segments[4] === 'summary' && method === 'GET') {
+          const fromValue = url.searchParams.get('from');
+          const from = fromValue ? new Date(fromValue) : undefined;
+          if (fromValue && Number.isNaN(from?.getTime())) {
+            return this.sendJson(res, 400, { error: 'from must be a valid ISO date' });
+          }
+          return this.sendJson(res, 200, await this.summaryGenerator.generate(sessionId, from));
+        }
+
         if (segments.length === 5 && segments[4] === 'approvals' && method === 'GET') {
           const approvals = await this.db.approvals.listBySession(sessionId);
           return this.sendJson(res, 200, approvals);
@@ -1068,6 +1189,18 @@ export class HttpRouter {
         segments[3] === 'versions'
       ) {
         const versionId = segments[4];
+
+        // GET /api/v1/policy/versions/:id — full version detail incl. rules
+        if (versionId && method === 'GET' && segments.length === 5) {
+          if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+          if (!(await this.policyService.canManagePolicy(authUser.id))) {
+            return this.sendJson(res, 403, { error: 'Only admins can view policy versions' });
+          }
+          const detail = await this.policyService.getPolicyVersionById(versionId);
+          if (!detail) return this.sendJson(res, 404, { error: 'Policy version not found' });
+          return this.sendJson(res, 200, detail);
+        }
+
         if (versionId && method === 'POST' && segments[5] === 'activate') {
           if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
           if (!(await this.policyService.canManagePolicy(authUser.id))) {

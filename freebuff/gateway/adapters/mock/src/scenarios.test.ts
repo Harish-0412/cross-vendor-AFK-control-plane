@@ -118,7 +118,7 @@ describe('Scenario builder', () => {
 
   test('listScenarios returns descriptors with durations', () => {
     const list = listScenarios();
-    expect(list.length).toBe(10);
+    expect(list.length).toBe(11);
     for (const s of list) {
       expect(s.estimatedDurationMs).toBeGreaterThan(0);
       expect(s.description.length).toBeGreaterThan(0);

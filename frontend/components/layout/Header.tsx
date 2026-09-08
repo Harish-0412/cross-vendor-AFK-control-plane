@@ -1,16 +1,26 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { LogOut, Shield, Wifi, WifiOff } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/auth";
 import { realtimeClient, useRealtimeStore } from "@/lib/realtime";
 import { Button } from "@/components/ui/button";
+import { KillSwitch } from "@/components/layout/KillSwitch";
 
 export function Header() {
   const router = useRouter();
   const { user, logout } = useAuthStore();
   const status = useRealtimeStore((s) => s.status);
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   const handleLogout = async () => {
     realtimeClient.disconnect();
@@ -47,7 +57,11 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-40 flex h-16 w-full items-center justify-between border-b border-border bg-card/80 px-4 backdrop-blur-xl lg:px-8">
+    <header
+      className={`sticky top-0 z-40 flex h-16 w-full items-center justify-between border-b bg-card/80 px-4 backdrop-blur-xl transition-shadow duration-300 lg:px-8 ${
+        scrolled ? "border-border shadow-lg shadow-black/5" : "border-transparent"
+      }`}
+    >
       <div className="flex items-center gap-2 lg:hidden">
         <Link href="/dashboard" className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
@@ -63,12 +77,13 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-3">
+        <KillSwitch />
         {getStatusBadge()}
 
         {user && (
           <div className="hidden md:flex flex-col text-right">
             <span className="text-xs font-medium text-foreground">{user.name || user.email}</span>
-            <span className="text-[10px] text-muted-foreground">{user.role.toUpperCase()}</span>
+            <span className="text-[10px] text-muted-foreground">{(user.role || "user").toUpperCase()}</span>
           </div>
         )}
 

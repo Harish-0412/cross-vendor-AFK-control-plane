@@ -23,6 +23,11 @@ import {
   RefreshCw,
   Wrench,
   AlertCircle,
+  FileCheck2,
+  FlaskConical,
+  ShieldCheck,
+  Lock,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,6 +54,7 @@ interface SessionDetail {
   agentId: string;
   projectRoot: string;
   state: SessionState;
+  trustProfile?: string;
   startedAt: string;
   completedAt?: string | null;
   error?: string | null;
@@ -61,6 +67,26 @@ interface DeviceSummary {
   platform: string;
   online: boolean;
 }
+
+interface SessionSummary {
+  sessionId: string;
+  generatedAt: string;
+  fixedTests: number;
+  modifiedFiles: number;
+  addedTests: number;
+  approvalsRequired: string[];
+  workingTreeClean: boolean;
+  lines: string[];
+  text: string;
+}
+
+const SESSION_TRUST_PROFILES = [
+  { value: "default", label: "Default", desc: "Standard autonomy with approval checkpoints" },
+  { value: "supervised", label: "Supervised", desc: "Extra checkpoints — every medium-risk+ action asks" },
+  { value: "trusted-afk", label: "Trusted AFK", desc: "Full autonomy for long unattended runs (Phase 7)" },
+  { value: "read-only", label: "Read-only", desc: "Inspect only — write-class actions denied outright" },
+  { value: "locked", label: "Locked", desc: "Observation only — every capability denied until unlocked" },
+];
 
 export default function LiveSessionPage({
   params,
@@ -79,6 +105,11 @@ export default function LiveSessionPage({
   const [sendingPrompt, setSendingPrompt] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
+  const [summary, setSummary] = useState<SessionSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
 
   // Auto-scroll lock
   const [isAutoScrollLocked, setIsAutoScrollLocked] = useState(true);
@@ -268,6 +299,49 @@ export default function LiveSessionPage({
     }
   };
 
+  // Phase 7.5 — "While you were away" summary
+  const toggleSummary = async () => {
+    setShowSummary((v) => !v);
+    if (!summary && !summaryLoading) {
+      setSummaryLoading(true);
+      try {
+        const data = await apiClient.get<SessionSummary>(`/api/v1/sessions/${sessionId}/summary`);
+        setSummary(data);
+      } catch {
+        toast.error("Failed to generate session summary");
+      } finally {
+        setSummaryLoading(false);
+      }
+    }
+  };
+
+  // Phase 7.1 — activate a trust profile on this session (e.g. trusted-afk)
+  const handleProfileChange = async (profile: string) => {
+    if (!session) {
+      setProfileMenuOpen(false);
+      return;
+    }
+    if (profile === session.trustProfile) {
+      setProfileMenuOpen(false);
+      return;
+    }
+    setSavingProfile(true);
+    try {
+      await apiClient.patch(`/api/v1/sessions/${sessionId}/trust-profile`, { trustProfile: profile });
+      setSession((prev) => (prev ? { ...prev, trustProfile: profile } : prev));
+      const meta = SESSION_TRUST_PROFILES.find((p) => p.value === profile);
+      toast.success(profile === "trusted-afk"
+        ? "AFK mode activated — the agent now runs with full autonomy"
+        : `Trust profile set to ${meta?.label ?? profile}`);
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "Failed to update trust profile";
+      toast.error(msg);
+    } finally {
+      setSavingProfile(false);
+      setProfileMenuOpen(false);
+    }
+  };
+
   const getStatusBadge = (state: SessionState | string) => {
     switch (state) {
       case "running":
@@ -362,6 +436,59 @@ export default function LiveSessionPage({
               <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded text-foreground/80 font-medium">
                 {session.agentId}
               </span>
+
+              {/* Phase 7.1 — active trust profile, switchable in-flight */}
+              <div className="relative">
+                <button
+                  onClick={() => setProfileMenuOpen((v) => !v)}
+                  disabled={savingProfile || !isSessionActive}
+                  title={isSessionActive ? "Change trust profile" : "Session has ended"}
+                  className={`flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-all ${
+                    session.trustProfile === "trusted-afk"
+                      ? "border-violet-500/40 bg-violet-500/10 text-violet-600 dark:text-violet-400"
+                      : session.trustProfile === "locked"
+                        ? "border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400"
+                        : session.trustProfile === "read-only"
+                          ? "border-blue-500/40 bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                          : "border-border bg-muted/40 text-muted-foreground"
+                  } ${isSessionActive ? "hover:border-primary/50 cursor-pointer" : "opacity-70 cursor-not-allowed"}`}
+                >
+                  {session.trustProfile === "trusted-afk" ? <Sparkles className="h-3 w-3" />
+                    : session.trustProfile === "locked" ? <Lock className="h-3 w-3" />
+                    : <ShieldCheck className="h-3 w-3" />}
+                  {SESSION_TRUST_PROFILES.find((p) => p.value === session.trustProfile)?.label ??
+                    session.trustProfile ?? "default"}
+                  {savingProfile ? <Loader2 className="h-3 w-3 animate-spin" /> : isSessionActive && <ChevronDown className="h-3 w-3" />}
+                </button>
+
+                {profileMenuOpen && (
+                  <div className="absolute left-0 top-full mt-1.5 z-50 w-64 rounded-xl border border-border bg-card p-2 shadow-2xl shadow-black/10">
+                    <p className="px-2 pt-1 pb-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                      Trust profile
+                    </p>
+                    {SESSION_TRUST_PROFILES.map((p) => {
+                      const active = session.trustProfile === p.value;
+                      return (
+                        <button
+                          key={p.value}
+                          onClick={() => void handleProfileChange(p.value)}
+                          className={`flex w-full flex-col gap-0.5 rounded-lg px-2.5 py-2 text-left transition-colors ${
+                            active
+                              ? "bg-primary/10 text-primary"
+                              : "text-foreground hover:bg-muted"
+                          }`}
+                        >
+                          <span className="flex items-center gap-1.5 text-xs font-semibold">
+                            {active && <ShieldCheck className="h-3 w-3" />}
+                            {p.label}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground leading-snug">{p.desc}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1 flex-wrap">
               <span className="flex items-center gap-1">
@@ -383,6 +510,22 @@ export default function LiveSessionPage({
             <Clock className="h-3.5 w-3.5 text-muted-foreground" />
             <span>{formatTimer(elapsedSeconds)}</span>
           </div>
+
+          {/* Phase 7.5 — "While you were away" summary */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void toggleSummary()}
+            className="gap-1.5 text-xs"
+            title="Generate a structured summary of what happened"
+          >
+            {summaryLoading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <FileCheck2 className="h-3.5 w-3.5" />
+            )}
+            {showSummary ? "Hide Summary" : "Summary"}
+          </Button>
 
           {session.tokensUsed !== undefined && session.tokensUsed !== null && (
             <div className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-muted text-xs font-mono text-muted-foreground">
@@ -437,6 +580,77 @@ export default function LiveSessionPage({
           </Button>
         </div>
       </div>
+
+      {/* Phase 7.5 — "While you were away" summary panel */}
+      {showSummary && (
+        <div className="shrink-0 max-h-[45vh] overflow-y-auto rounded-xl border border-violet-500/30 bg-card p-4 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-violet-500" />
+              <h3 className="text-sm font-bold tracking-tight text-foreground">While you were away</h3>
+            </div>
+            {summary?.generatedAt && (
+              <span className="text-[10px] font-mono text-muted-foreground">
+                {new Date(summary.generatedAt).toLocaleString()}
+              </span>
+            )}
+          </div>
+          {summaryLoading ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Aggregating events and audit trail…
+            </div>
+          ) : summary ? (
+            <div className="space-y-2">
+              <div className="grid grid-cols-3 gap-2">
+                <div className="flex flex-col items-center gap-0.5 rounded-lg border border-emerald-500/20 bg-emerald-500/5 py-2">
+                  <span className="text-lg font-bold font-mono text-emerald-600 dark:text-emerald-400">
+                    {summary.fixedTests}
+                  </span>
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                    Tests fixed
+                  </span>
+                </div>
+                <div className="flex flex-col items-center gap-0.5 rounded-lg border border-blue-500/20 bg-blue-500/5 py-2">
+                  <span className="text-lg font-bold font-mono text-blue-600 dark:text-blue-400">
+                    {summary.modifiedFiles}
+                  </span>
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                    Files changed
+                  </span>
+                </div>
+                <div className="flex flex-col items-center gap-0.5 rounded-lg border border-violet-500/20 bg-violet-500/5 py-2">
+                  <span className="text-lg font-bold font-mono text-violet-600 dark:text-violet-400">
+                    {summary.addedTests}
+                  </span>
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                    Tests added
+                  </span>
+                </div>
+              </div>
+
+              {summary.approvalsRequired.length > 0 && (
+                <div className="flex flex-col gap-1 rounded-lg border border-amber-500/20 bg-amber-500/5 p-2.5">
+                  {summary.approvalsRequired.map((desc, i) => (
+                    <span key={i} className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                      <ShieldAlert className="h-3 w-3 shrink-0" /> {desc}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 p-2.5 font-mono text-xs text-foreground/80 whitespace-pre-wrap">
+                {summary.text}
+              </div>
+
+              <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                <FlaskConical className="h-3 w-3" />
+                Structured aggregation over the tamper-evident event + audit trail — not an LLM summary.
+              </p>
+            </div>
+          ) : null}
+        </div>
+      )}
 
       {/* Main Console & Live Stream View */}
       <div className="relative flex-1 min-h-0 rounded-xl border border-border bg-[#0d1117] text-gray-200 overflow-hidden flex flex-col shadow-inner">
@@ -627,8 +841,10 @@ function EventRenderer({ record }: { record: StoredEventRecord }) {
   // 3. Tool Call & Tool Result
   if (eventType === "session.tool_call" || eventType === "session.tool_result") {
     const toolName = String(payload.toolName || payload.name || "tool");
-    const args = payload.arguments || payload.input;
-    const result = payload.result || payload.output;
+    const args: unknown = payload.arguments ?? payload.input;
+    const result: unknown = payload.result ?? payload.output;
+    const renderValue = (value: unknown): string =>
+      typeof value === "string" ? value : JSON.stringify(value, null, 2);
 
     return (
       <div className="flex flex-col rounded-lg border border-[#30363d] bg-[#161b22] p-2.5 my-1">
@@ -639,14 +855,14 @@ function EventRenderer({ record }: { record: StoredEventRecord }) {
           </div>
           <span className="text-[10px] text-gray-500">{timeStr}</span>
         </div>
-        {args && (
+        {args !== undefined && args !== null && (
           <pre className="text-[11px] bg-[#0d1117] p-2 rounded border border-[#30363d] text-gray-300 overflow-x-auto">
-            {typeof args === "string" ? args : JSON.stringify(args, null, 2)}
+            {renderValue(args)}
           </pre>
         )}
-        {result && (
+        {result !== undefined && result !== null && (
           <pre className="text-[11px] bg-[#0d1117] p-2 rounded border border-[#30363d] text-emerald-400 overflow-x-auto mt-1">
-            {typeof result === "string" ? result : JSON.stringify(result, null, 2)}
+            {renderValue(result)}
           </pre>
         )}
       </div>

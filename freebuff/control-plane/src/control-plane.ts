@@ -15,6 +15,7 @@ import { FirestoreDatabase } from './db/firestore-store';
 import { getFirebaseFirestore, isFirebaseAdminConfigured } from './auth/firebase-admin';
 import { AfkOrchestrator } from './afk/afk-orchestrator';
 import { PushSender } from './afk/push-sender';
+import { EscalationScheduler } from './afk/escalation-scheduler';
 
 export class ControlPlane {
   public db: IDatabase;
@@ -28,6 +29,7 @@ export class ControlPlane {
   public auditLog: AuditLog;
   public pushSender: PushSender;
   public afkOrchestrator: AfkOrchestrator;
+  public escalationScheduler: EscalationScheduler;
   private server?: http.Server | undefined;
   private actualPort = 0;
 
@@ -61,6 +63,13 @@ export class ControlPlane {
 
     this.pushSender = new PushSender(this.db);
     this.afkOrchestrator = new AfkOrchestrator(this.db, this.registry, this.pushSender);
+    this.escalationScheduler = new EscalationScheduler(this.db, this.pushSender);
+    this.tunnelServer.setOnApprovalCreated((approval) => {
+      void this.escalationScheduler.schedule(approval).catch((error: unknown) => {
+        // eslint-disable-next-line no-console
+        console.warn('[Freebuff Control Plane] Approval escalation scheduling failed:', error);
+      });
+    });
 
     // Wire real-time event forwarding from Gateway tunnel to Web Client subscribers
     this.tunnelServer.setOnEventBroadcast((storedEvent) => {
@@ -145,6 +154,10 @@ export class ControlPlane {
       this.server.listen(this.config.port, this.config.host, () => {
         const addr = this.server?.address() as AddressInfo;
         this.actualPort = addr.port;
+        void this.escalationScheduler.reconcile().catch((error: unknown) => {
+          // eslint-disable-next-line no-console
+          console.warn('[Freebuff Control Plane] Approval escalation reconciliation failed:', error);
+        });
         resolve({ url: this.getUrl(), port: this.actualPort });
       });
     });
@@ -155,6 +168,7 @@ export class ControlPlane {
 
     this.tunnelServer.close();
     this.clientServer.close();
+    this.escalationScheduler.close();
 
     await new Promise<void>((resolve, reject) => {
       this.server?.close((err) => {

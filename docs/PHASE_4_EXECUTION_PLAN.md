@@ -137,6 +137,8 @@ This is the centerpiece screen and the one with the most realtime surface area: 
 
 **Session control actions** (prompt/pause/resume/cancel) map directly to the already-implemented `POST /sessions/:id/{prompt,pause,resume,cancel}` endpoints. No new control-plane work needed here — Phase 4 is purely a client for what Phase 3 already exposes.
 
+**Phase 7 cross-reference (added when Phase 7 was implemented):** the roadmap requires the kill switch to be *always visible* — an explicit, global "STOP ALL" affordance in the app's persistent chrome (the app header), visible from every screen, distinct from this screen's per-session pause/resume/cancel controls. Phase 7 ships `POST /api/v1/devices/:deviceId/kill-switch` and `POST /api/v1/devices/:deviceId/lock` (§2.5 of the Phase 7 plan); this screen (and the app header) consume them. The per-session screen additionally gained the Phase 7.1 in-flight trust-profile switcher (activate `trusted-afk` on a running session) and the Phase 7.5 "While you were away" summary panel (`GET /api/v1/sessions/:id/summary`).
+
 **Definition of done:** from a phone, start a session (against the mock adapter, since Phase 8's real adapter doesn't exist yet), watch output stream in live, send a follow-up prompt, pause, resume, and cancel — matching the roadmap's Phase 4 Definition of Done word-for-word.
 
 ### Subphase 4.4 — Approval screen

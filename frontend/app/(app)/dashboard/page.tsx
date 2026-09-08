@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { motion } from "motion/react";
 import { useAuthStore } from "@/lib/auth";
 import { apiClient } from "@/lib/api-client";
 import { realtimeClient } from "@/lib/realtime";
@@ -83,6 +84,7 @@ export default function DashboardPage() {
     deviceMap[d.id] = d.friendlyName;
   }
 
+  const pendingApprovals = approvals.filter((a) => a.status === "pending");
   const onlineCount = devices.filter((d) => d.online).length;
   const activeSessionsList = sessions.filter(
     (s) => s.state === "running" || s.state === "waiting_for_approval" || s.state === "initializing",
@@ -93,7 +95,12 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-8 max-w-7xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <motion.div
+        initial={{ opacity: 0, y: -12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+      >
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl lg:text-3xl font-bold tracking-tight text-foreground">
             Welcome back, {user?.name || "Operator"}
@@ -109,7 +116,7 @@ export default function DashboardPage() {
             size="sm"
             onClick={handleManualRefresh}
             disabled={refreshing}
-            className="gap-1.5 text-xs"
+            className="gap-1.5 text-xs transition-transform active:scale-95"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
             Refresh
@@ -117,29 +124,39 @@ export default function DashboardPage() {
 
           <QuickLaunchModal devices={devices} onSessionLaunched={fetchData} />
         </div>
-      </div>
+      </motion.div>
 
       <StatsGrid
         onlineDevices={onlineCount}
         totalDevices={devices.length}
         activeSessions={activeSessionsList.length}
-        pendingApprovals={approvals.length}
+        pendingApprovals={pendingApprovals.length}
         completedSessions={completedSessionsList.length}
       />
 
       <div className="grid grid-cols-1 gap-8 xl:grid-cols-3">
-        <div className="xl:col-span-2 flex flex-col gap-8">
-          <AttentionNeeded approvals={approvals} onRefresh={fetchData} />
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45, delay: 0.25 }}
+          className="xl:col-span-2 flex flex-col gap-8"
+        >
+          <AttentionNeeded approvals={pendingApprovals} onRefresh={fetchData} />
           <ActiveSessions sessions={activeSessionsList} deviceMap={deviceMap} />
-        </div>
+        </motion.div>
 
-        <div className="xl:col-span-1">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45, delay: 0.35 }}
+          className="xl:col-span-1"
+        >
           <RecentActivity
             recentSessions={completedSessionsList}
-            approvals={approvals}
+            approvals={pendingApprovals}
             deviceCount={devices.length}
           />
-        </div>
+        </motion.div>
       </div>
     </div>
   );

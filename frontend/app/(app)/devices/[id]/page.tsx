@@ -2,6 +2,7 @@
 
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
+import { motion } from "motion/react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -142,7 +143,12 @@ export default function DeviceDetailPage({
 
   return (
     <div className="flex flex-col gap-6 max-w-5xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <motion.div
+        initial={{ opacity: 0, y: -12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+      >
         <div className="flex items-center gap-4">
           <Link href="/devices">
             <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full">
@@ -182,9 +188,14 @@ export default function DeviceDetailPage({
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
         </div>
-      </div>
+      </motion.div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.45, delay: 0.1 }}
+        className="grid grid-cols-1 md:grid-cols-3 gap-6"
+      >
         <div className="md:col-span-2 flex flex-col gap-6">
           {/* Live System Telemetry */}
           <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
@@ -329,7 +340,7 @@ export default function DeviceDetailPage({
             </Button>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Revoke Confirmation Modal */}
       {showRevokeConfirm && (

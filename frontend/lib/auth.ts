@@ -1,5 +1,14 @@
 // frontend/lib/auth.ts
-// Zustand auth store with Firebase Authentication, Cloud Firestore profile sync, and Control Plane integration
+// Zustand auth store with auth provider selection, Control Plane integration, and silent refresh.
+//
+// Auth providers:
+//   - "local":    email/password against the Control Plane's own JWT auth (works without Firebase admin credentials)
+//   - "firebase": Firebase Authentication (requires the Control Plane to have a Firebase service account to verify ID tokens)
+//   - "auto":     Firebase when NEXT_PUBLIC_FIREBASE_* keys are present, otherwise local
+//
+// Set NEXT_PUBLIC_AUTH_PROVIDER=local in .env.local when the Control Plane cannot verify
+// Firebase ID tokens (i.e. no GOOGLE_APPLICATION_CREDENTIALS / FIREBASE_CLIENT_EMAIL /
+// FIREBASE_PRIVATE_KEY on the server side).
 
 import { create } from 'zustand';
 import { apiClient, setAccessToken, setOnAuthFailure, ApiError } from './api-client';
@@ -13,6 +22,17 @@ import {
   auth as fbAuth,
 } from './firebase';
 
+type AuthProvider = 'local' | 'firebase' | 'auto';
+
+function resolveAuthProvider(): AuthProvider {
+  const env = (process.env.NEXT_PUBLIC_AUTH_PROVIDER || 'auto').toLowerCase();
+  if (env === 'local' || env === 'firebase') return env;
+  return isFirebaseConfigured ? 'firebase' : 'local';
+}
+
+const authProvider = resolveAuthProvider();
+const useFirebase = authProvider === 'firebase';
+
 export interface AuthUser {
   id: string;
   email: string;
@@ -21,12 +41,21 @@ export interface AuthUser {
   photoURL?: string | null;
 }
 
+const AUTH_COOKIE = 'auth_token';
+const AUTH_COOKIE_MAX_AGE = 2592000; // 30 days
+
 export function setAuthCookie(_token: string): void {
-  // Silent refresh handles cookies via HttpOnly headers
+  // Middleware gate: presence of this cookie lets authenticated users through.
+  // Real authorization happens via the Bearer access token on API calls.
+  if (typeof document !== 'undefined') {
+    document.cookie = `${AUTH_COOKIE}=1; path=/; max-age=${AUTH_COOKIE_MAX_AGE}; SameSite=Lax`;
+  }
 }
 
 export function clearAuthCookie(): void {
-  // Silent refresh handles cookies via HttpOnly headers
+  if (typeof document !== 'undefined') {
+    document.cookie = `${AUTH_COOKIE}=; path=/; max-age=0; SameSite=Lax`;
+  }
 }
 
 interface AuthResponse {
@@ -89,6 +118,7 @@ function formatAuthError(err: unknown, fallback: string): string {
 export const useAuthStore = create<AuthState>((set, get) => {
   // Wire up auth failure callback from apiClient to logout cleanly
   setOnAuthFailure(() => {
+    clearAuthCookie();
     set({
       user: null,
       accessToken: null,
@@ -110,9 +140,10 @@ export const useAuthStore = create<AuthState>((set, get) => {
     login: async (email: string, password: string) => {
       set({ isLoading: true, error: null });
       try {
-        if (isFirebaseConfigured) {
+        if (useFirebase) {
           const { user, idToken } = await fbLoginWithEmail(email, password);
           setAccessToken(idToken);
+          setAuthCookie(idToken);
           set({
             user: {
               id: user.uid,
@@ -133,6 +164,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
           });
 
           setAccessToken(data.accessToken);
+          setAuthCookie(data.accessToken);
           set({
             user: data.user,
             accessToken: data.accessToken,
@@ -149,10 +181,15 @@ export const useAuthStore = create<AuthState>((set, get) => {
     },
 
     loginWithGoogle: async () => {
+      if (!useFirebase) {
+        set({ error: 'Google sign-in requires the firebase auth provider. Use email and password instead.' });
+        throw new Error('Google sign-in requires the firebase auth provider');
+      }
       set({ isLoading: true, error: null });
       try {
         const { user, idToken } = await fbLoginWithGoogle();
         setAccessToken(idToken);
+        setAuthCookie(idToken);
         set({
           user: {
             id: user.uid,
@@ -176,9 +213,10 @@ export const useAuthStore = create<AuthState>((set, get) => {
     register: async (email: string, password: string, name?: string) => {
       set({ isLoading: true, error: null });
       try {
-        if (isFirebaseConfigured) {
+        if (useFirebase) {
           const { user, idToken } = await fbRegisterWithEmail(email, password, name);
           setAccessToken(idToken);
+          setAuthCookie(idToken);
           set({
             user: {
               id: user.uid,
@@ -200,6 +238,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
           });
 
           setAccessToken(data.accessToken);
+          setAuthCookie(data.accessToken);
           set({
             user: data.user,
             accessToken: data.accessToken,
@@ -217,7 +256,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
 
     logout: async () => {
       try {
-        if (isFirebaseConfigured) {
+        if (useFirebase) {
           await fbLogout();
         }
         await apiClient.post('/api/v1/auth/logout', {});
@@ -225,6 +264,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
         /* best effort */
       } finally {
         setAccessToken(null);
+        clearAuthCookie();
         set({
           user: null,
           accessToken: null,
@@ -238,11 +278,12 @@ export const useAuthStore = create<AuthState>((set, get) => {
     checkAuth: async () => {
       set({ isLoading: true });
       try {
-        // Check Firebase current user if configured
-        if (isFirebaseConfigured && fbAuth?.currentUser) {
+        // Firebase path: rely on the persisted Firebase session
+        if (useFirebase && fbAuth?.currentUser) {
           const token = await getCurrentIdToken();
           if (token) {
             setAccessToken(token);
+            setAuthCookie(token);
             const fbUser = fbAuth.currentUser;
             set({
               user: {
@@ -262,7 +303,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
           }
         }
 
-        // Fallback: silent refresh using HttpOnly cookie on Control Plane
+        // Local path: silent refresh using HttpOnly cookie on Control Plane
         const refreshData = await apiClient.post<{ accessToken: string }>(
           '/api/v1/auth/refresh',
           {},
@@ -270,10 +311,13 @@ export const useAuthStore = create<AuthState>((set, get) => {
 
         if (refreshData.accessToken) {
           setAccessToken(refreshData.accessToken);
-          // Fetch current user details
-          const userData = await apiClient.get<AuthUser>('/api/v1/auth/me');
+          setAuthCookie(refreshData.accessToken);
+          // Fetch current user details — /api/v1/auth/me returns { user, deviceCount, connectedDeviceCount }
+          const meData = await apiClient.get<{ user: AuthUser; deviceCount: number; connectedDeviceCount: number }>(
+            '/api/v1/auth/me',
+          );
           set({
-            user: userData,
+            user: meData.user,
             accessToken: refreshData.accessToken,
             isAuthenticated: true,
             isLoading: false,
@@ -283,6 +327,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
           return;
         }
 
+        clearAuthCookie();
         set({
           user: null,
           accessToken: null,
@@ -292,6 +337,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
         });
       } catch {
         setAccessToken(null);
+        clearAuthCookie();
         set({
           user: null,
           accessToken: null,

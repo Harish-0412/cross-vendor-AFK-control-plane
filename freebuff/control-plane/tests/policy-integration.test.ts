@@ -210,6 +210,41 @@ describe('Policy Integration — Core Policy & Approval Logic', () => {
     expect(result.decision).toBe('allow');
   });
 
+  it('listByUser returns only the user\'s approvals with optional status filter', async () => {
+    const workflow = cp.approvalWorkflow;
+
+    await workflow.createApproval({
+      sessionId: 'sess_list_1',
+      deviceId: 'dev_list',
+      userId: 'usr_test',
+      actionType: 'operation',
+      description: 'Pending for usr_test',
+    });
+    const decidedApproval = await workflow.createApproval({
+      sessionId: 'sess_list_2',
+      deviceId: 'dev_list',
+      userId: 'usr_test',
+      actionType: 'operation',
+      description: 'Decided for usr_test',
+    });
+    await workflow.submitDecision(decidedApproval.id, 'usr_test', true);
+    await workflow.createApproval({
+      sessionId: 'sess_list_3',
+      deviceId: 'dev_list',
+      userId: 'usr_other',
+      actionType: 'operation',
+      description: 'Pending for someone else',
+    });
+
+    const all = await cp.db.approvals.listByUser('usr_test');
+    expect(all.length).toBe(2);
+    expect(all.every((a) => a.userId === 'usr_test')).toBe(true);
+
+    const pendingOnly = await cp.db.approvals.listByUser('usr_test', 'pending');
+    expect(pendingOnly.length).toBe(1);
+    expect(pendingOnly[0]?.status).toBe('pending');
+  });
+
   it('policy evaluation parity: evaluate produces consistent results', async () => {
     // Test that the evaluate function is deterministic
     const result1 = await cp.policyService.evaluate(

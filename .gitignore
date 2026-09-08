@@ -54,3 +54,7 @@ temp/
 .freebuff/sessions/
 .freebuff/checkpoints/
 .freebuff/logs/
+
+# Phase 6 redaction test corpus (deliberately tracked test fixtures)
+!freebuff/gateway/redaction/test-fixtures/secrets/*.pem
+!freebuff/gateway/redaction/test-fixtures/secrets/*.key

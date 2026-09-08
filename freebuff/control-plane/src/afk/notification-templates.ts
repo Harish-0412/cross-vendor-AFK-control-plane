@@ -1,4 +1,5 @@
 import type { AttentionLevel, EventEnvelope } from '@freebuff/protocol';
+import type { ApprovalRecord } from '../types';
 
 export interface PushNotification {
   title: string;
@@ -41,6 +42,24 @@ export function notificationForEvent(
     case 'critical':
       return { ...common, title: 'Critical security event', body: detail, urgency: 'high' };
   }
+}
+
+export function approvalReminderNotification(approval: ApprovalRecord): PushNotification {
+  const detail = approval.description || approval.actionType;
+  return {
+    title: `Approval still waiting: ${detail}`,
+    body: 'Your agent is paused until this approval is decided.',
+    tag: `freebuff:${approval.sessionId}:approval:${approval.id}`,
+    urgency: 'high',
+    data: {
+      eventId: approval.id,
+      eventType: 'session.approval_required',
+      sessionId: approval.sessionId,
+      deviceId: approval.deviceId,
+      attentionLevel: 'high_priority',
+      url: `/sessions/${encodeURIComponent(approval.sessionId)}`,
+    },
+  };
 }
 
 function titleForNotify(event: EventEnvelope): string {

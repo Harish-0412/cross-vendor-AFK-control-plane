@@ -81,6 +81,8 @@ export interface IApprovalRepository {
   listBySession(sessionId: string): Promise<ApprovalRecord[]>;
   listByUser(userId: string, status?: string): Promise<ApprovalRecord[]>;
   listPending(userId: string): Promise<ApprovalRecord[]>;
+  /** Pending approvals for every user; used to rebuild timers after a process restart. */
+  listAllPending(): Promise<ApprovalRecord[]>;
   update(id: string, updates: Partial<ApprovalRecord>): Promise<ApprovalRecord | null>;
 }
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { motion } from "motion/react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -90,16 +91,26 @@ export default function PairDevicePage() {
 
   return (
     <div className="flex flex-col gap-6 max-w-2xl mx-auto min-h-[70vh] justify-center">
-      <div className="flex items-center gap-4">
+      <motion.div
+        initial={{ opacity: 0, y: -12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="flex items-center gap-4"
+      >
         <Link href="/devices">
           <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full">
             <ArrowLeft className="h-4 w-4" />
           </Button>
         </Link>
         <h1 className="text-2xl font-bold tracking-tight text-foreground">Pair Gateway Machine</h1>
-      </div>
+      </motion.div>
 
-      <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden relative">
+      <motion.div
+        initial={{ opacity: 0, y: 20, scale: 0.99 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.45, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
+        className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden relative"
+      >
         {/* Progress indicator */}
         <div className="absolute top-0 left-0 right-0 h-1 bg-accent">
           <div
@@ -236,7 +247,7 @@ export default function PairDevicePage() {
             </div>
           )}
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }

@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Monitor, Plus, Circle, Server, Laptop, Cpu, HardDrive, RefreshCw } from "lucide-react";
+import { motion } from "motion/react";
+import { Monitor, Plus, Circle, Server, Laptop, Cpu, HardDrive, RefreshCw, OctagonAlert, Lock, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiClient } from "@/lib/api-client";
 import { realtimeClient } from "@/lib/realtime";
+import { toast } from "sonner";
 
 interface DeviceRecord {
   id: string;
@@ -29,6 +31,33 @@ export default function DevicesPage() {
   const [devices, setDevices] = useState<DeviceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const runDeviceAction = async (device: DeviceRecord, action: "kill-switch" | "lock") => {
+    if (busyId) return;
+    if (device.activeSessionCount === 0) {
+      toast.info("No active sessions on this device");
+      return;
+    }
+    setBusyId(device.id);
+    try {
+      const res = await apiClient.post<{ sessions: unknown[] }>(
+        `/api/v1/devices/${device.id}/${action}`,
+        { reason: action === "kill-switch" ? "Kill switch from devices page" : "Lock from devices page" },
+      );
+      const count = res?.sessions?.length ?? 0;
+      toast.success(
+        action === "kill-switch"
+          ? `${count} session${count === 1 ? "" : "s"} cancelled on ${device.friendlyName}`
+          : `${count} session${count === 1 ? "" : "s"} locked to observation-only`,
+      );
+      void fetchDevices();
+    } catch {
+      toast.error(`Failed to ${action === "kill-switch" ? "stop" : "lock"} device`);
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   const fetchDevices = async () => {
     try {
@@ -84,7 +113,12 @@ export default function DevicesPage() {
 
   return (
     <div className="flex flex-col gap-6 max-w-7xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <motion.div
+        initial={{ opacity: 0, y: -12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+      >
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl lg:text-3xl font-bold tracking-tight text-foreground">Connected Machines</h1>
           <p className="text-sm text-muted-foreground">Manage and inspect your registered remote gateway devices.</p>
@@ -109,7 +143,7 @@ export default function DevicesPage() {
             </Button>
           </Link>
         </div>
-      </div>
+      </motion.div>
 
       {devices.length === 0 && !loading && (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card p-12 text-center shadow-sm">
@@ -127,9 +161,15 @@ export default function DevicesPage() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {devices.map((device) => (
-          <Link href={`/devices/${device.id}`} key={device.id}>
-            <div className="flex flex-col gap-4 rounded-xl border border-border bg-card p-5 hover:border-primary/50 hover:shadow-md transition-all group">
+        {devices.map((device, i) => (
+          <motion.div
+            key={device.id}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.06 + i * 0.06, ease: [0.22, 1, 0.36, 1] }}
+          >
+          <Link href={`/devices/${device.id}`} className="block h-full">
+            <div className="flex flex-col gap-4 h-full rounded-xl border border-border bg-card p-5 hover:border-primary/50 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 group">
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent group-hover:bg-primary/10 group-hover:text-primary transition-colors">
@@ -190,8 +230,33 @@ export default function DevicesPage() {
                   </span>
                 </div>
               </div>
+
+              {/* Phase 7 §2.5 — per-device kill switch / lock */}
+              {device.activeSessionCount > 0 && (
+                <div className="flex items-center gap-2 pt-1" onClick={(e) => e.preventDefault()}>
+                  <button
+                    onClick={() => void runDeviceAction(device, "kill-switch")}
+                    disabled={busyId === device.id}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/5 px-2 py-1.5 text-[11px] font-bold text-red-600 dark:text-red-400 transition-all hover:bg-red-500/15 disabled:opacity-50"
+                    title="Cancel every active session on this device"
+                  >
+                    {busyId === device.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <OctagonAlert className="h-3 w-3" />}
+                    Stop All
+                  </button>
+                  <button
+                    onClick={() => void runDeviceAction(device, "lock")}
+                    disabled={busyId === device.id}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/5 px-2 py-1.5 text-[11px] font-bold text-amber-600 dark:text-amber-400 transition-all hover:bg-amber-500/15 disabled:opacity-50"
+                    title="Lock sessions to observation-only (approvals superseded)"
+                  >
+                    <Lock className="h-3 w-3" />
+                    Lock
+                  </button>
+                </div>
+              )}
             </div>
           </Link>
+          </motion.div>
         ))}
       </div>
     </div>

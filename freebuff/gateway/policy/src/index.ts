@@ -118,8 +118,8 @@ export class GatewayPolicyCache {
    * If the tunnel is down, HIGH/CRITICAL actions block and fail closed.
    */
   evaluate(
-    capability: Capability,
-    riskClass: 'low' | 'medium' | 'high' | 'critical',
+    _capability: Capability,
+    _riskClass: 'low' | 'medium' | 'high' | 'critical',
     context: PolicyEvaluationContext,
   ): Decision {
     const policyVersion = this.cache?.version ?? null;

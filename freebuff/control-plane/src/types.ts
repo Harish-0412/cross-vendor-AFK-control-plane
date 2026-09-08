@@ -117,6 +117,10 @@ export interface ApprovalRecord {
   matchedRules?: string[] | undefined;
   requiredRole?: 'owner' | 'admin' | undefined;
   expiresAt?: Date | undefined;
+  /** Recorded before delivery so restart reconciliation cannot send a duplicate reminder. */
+  reminderSentAt?: Date | undefined;
+  /** Optional escalation hook checkpoint (for an email/Slack fallback integration). */
+  fallbackTriggeredAt?: Date | undefined;
 }
 
 export interface StoredEvent {

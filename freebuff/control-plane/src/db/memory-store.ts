@@ -396,6 +396,10 @@ export class MemoryApprovalRepository implements IApprovalRepository {
     );
   }
 
+  async listAllPending(): Promise<ApprovalRecord[]> {
+    return Array.from(this.approvals.values()).filter((approval) => approval.status === 'pending');
+  }
+
   async update(id: string, updates: Partial<ApprovalRecord>): Promise<ApprovalRecord | null> {
     const a = this.approvals.get(id);
     if (!a) return null;
