@@ -1,19 +1,8 @@
-import { Classifier, DataClassification } from './types';
-import { Redactor, createRedactor } from './redactor';
+import { Classifier, DataClassification, Redactor } from './types';
+import { createRedactor } from './redactor';
 
 export class DefaultClassifier implements Classifier {
   private redactor: Redactor;
-  private secretPatterns: RegExp[] = [
-    /api[_-]?key/i,
-    /secret/i,
-    /password/i,
-    /token/i,
-    /credential/i,
-    /private[_-]?key/i,
-    /access[_-]?key/i,
-    /connection[_-]?string/i,
-    /database[_-]?url/i
-  ];
 
   constructor() {
     this.redactor = createRedactor();

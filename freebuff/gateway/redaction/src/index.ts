@@ -2,6 +2,7 @@ export * from './types';
 export * from './patterns';
 export * from './redactor';
 export * from './classifier';
+export * from './redaction-proxy';
 
 import { DefaultRedactor, createRedactor, StreamingRedactor, calculateEntropy, isHighEntropy } from './redactor';
 import { DefaultClassifier, DataBoundary, createDataBoundary } from './classifier';

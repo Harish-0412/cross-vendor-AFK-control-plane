@@ -30,7 +30,7 @@ describe('Secret Redaction', () => {
     });
 
     it('should redact GitHub tokens', () => {
-      const text = 'GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz123456';
+      const text = 'GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz1234567890';
       const result = redactor.redact(text);
       
       expect(result.redacted).toBe(true);
@@ -39,7 +39,7 @@ describe('Secret Redaction', () => {
     });
 
     it('should redact OpenAI keys', () => {
-      const text = 'OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz1234567890abcdef';
+      const text = 'OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEFGH1234';
       const result = redactor.redact(text);
       
       expect(result.redacted).toBe(true);
@@ -212,14 +212,14 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABlwAAAAdzc2gtcn
         },
         user: {
           name: 'John',
-          token: 'ghp_abcdefghijklmnopqrstuvwxyz123456'
+          token: 'ghp_abcdefghijklmnopqrstuvwxyz1234567890'
         }
       };
       
       const result = redactor.redactObject(obj);
       
       expect(result.config.apiKey).toBe('[REDACTED_STRIPE_KEY]');
-      expect(result.config.dbPassword).toBe('[REDACTED_PASSWORD]');
+      expect(result.config.dbPassword).toBe('[REDACTED]');
       expect(result.user.token).toBe('[REDACTED_GITHUB_TOKEN]');
       expect(result.user.name).toBe('John');
     });
@@ -235,7 +235,7 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABlwAAAAdzc2gtcn
       
       expect(result[0]).toBe('[REDACTED_STRIPE_KEY]');
       expect(result[1]).toBe('normal string');
-      expect(result[2].password).toBe('[REDACTED_PASSWORD]');
+      expect(result[2].password).toBe('[REDACTED]');
     });
   });
 

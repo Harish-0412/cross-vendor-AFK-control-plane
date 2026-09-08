@@ -18,25 +18,7 @@
       "path": "../../packages/protocol"
     },
     {
-      "path": "../../packages/schemas"
-    },
-    {
       "path": "../../packages/config"
-    },
-    {
-      "path": "../adapters/mock"
-    },
-    {
-      "path": "../checkpoint"
-    },
-    {
-      "path": "../health"
-    },
-    {
-      "path": "../tunnel"
-    },
-    {
-      "path": "../redaction"
     }
   ]
 }

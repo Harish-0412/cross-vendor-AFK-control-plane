@@ -1,8 +1,8 @@
 {
-  "name": "@freebuff/gateway-core",
+  "name": "@freebuff/redaction",
   "version": "0.1.0",
   "private": true,
-  "description": "Gateway Core - Central orchestrator for Freebuff AFK Control Plane",
+  "description": "Redaction pipeline for Freebuff Gateway - detects and masks sensitive data in agent interactions",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
@@ -20,13 +20,7 @@
   },
   "dependencies": {
     "@freebuff/protocol": "workspace:*",
-    "@freebuff/schemas": "workspace:*",
-    "@freebuff/config": "workspace:*",
-    "@freebuff/mock-adapter": "workspace:*",
-    "@freebuff/checkpoint": "workspace:*",
-    "@freebuff/health": "workspace:*",
-    "@freebuff/tunnel": "workspace:*",
-    "@freebuff/redaction": "workspace:*"
+    "@freebuff/config": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^1.5.0"

@@ -34,7 +34,7 @@ export interface CustomPattern {
 
 export interface Redactor {
   redact(text: string): RedactionResult;
-  redactObject(obj: any): any;
+  redactObject<T>(obj: T): T;
   redactStream(stream: AsyncIterable<string>): AsyncIterable<string>;
   addPattern(pattern: CustomPattern): void;
   removePattern(name: string): void;

@@ -20,7 +20,8 @@ export type ScenarioName =
   | 'crash_midway'
   | 'thinking_only'
   | 'file_edits'
-  | 'approvals_chain';
+  | 'approvals_chain'
+  | 'leaky_output';
 
 export interface ScenarioEventTemplate {
   type: EventType;
@@ -266,6 +267,28 @@ export function buildFailedScenario(config: ScenarioConfig): ScenarioEventTempla
   ];
 }
 
+export function buildLeakyOutputScenario(config: ScenarioConfig): ScenarioEventTemplate[] {
+  const delay = config.baseDelayMs ?? DEFAULT_SCENARIO_CONFIG.baseDelayMs;
+  return [
+    { type: 'session.started', delayMs: delay },
+    { type: 'session.thinking', delayMs: delay, payloadFactory: () => sampleThinking('planning') },
+    {
+      type: 'session.output',
+      delayMs: delay,
+      payloadFactory: () => ({
+        stream: 'stdout',
+        content: 'Connecting to AWS with key AKIAIOSFODNN7EXAMPLE...',
+        timestamp: new Date()
+      })
+    },
+    {
+      type: 'session.completed',
+      delayMs: delay,
+      payloadFactory: (ctx) => sampleCompleted(ctx),
+    },
+  ];
+}
+
 export function buildCancelledScenario(config: ScenarioConfig): ScenarioEventTemplate[] {
   const delay = config.baseDelayMs ?? DEFAULT_SCENARIO_CONFIG.baseDelayMs;
   return [
@@ -492,6 +515,8 @@ export function buildScenario(config: ScenarioConfig): ScenarioEventTemplate[] {
     case 'approvals_chain': {
       return buildApprovalScenario({ ...config, approvalCount: config.approvalCount ?? 4 });
     }
+    case 'leaky_output':
+      return buildLeakyOutputScenario(config);
     default:
       return buildSimpleScenario(config);
   }
@@ -548,6 +573,11 @@ export function listScenarios(): Array<{
       name: 'approvals_chain',
       description: 'Chain of multiple approval decisions',
       estimatedDurationMs: 4500,
+    },
+    {
+      name: 'leaky_output',
+      description: 'Outputs a payload containing a simulated secret for redaction testing',
+      estimatedDurationMs: 1500,
     },
   ];
 }

@@ -1,5 +1,5 @@
 import { Redactor, RedactionOptions, RedactionResult, RedactionMatch, CustomPattern, SecretType } from './types';
-import { BUILTIN_PATTERNS, createPatternRegistry, getAllPatterns } from './patterns';
+import { createPatternRegistry } from './patterns';
 
 export class DefaultRedactor implements Redactor {
   private patterns: Map<string, CustomPattern>;
@@ -57,14 +57,14 @@ export class DefaultRedactor implements Redactor {
 
     const matches: RedactionMatch[] = [];
     let redactedText = text;
-    let offset = 0;
 
     const sortedPatterns = this.getSortedPatterns();
 
     for (const pattern of sortedPatterns) {
       if (matches.length >= this.options.maxMatches) break;
 
-      const regex = new RegExp(pattern.pattern.source, pattern.pattern.flags + 'g');
+      const flags = pattern.pattern.flags.includes('g') ? pattern.pattern.flags : pattern.pattern.flags + 'g';
+      const regex = new RegExp(pattern.pattern.source, flags);
       let match;
 
       while ((match = regex.exec(text)) !== null) {
@@ -72,23 +72,13 @@ export class DefaultRedactor implements Redactor {
 
         const fullMatch = match[0];
         const matchIndex = match.index;
-        const adjustedIndex = matchIndex + offset;
 
         const existingMatch = matches.find(m => 
-          m.index <= adjustedIndex && adjustedIndex < m.index + m.length
+          (matchIndex >= m.index && matchIndex < m.index + m.length) ||
+          (matchIndex + fullMatch.length > m.index && matchIndex + fullMatch.length <= m.index + m.length) ||
+          (matchIndex <= m.index && matchIndex + fullMatch.length >= m.index + m.length)
         );
         if (existingMatch) continue;
-
-        const placeholder = pattern.placeholder || this.options.placeholder;
-        const replacement = this.options.preserveLength 
-          ? 'X'.repeat(fullMatch.length)
-          : placeholder;
-
-        redactedText = redactedText.slice(0, adjustedIndex) + 
-                       replacement + 
-                       redactedText.slice(adjustedIndex + fullMatch.length);
-
-        offset += replacement.length - fullMatch.length;
 
         matches.push({
           type: pattern.type,
@@ -99,6 +89,27 @@ export class DefaultRedactor implements Redactor {
           pattern: pattern.pattern.source
         });
       }
+    }
+
+    // Sort matches by index to apply replacements properly
+    matches.sort((a, b) => a.index - b.index);
+
+    let offset = 0;
+    for (const match of matches) {
+      const pattern = this.patterns.get(match.name);
+      if (!pattern) continue;
+
+      const placeholder = pattern.placeholder || this.options.placeholder;
+      const replacement = this.options.preserveLength 
+        ? 'X'.repeat(match.length)
+        : placeholder;
+
+      const adjustedIndex = match.index + offset;
+      redactedText = redactedText.slice(0, adjustedIndex) + 
+                     replacement + 
+                     redactedText.slice(adjustedIndex + match.length);
+
+      offset += replacement.length - match.length;
     }
 
     return {
@@ -117,7 +128,7 @@ export class DefaultRedactor implements Redactor {
       'private_key': 100,
       'aws_secret_key': 90,
       'jwt_token': 80,
-      'bearer_token': 80,
+      'bearer_token': 85,
       'connection_string': 70,
       'password': 70,
       'api_key': 60,
@@ -130,30 +141,41 @@ export class DefaultRedactor implements Redactor {
       'custom': 10
     };
 
-    return patterns.sort((a, b) => (priority[b.type] || 0) - (priority[a.type] || 0));
+    return patterns.sort((a, b) => (priority[b.type as SecretType] || 0) - (priority[a.type as SecretType] || 0));
   }
 
-  redactObject(obj: any): any {
+  redactObject<T>(obj: T): T {
     if (obj === null || obj === undefined) return obj;
     
     if (typeof obj === 'string') {
-      return this.redact(obj).text;
+      return this.redact(obj).text as unknown as T;
     }
     
     if (Array.isArray(obj)) {
-      return obj.map(item => this.redactObject(item));
+      return obj.map(item => this.redactObject(item)) as unknown as T;
     }
     
     if (typeof obj === 'object') {
       const result: any = {};
       for (const [key, value] of Object.entries(obj)) {
-        if (this.isSensitiveKey(key)) {
-          result[key] = this.options.placeholder;
+        if (typeof value === 'string') {
+          const redactedVal = this.redact(value);
+          if (redactedVal.redacted) {
+            result[key] = redactedVal.text;
+          } else if (this.isSensitiveKey(key)) {
+            result[key] = this.options.placeholder;
+          } else {
+            result[key] = value;
+          }
         } else {
-          result[key] = this.redactObject(value);
+          if (this.isSensitiveKey(key)) {
+            result[key] = this.options.placeholder;
+          } else {
+            result[key] = this.redactObject(value);
+          }
         }
       }
-      return result;
+      return result as unknown as T;
     }
     
     return obj;
