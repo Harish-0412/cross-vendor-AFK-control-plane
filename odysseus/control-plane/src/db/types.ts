@@ -126,6 +126,22 @@ export interface IOrchestrationRepository {
 }
 
 export interface IEventRepository {
+  /**
+   * Append an event, idempotently.
+   *
+   * Duplicate delivery is normal, not exceptional: the tunnel replays queued
+   * events after a reconnect, and once a device holds more than one
+   * connection the same event can arrive over either. Re-appending would
+   * inflate counts and show the user the same output twice.
+   *
+   * The idempotency key is `envelope.eventId`, which is minted once at the
+   * source and is stable across every redelivery. It is deliberately NOT
+   * (sessionId, sequence): sequences are allocated per session by the
+   * gateway, and keying on them would merge two genuinely different events
+   * that happened to share a number.
+   *
+   * Returns the previously stored event when one already exists.
+   */
   append(event: Omit<StoredEvent, 'id' | 'storedAt'>): Promise<StoredEvent>;
   listBySession(sessionId: string, fromSequence?: number, limit?: number): Promise<StoredEvent[]>;
   getHighestSequence(sessionId: string): Promise<number>;

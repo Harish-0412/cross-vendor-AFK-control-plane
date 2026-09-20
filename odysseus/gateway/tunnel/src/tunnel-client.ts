@@ -354,6 +354,7 @@ export class TunnelClient {
       this.sendRaw('auth', {
         deviceId: this.config.deviceId,
         gatewayId: this.config.gatewayId,
+        connectionId: this.config.connectionId,
         nonce: randomBytes(16).toString('hex'),
         timestamp: new Date(),
         publicKeyJwk: {},
@@ -368,6 +369,7 @@ export class TunnelClient {
     const payload: AuthPayload = {
       deviceId: this.config.deviceId,
       gatewayId: this.config.gatewayId,
+      connectionId: this.config.connectionId,
       nonce,
       timestamp,
       publicKeyJwk: this.authProvider.getPublicKeyJwk(),

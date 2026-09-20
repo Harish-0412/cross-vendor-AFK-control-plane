@@ -51,6 +51,13 @@ import {
   type SessionRecord,
 } from './session-registry';
 import { type AdmissionPhase, ADMISSION_POLICY, SessionAdmissionError } from './runtime/admission';
+import {
+  AdapterCircuit,
+  AdapterUnavailableError,
+  CapabilityError,
+  findCapabilityViolations,
+  requirementsForSession,
+} from './runtime/capabilities';
 
 export type { GatewayOptions } from '@odysseus/protocol';
 
@@ -86,6 +93,7 @@ export class GatewayImpl implements GatewayCore {
   private tunnelForwardFailures = 0;
   private admissionPhase: AdmissionPhase = 'running';
   private readonly phaseListeners: Set<(phase: AdmissionPhase) => void> = new Set();
+  private readonly adapterCircuits = new Map<string, AdapterCircuit>();
 
   constructor(options: GatewayOptions = {}) {
     this.options = mergeGatewayOptions(options) as typeof this.options;
@@ -229,6 +237,52 @@ export class GatewayImpl implements GatewayCore {
     }
 
     this.emitGatewayEvent({ type: 'gateway.started', timestamp: new Date() });
+  }
+
+  private circuitFor(adapterId: string): AdapterCircuit {
+    let circuit = this.adapterCircuits.get(adapterId);
+    if (!circuit) {
+      circuit = new AdapterCircuit();
+      this.adapterCircuits.set(adapterId, circuit);
+    }
+    return circuit;
+  }
+
+  /** Circuit state per adapter, for health reporting and diagnostics. */
+  getAdapterCircuits(): Record<string, ReturnType<AdapterCircuit['snapshot']>> {
+    return Object.fromEntries(
+      Array.from(this.adapterCircuits.entries()).map(([id, circuit]) => [id, circuit.snapshot()]),
+    );
+  }
+
+  /**
+   * Agent inventory with circuit state folded into health.
+   *
+   * AgentRouter already filters on `health.status !== 'unhealthy'`, so an open
+   * circuit removes the adapter from fleet routing with no extra plumbing.
+   */
+  async listAgentsWithCircuitHealth(): Promise<AgentInfo[]> {
+    const agents = await this.listAgents();
+    return agents.map((agent) => {
+      const circuit = this.adapterCircuits.get(agent.metadata.id);
+      if (!circuit) return agent;
+
+      const snapshot = circuit.snapshot();
+      if (snapshot.state === 'closed') return agent;
+
+      return {
+        ...agent,
+        health: {
+          ...agent.health,
+          status: snapshot.state === 'open' ? 'unhealthy' : 'degraded',
+          issues: [
+            ...(agent.health.issues ?? []),
+            `Circuit ${snapshot.state} after ${snapshot.consecutiveFailures} consecutive ` +
+              `failures${snapshot.lastError ? `: ${snapshot.lastError}` : ''}`,
+          ],
+        },
+      };
+    });
   }
 
   /** True when no allowlist is configured, or the id appears in it. */
@@ -477,8 +531,11 @@ export class GatewayImpl implements GatewayCore {
             result: {
               gatewayId: this.gatewayId,
               deviceId: this.deviceId,
-              agents: await this.listAgents(),
+              // Circuit state is folded into health here, so an adapter that
+              // keeps failing drops out of the Control Plane's routing.
+              agents: await this.listAgentsWithCircuitHealth(),
               activeSessions: this.registry.getActiveCount(),
+              admissionPhase: this.admissionPhase,
             },
           };
         case 'git.branch_create': {
@@ -696,6 +753,25 @@ export class GatewayImpl implements GatewayCore {
       );
     }
 
+    // An adapter whose CLI is broken is not retried on every session. The open
+    // circuit also makes it report unhealthy, which drops it out of fleet
+    // routing via system.inventory.
+    const circuit = this.circuitFor(config.adapter);
+    if (!circuit.allowsAttempt()) {
+      throw new AdapterUnavailableError(config.adapter, circuit.snapshot());
+    }
+
+    // Capabilities are enforced BEFORE anything is spawned. Starting a session
+    // that asks for approvals against an adapter that cannot intercept them
+    // produces a session that looks governed and is not.
+    const violations = findCapabilityViolations(
+      adapter.metadata().capabilities,
+      requirementsForSession(config),
+    );
+    if (violations.length > 0) {
+      throw new CapabilityError(config.adapter, violations);
+    }
+
     const validation = await this.validateProject(config.projectRoot);
     if (!validation.valid) {
       throw new Error(`Invalid project root: ${validation.errors.join('; ')}`);
@@ -727,7 +803,9 @@ export class GatewayImpl implements GatewayCore {
     try {
       // Start the adapter session first to get its session ID
       adapterSessionId = await adapter.startSession(config);
+      circuit.recordSuccess();
     } catch (err) {
+      circuit.recordFailure(err);
       const message = err instanceof Error ? err.message : String(err);
       throw new Error(`Failed to start adapter session: ${message}`);
     }
@@ -911,6 +989,11 @@ export class GatewayImpl implements GatewayCore {
             event = { ...event, deviceId: this.deviceId };
           }
 
+          // Re-number onto the gateway's single per-session counter. The
+          // adapter's own numbering is private to the adapter and overlaps
+          // with events the gateway publishes itself.
+          event = { ...event, sequence: this.nextSequence(gatewaySessionId) };
+
           this.registry.appendEvent(gatewaySessionId, event);
           this.bus.publish(event);
 
@@ -984,13 +1067,31 @@ export class GatewayImpl implements GatewayCore {
     void wire();
   }
 
+  /**
+   * The next sequence number for a session.
+   *
+   * There is exactly one counter per session and it lives here. Adapters keep
+   * their own counters starting at zero, and the gateway used to publish its
+   * own events (session.created) on a separate counter also starting at zero —
+   * so two different events in one session could share a sequence. That breaks
+   * gap detection during reconciliation, and makes any dedup keyed on
+   * (sessionId, sequence) silently drop a real event.
+   */
+  private nextSequence(sessionId: string): number {
+    const record = this.registry.get(sessionId);
+    if (!record) return 0;
+    const sequence = record.sequenceNumber;
+    record.sequenceNumber = sequence + 1;
+    return sequence;
+  }
+
   private publishEnvelope(
     sessionId: string,
     eventType: EventEnvelope['eventType'],
     payload: unknown,
   ): void {
     const record = this.registry.get(sessionId);
-    const sequence = record?.sequenceNumber ?? 0;
+    const sequence = this.nextSequence(sessionId);
     this.bus.publish({
       eventId: generateEventId(),
       eventType,
@@ -1002,7 +1103,6 @@ export class GatewayImpl implements GatewayCore {
       payload,
     });
     if (record) {
-      record.sequenceNumber = sequence + 1;
       record.eventCount += 1;
       record.lastEventAt = new Date();
       record.lastEventType = eventType;

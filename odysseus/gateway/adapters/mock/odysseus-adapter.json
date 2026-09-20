@@ -1,0 +1,9 @@
+{
+  "id": "mock",
+  "name": "Mock Agent",
+  "entry": "./src/index.ts",
+  "export": "createMockAdapter",
+  "protocolVersion": "1",
+  "platforms": ["linux", "darwin", "win32"],
+  "description": "Deterministic in-process agent used for tests and demos"
+}

@@ -2,6 +2,8 @@
 
 **Scope:** Defects 1–3 of the Chapter 1 audit — the gateway entrypoint, the Control Plane connection, and the adapter registry. This document takes each from "works" to "production-grade", grounded in patterns proven in high-value open-source projects.
 
+> **Implementation status:** all eight PRs in §5 are implemented and tested (632 tests passing). Three findings during implementation changed the design as written; each is noted inline below.
+
 **Status of the baseline.** A minimal fix for all three landed already and is proven by `scripts/smoke-core-loop.ts` (11/11). This document is about the *second* pass: the architecture that makes them survive bad networks, partial failures, hostile shutdown timing, and a growing adapter roster.
 
 | # | Defect | Baseline fix (done) | This document |
@@ -354,8 +356,8 @@ CLI flag layer + `~/.odysseus/config.yaml` loader on top of `mergeGatewayOptions
 Jitter (TLS-wide), unlimited retries by default, health-gated reset, per-endpoint attempt budget, failure classification, **remove `simulateConnection()`**. Fix the Control Plane's `DEVICE_REVOKED` misreport.
 *Verify:* kill the CP mid-session → gateway enters `degraded`, queues events, reconnects, replays. Revoke a device → gateway exits 77 and does not retry.
 
-**PR 5 — Event idempotency** *(prerequisite for PR 6)*
-`events.append` idempotent on `(sessionId, sequence)`.
+**PR 5 — Event idempotency** *(prerequisite for PR 6)* — **done, key changed**
+Keyed on `envelope.eventId`, NOT `(sessionId, sequence)` as originally specified. Two counters in the gateway both started at zero for the same session, so `session.created` and the adapter first event collided on sequence 0; deduping on that pair would have silently dropped a real event. The gateway now allocates one monotonic sequence per session, and `eventId` is the idempotency key because it is stable across redelivery and unique per event.
 *Verify:* replaying a duplicate event batch leaves the count unchanged.
 
 **PR 6 — Connection supervisor** *(defect 2)*

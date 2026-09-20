@@ -321,14 +321,25 @@ export class MemoryIntegrationCredentialRepository implements IIntegrationCreden
 
 export class MemoryEventRepository implements IEventRepository {
   private events: StoredEvent[] = [];
+  /** eventId -> stored event, so redelivery is a lookup rather than a scan. */
+  private byEventId = new Map<string, StoredEvent>();
 
   async append(data: Omit<StoredEvent, 'id' | 'storedAt'>): Promise<StoredEvent> {
+    // See IEventRepository.append: the key is the envelope's eventId, which
+    // is stable across replay and unique per event.
+    const eventId = data.envelope?.eventId;
+    if (eventId) {
+      const existing = this.byEventId.get(eventId);
+      if (existing) return existing;
+    }
+
     const event: StoredEvent = {
       id: `evt_${randomUUID().replace(/-/g, '')}`,
       ...data,
       storedAt: new Date(),
     };
     this.events.push(event);
+    if (eventId) this.byEventId.set(eventId, event);
     return event;
   }
 

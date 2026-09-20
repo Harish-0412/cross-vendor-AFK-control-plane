@@ -1,0 +1,10 @@
+{
+  "id": "antigravity",
+  "name": "Antigravity CLI",
+  "entry": "./src/index.ts",
+  "export": "AntigravityAdapter",
+  "protocolVersion": "1",
+  "platforms": ["linux", "darwin", "win32"],
+  "description": "Local-first agent with a built-in sandbox and daemon mode",
+  "detect": { "command": "antigravity", "versionFlag": "--version", "timeoutMs": 3000 }
+}

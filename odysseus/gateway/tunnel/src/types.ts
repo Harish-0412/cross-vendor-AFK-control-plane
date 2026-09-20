@@ -42,6 +42,8 @@ export interface TunnelMessage {
 export interface AuthPayload {
   deviceId: string;
   gatewayId: string;
+  /** Which of this device's concurrent connections this socket is. */
+  connectionId?: string | undefined;
   nonce: string;
   timestamp: Date;
   publicKeyJwk: Record<string, unknown>;
@@ -75,6 +77,13 @@ export interface TunnelConfig {
   controlPlaneUrl: string;
   deviceId: string;
   gatewayId: string;
+  /**
+   * Distinguishes this connection from others opened by the same device.
+   * Without it the Control Plane treats each new connection as a replacement
+   * and closes the previous one, so multi-connection mode collapses back to a
+   * single tunnel.
+   */
+  connectionId?: string;
   authToken?: string;
   tlsOptions?: {
     caCertPem?: string;
@@ -120,6 +129,7 @@ export const DEFAULT_TUNNEL_CONFIG: Required<
   controlPlaneUrl: '',
   deviceId: '',
   gatewayId: '',
+  connectionId: 'default',
   // Defaults follow the NATS client's long-lived-service guidance: a short
   // base that grows to a 20s cap, with unlimited retries.
   reconnectBaseMs: 500,

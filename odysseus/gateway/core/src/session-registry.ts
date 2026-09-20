@@ -112,7 +112,10 @@ export class SessionRegistry {
     this.update(id, {
       eventBuffer: buffer,
       eventCount: record.eventCount + 1,
-      sequenceNumber: event.sequence + 1,
+      // Monotonic: the gateway owns the counter and may already have advanced
+      // it when it allocated this event's sequence. Assigning event.sequence+1
+      // unconditionally would either rewind it or double-count.
+      sequenceNumber: Math.max(record.sequenceNumber, event.sequence + 1),
       lastEventAt: event.occurredAt,
       lastEventType: event.eventType,
     });

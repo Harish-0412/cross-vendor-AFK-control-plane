@@ -12,6 +12,9 @@
  * supplies the two things they cannot know on their own: a WebSocket
  * implementation and a signing identity.
  */
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import WebSocket from 'ws';
 
 import { createGateway } from '../gateway/core/src/gateway';
@@ -21,9 +24,11 @@ import {
   controlPlaneUrlCheck,
   createLogger,
   createGatewayRuntime,
+  discoverAdapters,
   ExitCode,
   formatResolvedConfig,
   identityCheck,
+  loadAdapter,
   loadGatewayConfig,
   nodeVersionCheck,
   projectRootsCheck,
@@ -114,7 +119,14 @@ async function main(): Promise<void> {
       : {}),
   });
 
-  await registerAvailableAdapters(gateway, deviceLog);
+  const adapterResult = await registerAvailableAdapters(gateway, deviceLog, {
+    allowedAdapters: options.allowedAdapters,
+  });
+  if (adapterResult.fatal) {
+    deviceLog.error('gateway.adapter_fatal', { detail: adapterResult.fatal });
+    process.exit(ExitCode.CONFIG);
+    return;
+  }
   const agents = await gateway.detectAgents();
   for (const agent of agents) {
     deviceLog.info('gateway.agent', {
@@ -235,41 +247,60 @@ async function fetchControlPlaneTime(wsUrl: string | undefined): Promise<Date | 
 }
 
 /**
- * Probe for optional adapters and register the ones this machine can run.
- * Imports are dynamic so a missing or unbuilt adapter package degrades to a
- * warning instead of taking the whole gateway down at startup.
+ * Discover adapters from manifests and register the ones this machine can run.
+ *
+ * Two-phase, following Packer: explicitly configured adapters are required and
+ * a failure to load one is fatal, while discovered adapters are optional and a
+ * failure is a named warning. The previous hardcoded try/catch conflated those
+ * — a broken adapter was indistinguishable from an absent one.
+ *
+ * Returns a fatal reason when a required adapter could not be loaded.
  */
-type AnyAdapter = Parameters<ReturnType<typeof createGateway>['registerAdapter']>[0];
-
 async function registerAvailableAdapters(
   gateway: ReturnType<typeof createGateway>,
   log: ReturnType<typeof createLogger>,
-): Promise<void> {
-  const candidates: Array<{ name: string; construct: () => Promise<AnyAdapter> }> = [
-    {
-      name: 'opencode',
-      construct: async () => {
-        const { OpenCodeAdapter } = await import('../gateway/adapters/opencode/src/index');
-        return new OpenCodeAdapter() as AnyAdapter;
-      },
-    },
-    {
-      name: 'antigravity',
-      construct: async () => {
-        const { AntigravityAdapter } = await import('../gateway/adapters/antigravity/src/index');
-        return new AntigravityAdapter() as AnyAdapter;
-      },
-    },
-  ];
+  options: { allowedAdapters?: string[] | undefined; explicit?: Array<{ path: string }> },
+): Promise<{ fatal?: string }> {
+  const workspaceRoot = join(dirname(fileURLToPath(import.meta.url)), '..', 'gateway', 'adapters');
 
-  for (const candidate of candidates) {
+  const discovery = await discoverAdapters({
+    ...(options.explicit ? { explicit: options.explicit } : {}),
+    workspaceRoots: [workspaceRoot],
+    ...(options.allowedAdapters ? { allowedAdapters: options.allowedAdapters } : {}),
+    logger: log,
+  });
+
+  for (const warning of discovery.warnings) log.warn('adapter.discovery_warning', { detail: warning });
+  if (discovery.errors.length > 0) {
+    for (const error of discovery.errors) log.error('adapter.required_failed', { detail: error });
+    return { fatal: discovery.errors[0] };
+  }
+
+  for (const discovered of discovery.adapters) {
     try {
-      const registered = gateway.registerAdapter(await candidate.construct());
-      log.info('adapter.registered', { adapter: candidate.name, registered });
+      const { adapter, manifest } = await loadAdapter(discovered);
+      const registered = gateway.registerAdapter(adapter);
+      log.info('adapter.registered', {
+        adapter: manifest.id,
+        source: discovered.source,
+        registered,
+      });
     } catch (err) {
-      log.warn('adapter.unavailable', { adapter: candidate.name, error: err as Error });
+      if (discovered.required) {
+        log.error('adapter.required_failed', {
+          adapter: discovered.manifest.id,
+          error: err as Error,
+        });
+        return { fatal: (err as Error).message };
+      }
+      log.warn('adapter.unavailable', {
+        adapter: discovered.manifest.id,
+        error: err as Error,
+      });
     }
   }
+
+  return {};
 }
 
 main().catch((err: unknown) => {

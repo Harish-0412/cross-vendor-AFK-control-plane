@@ -115,15 +115,18 @@ export class TunnelServer {
         );
       });
 
+      // Remove only the connection that died. A device holding several
+      // tunnels stays online on the rest — removing the whole device would
+      // turn one dropped socket into a full outage for that machine.
       socket.on('close', () => {
         if (authenticatedDeviceId) {
-          this.registry.removeGateway(authenticatedDeviceId);
+          this.registry.removeGatewaySocket(authenticatedDeviceId, socket);
         }
       });
 
       socket.on('error', () => {
         if (authenticatedDeviceId) {
-          this.registry.removeGateway(authenticatedDeviceId);
+          this.registry.removeGatewaySocket(authenticatedDeviceId, socket);
         }
       });
     });
@@ -219,10 +222,16 @@ export class TunnelServer {
         setAuthDevId(deviceId);
         await this.db.devices.updateLastSeen(deviceId, new Date());
 
+        // A gateway running several tunnels labels each one, so they are kept
+        // side by side rather than each replacing the last.
+        const connectionId =
+          typeof payload?.['connectionId'] === 'string' ? payload['connectionId'] : 'default';
+
         this.registry.registerGateway({
           deviceId,
           gatewayId,
           socket,
+          connectionId,
           connectedAt: new Date(),
           lastHeartbeatAt: new Date(),
           remoteAddress: req.socket.remoteAddress ?? undefined,
@@ -435,7 +444,7 @@ export class TunnelServer {
 
       // 6. Handle Disconnect
       if (type === 'disconnect') {
-        this.registry.removeGateway(authedId);
+        this.registry.removeGatewaySocket(authedId, socket);
         socket.close(1000, 'Gateway requested disconnect');
       }
     } catch (err) {
@@ -468,12 +477,21 @@ export class TunnelServer {
     delivered: boolean;
     payload?: unknown;
   }> {
-    const conn = this.registry.getGateway(deviceId);
+    // Pick the least-loaded healthy connection rather than always the first.
+    // With one connection this is the previous behaviour; with several it
+    // keeps a slow command from blocking everything queued behind it, and
+    // makes a dropped socket invisible as long as another is up.
+    const conn = this.registry.pickConnection(deviceId);
     const delivered = !!conn && conn.socket.readyState === 1;
 
-    if (!delivered) {
+    if (!conn || !delivered) {
       return { acknowledged: false, sequence: null, delivered: false, payload: undefined };
     }
+
+    conn.inFlight = (conn.inFlight ?? 0) + 1;
+    const releaseSlot = (): void => {
+      conn.inFlight = Math.max(0, (conn.inFlight ?? 1) - 1);
+    };
 
     const commandId = `cmd_${randomUUID().replace(/-/g, '')}`;
     const message = {
@@ -492,6 +510,7 @@ export class TunnelServer {
 
     if (!expectAck) {
       this.send(conn.socket, message);
+      releaseSlot();
       return { acknowledged: false, sequence: null, delivered: true, payload: undefined };
     }
 
@@ -503,6 +522,7 @@ export class TunnelServer {
     }>((resolve) => {
       const timer = setTimeout(() => {
         this.pendingCommands.delete(commandId);
+        releaseSlot();
         resolve({ acknowledged: false, sequence: null, delivered: true, payload: undefined });
       }, timeoutMs);
 
@@ -510,6 +530,7 @@ export class TunnelServer {
         resolve: (val: unknown) => {
           clearTimeout(timer);
           this.pendingCommands.delete(commandId);
+          releaseSlot();
           resolve({
             acknowledged: true,
             sequence: (val as { sequence?: number })?.sequence ?? null,
@@ -520,6 +541,7 @@ export class TunnelServer {
         reject: () => {
           clearTimeout(timer);
           this.pendingCommands.delete(commandId);
+          releaseSlot();
           resolve({ acknowledged: false, sequence: null, delivered: true, payload: undefined });
         },
         timer,
@@ -530,6 +552,7 @@ export class TunnelServer {
       } catch {
         clearTimeout(timer);
         this.pendingCommands.delete(commandId);
+        releaseSlot();
         resolve({ acknowledged: false, sequence: null, delivered: true, payload: undefined });
       }
     });

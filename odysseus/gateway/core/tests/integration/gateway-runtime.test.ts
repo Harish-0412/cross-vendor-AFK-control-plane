@@ -61,11 +61,15 @@ describe('GatewayRuntime lifecycle', () => {
 
   function build(overrides: Partial<Parameters<typeof createGatewayRuntime>[0]> = {}) {
     const harness = makeSignalHarness();
+    // Bind to THIS build's array rather than the describe-scope variable. A
+    // runtime whose async shutdown outlives its test would otherwise push an
+    // exit code into the next test's array.
+    const sink = exitCodes;
     const rt = createGatewayRuntime({
       gateway,
       drainBudgetMs: 5_000,
       cleanupBudgetMs: 0,
-      exit: (code) => exitCodes.push(code),
+      exit: (code) => sink.push(code),
       onSignal: harness.onSignal,
       ...overrides,
     });
@@ -251,6 +255,45 @@ describe('GatewayRuntime lifecycle', () => {
     await waitFor(() => exitCodes.length > 0, 10_000);
     expect(exitCodes).toEqual([ExitCode.NOPERM]);
   }, 15_000);
+
+  test('a drain escalated to abort exits exactly once', async () => {
+    // Regression: stop() waits on drain, abort() escalates past it, and then
+    // stop() resumes and called finish() a second time. Two exits meant the
+    // reported code was whichever landed last.
+    const { runtime: rt, harness } = build({
+      connect: async () => undefined,
+      drainBudgetMs: 60_000,
+      cleanupBudgetMs: 0,
+    });
+    await rt.start();
+    await gateway.createSession(sessionConfig());
+
+    harness.fire('SIGINT');
+    await waitFor(() => rt.state === 'draining', 5_000);
+    harness.fire('SIGINT');
+    await waitFor(() => rt.state === 'stopped', 15_000);
+
+    // Give the superseded stop() a chance to resume and try to exit again.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    expect(exitCodes).toHaveLength(1);
+    expect(exitCodes[0]).toBe(ExitCode.OK);
+  }, 25_000);
+
+  test('a fatal exit code is not overwritten by a later routine exit', async () => {
+    const { runtime: rt } = build({ connect: async () => undefined });
+    await rt.start();
+
+    rt.recordFailure('auth_fatal', new Error('device revoked'));
+    await waitFor(() => exitCodes.length > 0, 10_000);
+
+    // A stop() arriving afterwards must not replace 77 with 0.
+    await rt.stop('late stop');
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(exitCodes).toEqual([ExitCode.NOPERM]);
+    expect(rt.getExitCode()).toBe(ExitCode.NOPERM);
+  }, 20_000);
 
   test('tunnel loss degrades and reconnection restores online', async () => {
     const { runtime: rt } = build({ connect: async () => undefined });

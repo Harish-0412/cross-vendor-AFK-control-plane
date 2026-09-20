@@ -15,6 +15,9 @@ export * from './runtime/logger';
 export * from './runtime/preflight';
 export * from './runtime/gateway-runtime';
 export * from './runtime/config-loader';
+export * from './runtime/tunnel-supervisor';
+export * from './runtime/adapter-manifest';
+export * from './runtime/capabilities';
 
 // Re-export new Phase 1 modules
 export { CheckpointStore, createCheckpointStore } from '@odysseus/checkpoint';

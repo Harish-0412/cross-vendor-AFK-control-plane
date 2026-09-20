@@ -547,16 +547,34 @@ export class FirestoreEventRepository implements IEventRepository {
   private col = () => this.db.collection('events');
 
   async append(data: Omit<StoredEvent, 'id' | 'storedAt'>): Promise<StoredEvent> {
-    const id = `evt_${randomUUID().replace(/-/g, '')}`;
+    // Idempotency comes from the document id: deriving it from the envelope's
+    // eventId makes a redelivery address the same document, so a duplicate is
+    // a no-op write rather than a second row. See IEventRepository.append.
+    const eventId = data.envelope?.eventId;
+    const id = eventId
+      ? `evt_${eventId.replace(/[^A-Za-z0-9_-]/g, '')}`
+      : `evt_${randomUUID().replace(/-/g, '')}`;
+
+    const docRef = this.col().doc(id);
+    if (eventId) {
+      const existing = await docRef.get();
+      if (existing.exists) {
+        const d = docData(existing);
+        return {
+          ...d,
+          id: existing.id,
+          storedAt: toDate(d['storedAt']),
+        } as StoredEvent;
+      }
+    }
+
     const storedAt = new Date();
     const event: StoredEvent = {
       id,
       ...data,
       storedAt,
     };
-    await this.col()
-      .doc(id)
-      .set(cleanUndefined(event as unknown as Record<string, unknown>));
+    await docRef.set(cleanUndefined(event as unknown as Record<string, unknown>));
     return event;
   }
 

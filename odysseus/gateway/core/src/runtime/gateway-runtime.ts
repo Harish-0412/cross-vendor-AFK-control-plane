@@ -109,6 +109,7 @@ export class GatewayRuntime {
   private readonly stateListeners = new Set<(change: RuntimeStateChange) => void>();
   private failureTimestamps: number[] = [];
   private stopping = false;
+  private finished = false;
   private lastInterruptAt = 0;
   private exitCode: ExitCodeValue = ExitCode.OK;
 
@@ -348,7 +349,25 @@ export class GatewayRuntime {
     this.finish(code);
   }
 
+  /**
+   * Exit exactly once.
+   *
+   * Two paths can reach here for the same shutdown: a drain escalated to an
+   * abort leaves the original stop() still waiting on its drain, and it
+   * resumes afterwards. Without this guard both call exitFn and the process
+   * reports whichever code happened to land last — so a fatal 77 could be
+   * overwritten by a routine 0.
+   */
   private finish(code: ExitCodeValue): void {
+    if (this.finished) {
+      this.log.debug('runtime.exit_suppressed', {
+        attempted: code,
+        actual: this.exitCode,
+        detail: 'process exit already decided',
+      });
+      return;
+    }
+    this.finished = true;
     this.exitCode = code;
     this.exitFn(code);
   }

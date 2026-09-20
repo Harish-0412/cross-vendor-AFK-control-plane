@@ -1,0 +1,10 @@
+{
+  "id": "opencode",
+  "name": "OpenCode",
+  "entry": "./src/index.ts",
+  "export": "OpenCodeAdapter",
+  "protocolVersion": "1",
+  "platforms": ["linux", "darwin", "win32"],
+  "description": "Open-source coding agent driven through its JSON CLI",
+  "detect": { "command": "opencode", "versionFlag": "--version", "timeoutMs": 3000 }
+}
