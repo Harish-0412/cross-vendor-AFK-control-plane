@@ -1,18 +1,18 @@
-# Freebuff Architecture: Governance & Orchestration Layer
+# Odysseus Architecture: Governance & Orchestration Layer
 
 **Document:** Architecture Overview for the Governance and Orchestration Services  
-**Project:** Freebuff — The Kubernetes/Control-Plane Layer for AI Coding Agents  
+**Project:** Odysseus — The Kubernetes/Control-Plane Layer for AI Coding Agents  
 **Status:** Planning / Strategic Direction  
 
 ---
 
 ## 1. The Core Insight
 
-Freebuff's differentiator is not "remote control for coding agents." It's **"the Kubernetes/control-plane layer for AI coding agents."**
+Odysseus's differentiator is not "remote control for coding agents." It's **"the Kubernetes/control-plane layer for AI coding agents."**
 
 The key architectural insight: **agents become interchangeable execution engines.**
 
-When a user says "Fix this production bug," Freebuff decides:
+When a user says "Fix this production bug," Odysseus decides:
 - Which agent should handle it
 - Which model/provider to use
 - What permissions the agent gets
@@ -23,7 +23,7 @@ When a user says "Fix this production bug," Freebuff decides:
 - Whether another agent should review the work
 - Whether the final change satisfies organizational policy
 
-This turns Freebuff into an **agent-neutral execution marketplace** — "Bring your own agent. We govern the work."
+This turns Odysseus into an **agent-neutral execution marketplace** — "Bring your own agent. We govern the work."
 
 ---
 
@@ -575,7 +575,7 @@ User: "Fix the authentication bug and add tests"
 
 ## 6. Competitive Positioning
 
-| Competitor | Approach | Freebuff Difference |
+| Competitor | Approach | Odysseus Difference |
 |---|---|---|
 | OpenAI Codex | "Our agent with our governance" | "Any agent with your governance" |
 | Coder | Centralized agent controls | Vendor-neutral, multi-agent orchestration |
@@ -583,7 +583,7 @@ User: "Fix the authentication bug and add tests"
 | Cloudflare AI Gateway | Observability + DLP for coding agents | Full governance + orchestration + routing |
 | Devin | Enterprise RBAC + audit for their agent | Neutral layer for any agent |
 
-**The strategic gap:** Everyone builds governance for *their* agent. Freebuff builds governance for *any* agent.
+**The strategic gap:** Everyone builds governance for *their* agent. Odysseus builds governance for *any* agent.
 
 ---
 

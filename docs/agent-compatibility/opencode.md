@@ -287,7 +287,7 @@ opencode run --headless --non-interactive --quiet --prompt "Task"
 
 ## Integration Assessment
 
-### Strengths for Freebuff Integration
+### Strengths for Odysseus Integration
 1. **Native headless mode** with JSON output
 2. **Open source** (MIT) - no licensing barriers
 3. **Active development** with stable CLI
@@ -344,7 +344,7 @@ Adapter Strategy: Process Wrapper
 | `OPENCODE_WORKSPACE` | Workspace directory |
 | `NO_COLOR` | Disable colored output |
 
-## Summary for Freebuff
+## Summary for Odysseus
 
 | Capability | Support | Notes |
 |------------|---------|-------|

@@ -1,7 +1,7 @@
 # Phase 8 — First Real Production Adapter: Execution Plan
 
 **Document:** Canonical Engineering Execution Plan for Phase 8
-**Project:** Freebuff — The Kubernetes/Control-Plane Layer for AI Coding Agents
+**Project:** Odysseus — The Kubernetes/Control-Plane Layer for AI Coding Agents
 **Target Milestone:** M8 (Two independently-built, real, non-mock agent CLIs run through the identical Device→Project→Session→Task→Event→Approval→Audit pipeline, with zero changes to Gateway Core between them)
 **Depends on:** Phase 1 (Gateway Core, `AgentAdapter` interface), Phase 5 (Policy Engine — a real adapter is the first thing whose declared capabilities get evaluated against genuine, not scripted, risk), Phase 6 (Redaction — a real adapter is the first thing whose *actual* output, not a scripted fixture, needs to survive the redaction pipeline)
 **Status:** Planning
@@ -18,7 +18,7 @@ This phase benefits enormously from a fact worth stating plainly before any desi
 
 | Roadmap requirement (§12) | Status |
 |---|---|
-| Adapter methods: `metadata / installOrDetect / validateEnvironment / startSession / sendMessage / streamEvents / requestApproval / abortSession / collectDiff / getState (roadmap: getStatus) / cleanupSession` | ✅ **Already the exact `AgentAdapter` interface** in `@freebuff/protocol` (`packages/protocol/src/types/commands.ts:82-107`) — including `sendInput`, `submitApprovalDecision`, and optional `pauseSession`/`resumeSession`/`checkpointSession`/`shutdown` the roadmap doesn't even ask for but the interface already supports |
+| Adapter methods: `metadata / installOrDetect / validateEnvironment / startSession / sendMessage / streamEvents / requestApproval / abortSession / collectDiff / getState (roadmap: getStatus) / cleanupSession` | ✅ **Already the exact `AgentAdapter` interface** in `@odysseus/protocol` (`packages/protocol/src/types/commands.ts:82-107`) — including `sendInput`, `submitApprovalDecision`, and optional `pauseSession`/`resumeSession`/`checkpointSession`/`shutdown` the roadmap doesn't even ask for but the interface already supports |
 | Compatibility declaration with `session_creation / prompt_delivery / streaming / cancellation / diff_collection / approval_interception` flags | ✅ **Already `AgentCapabilities`** (`packages/protocol/src/types/agent.ts:3-14`) — plus four more fields the roadmap's example doesn't list (`checkpointRecovery`, `multiTurn`, `fileOperations`, `toolExecution`) |
 | "Supported / Partially supported / Unsupported" — never fake a capability | ✅ **Already `CapabilityLevel = 'supported' \| 'partial' \| 'unsupported'`** (`packages/protocol/src/types/agent.ts:1`) — the type makes faking a capability a type error, not just a code-review concern: there is no fourth value meaning "claim supported without actually supporting it" |
 | Two agents run through the same Device/Project/Session/Task/Event/Approval/Audit model with zero Gateway Core changes | 🟡 **The model exists and is adapter-agnostic today** (Gateway Core has never once branched on which adapter is running — verified by inspection of `gateway/core/src/gateway.ts` and `agent-manager.ts`, neither of which contains adapter-specific logic). What's missing is simply **a second adapter to prove it with** — the mock adapter is the first; this phase's whole job is being honest that a second, real one behaves identically from Gateway Core's point of view. |
@@ -42,7 +42,7 @@ The roadmap's §12 suggests `packages/adapters/opencode/`. The existing, already
 
 ### 2.2 An adapter wraps a CLI; it does not reimplement one
 
-The architectural temptation to avoid, explicitly: an adapter is a **thin translation layer** between a vendor's own process lifecycle/output format and `@freebuff/protocol`'s normalized shape — not a reimplementation of any part of what the vendor CLI already does. If OpenCode's CLI already handles conversation history, tool-call sequencing, or model selection internally, the adapter's job is to **observe and relay** that, via whatever the CLI exposes (stdout JSON stream, a local HTTP/RPC surface if OpenCode's server mode provides one — the compatibility matrix already notes OpenCode has "good JSON CLI"), never to duplicate that logic Gateway-side. An adapter that grows its own state machine mirroring the vendor CLI's internal one is an adapter that will silently drift from the real CLI's behavior the moment the vendor ships an update — exactly the vendor-lock-in-by-a-different-name this project's entire premise argues against.
+The architectural temptation to avoid, explicitly: an adapter is a **thin translation layer** between a vendor's own process lifecycle/output format and `@odysseus/protocol`'s normalized shape — not a reimplementation of any part of what the vendor CLI already does. If OpenCode's CLI already handles conversation history, tool-call sequencing, or model selection internally, the adapter's job is to **observe and relay** that, via whatever the CLI exposes (stdout JSON stream, a local HTTP/RPC surface if OpenCode's server mode provides one — the compatibility matrix already notes OpenCode has "good JSON CLI"), never to duplicate that logic Gateway-side. An adapter that grows its own state machine mirroring the vendor CLI's internal one is an adapter that will silently drift from the real CLI's behavior the moment the vendor ships an update — exactly the vendor-lock-in-by-a-different-name this project's entire premise argues against.
 
 ### 2.3 Every gap between what the interface wants and what the real CLI provides is a `CapabilityLevel`, never a workaround
 
@@ -78,7 +78,7 @@ gateway/adapters/opencode/
 │   ├── process-manager.ts      # spawns/monitors the OpenCode CLI subprocess
 │   ├── output-parser.ts        # translates OpenCode's native JSON stream into EventEnvelope
 │   ├── capabilities.ts         # the honest AgentCapabilities declaration (§2.3)
-│   └── types.ts                # OpenCode's own wire format, kept OUT of @freebuff/protocol
+│   └── types.ts                # OpenCode's own wire format, kept OUT of @odysseus/protocol
 ├── tests/
 │   ├── opencode-adapter.test.ts       # against a scripted fake OpenCode binary (§3, below)
 │   └── output-parser.test.ts
@@ -87,7 +87,7 @@ gateway/adapters/opencode/
 └── vitest.config.ts
 ```
 
-**A hard rule on `types.ts`:** OpenCode's own JSON output shape is defined and used **only inside this package**. It never leaks into `@freebuff/protocol` or anywhere Gateway Core can see it — the entire point of the adapter boundary (§2.2) is that Gateway Core only ever sees `EventEnvelope`s, never a vendor's native format. A future contributor should be able to delete this entire package and Gateway Core should not need a single line changed elsewhere — this is the exact same containment test the hackathon-integration doc already applied to the Office Kit bridge, applied here to a vendor adapter instead of a hardware bridge, for the identical reason: an integration boundary that isn't actually contained isn't really a boundary.
+**A hard rule on `types.ts`:** OpenCode's own JSON output shape is defined and used **only inside this package**. It never leaks into `@odysseus/protocol` or anywhere Gateway Core can see it — the entire point of the adapter boundary (§2.2) is that Gateway Core only ever sees `EventEnvelope`s, never a vendor's native format. A future contributor should be able to delete this entire package and Gateway Core should not need a single line changed elsewhere — this is the exact same containment test the hackathon-integration doc already applied to the Office Kit bridge, applied here to a vendor adapter instead of a hardware bridge, for the identical reason: an integration boundary that isn't actually contained isn't really a boundary.
 
 **Process lifecycle, following the sandbox's already-proven pattern rather than inventing a new one:** OpenCode runs as a child process the adapter spawns through the **existing** `SandboxManager` (Phase 1), not a raw `child_process.spawn` the adapter manages itself — this is not new design, it's applying Phase 1's sandbox uniformly to the first real workload it will ever actually isolate (the mock adapter, being fake, never needed real isolation; this is the first adapter where the sandbox's guarantees matter for real).
 
@@ -126,7 +126,7 @@ gateway/adapters/opencode/
 ## 4. Directory Structure for Phase 8
 
 ```
-freebuff/
+odysseus/
 ├── gateway/adapters/
 │   ├── mock/           # unchanged — remains the reference/test fixture adapter
 │   ├── opencode/        # NEW — Subphase 8.2-8.4

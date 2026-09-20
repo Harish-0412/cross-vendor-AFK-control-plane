@@ -286,13 +286,13 @@ codex run --quiet --prompt "Task"
 
 ## Integration Assessment
 
-### Strengths for Freebuff Integration
+### Strengths for Odysseus Integration
 1. **Cloud session persistence** - built-in resume/sync
 2. **Enterprise features** - policies, audit, SSO
 3. **Managed infrastructure** - no local compute needed
 4. **Strong model quality** - GPT-4o, o1 models
 
-### Major Challenges for Freebuff
+### Major Challenges for Odysseus
 1. **Cloud-only execution** - violates local-first architecture
 2. **Proprietary** - no source access, vendor lock-in
 3. **Network dependency** - cannot work offline
@@ -302,9 +302,9 @@ codex run --quiet --prompt "Task"
 7. **Rate limits** - may block AFK long-running tasks
 8. **No local approval interception** - cloud-controlled
 
-### Freebuff Architecture Conflict
+### Odysseus Architecture Conflict
 ```
-Freebuff Requirement          Codex Reality
+Odysseus Requirement          Codex Reality
 ─────────────────────         ─────────────
 Local execution               Cloud execution
 Sandbox control               No local sandbox
@@ -315,7 +315,7 @@ Programmable approvals        Cloud policy only
 ```
 
 ### Recommended Approach
-**Do not integrate as primary adapter** for Freebuff MVP.
+**Do not integrate as primary adapter** for Odysseus MVP.
 
 **Alternative**: 
 - Use as *cloud fallback* when local agents unavailable
@@ -350,7 +350,7 @@ Programmable approvals        Cloud policy only
 | `CODEX_CONFIG` | Config file path |
 | `CODEX_WORKSPACE` | Workspace directory |
 
-## Summary for Freebuff
+## Summary for Odysseus
 
 | Capability | Support | Notes |
 |------------|---------|-------|
@@ -365,6 +365,6 @@ Programmable approvals        Cloud policy only
 | Sandboxing | ❌ None | Cloud execution |
 | License | ❌ Proprietary | OpenAI terms |
 
-**Verdict**: **Not suitable for Freebuff core architecture**. Fundamental mismatch with local-first, sandboxed, vendor-neutral design. Could be an optional "cloud mode" adapter post-MVP for users who explicitly choose cloud execution.
+**Verdict**: **Not suitable for Odysseus core architecture**. Fundamental mismatch with local-first, sandboxed, vendor-neutral design. Could be an optional "cloud mode" adapter post-MVP for users who explicitly choose cloud execution.
 
 **Recommendation**: Document as "architecturally incompatible" in compatibility matrix. Focus on local-first agents (OpenCode, Claude CLI, local LLMs).

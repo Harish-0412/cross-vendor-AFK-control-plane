@@ -19,7 +19,7 @@ OpenCode remains Adapter 1 because it is open source, locally executable, and
 offers `run --format json`, session export/import, and a headless server.
 Antigravity is selected for Adapter 2 because current official documentation
 now confirms both bidirectional streaming and persistent stdin-driven sessions,
-which make it a meaningfully independent test of the same Freebuff contract.
+which make it a meaningfully independent test of the same Odysseus contract.
 
 Sources checked on 2026-09-08:
 

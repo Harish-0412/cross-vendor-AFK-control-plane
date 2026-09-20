@@ -1,7 +1,7 @@
 # Phase 7 — AFK Mode: Execution Plan
 
 **Document:** Canonical Engineering Execution Plan for Phase 7
-**Project:** Freebuff — The Kubernetes/Control-Plane Layer for AI Coding Agents
+**Project:** Odysseus — The Kubernetes/Control-Plane Layer for AI Coding Agents
 **Target Milestone:** M7 (A user can start a task, lock their phone, receive exactly the notifications that matter, approve remotely, and get a truthful summary of what happened — with a kill switch that always works)
 **Depends on:** Phase 4 (Web Control Center — push subscription plumbing from its Subphase 4.6), Phase 5 (Policy Engine — trust profiles are already typed, not yet wired to anything real), Phase 6 (Redaction — AFK sessions run unsupervised for longer, making leaked secrets more consequential, not less)
 **Status:** Planning
@@ -16,7 +16,7 @@ This is the phase the product is named for. Everything through Phase 6 makes it 
 
 | Roadmap requirement | Status |
 |---|---|
-| §11.1 Trust profiles | 🟡 **Typed but not wired.** `TrustProfile = 'supervised' \| 'trusted-afk' \| 'read-only' \| 'default'` already exists in `@freebuff/protocol` (`packages/protocol/src/types/policy.ts`), and `PolicyEvaluationContext.trustProfile` already flows through every Phase 5 evaluation call. **But nothing persists a chosen trust profile anywhere** — every call site in `control-plane/src/policy/policy-engine-service.ts` defaults to `context.trustProfile ?? 'default'`, and no `DeviceRecord` or `SessionRecord` field exists to read a real value from. Today, "activating AFK mode" has no storage to activate. |
+| §11.1 Trust profiles | 🟡 **Typed but not wired.** `TrustProfile = 'supervised' \| 'trusted-afk' \| 'read-only' \| 'default'` already exists in `@odysseus/protocol` (`packages/protocol/src/types/policy.ts`), and `PolicyEvaluationContext.trustProfile` already flows through every Phase 5 evaluation call. **But nothing persists a chosen trust profile anywhere** — every call site in `control-plane/src/policy/policy-engine-service.ts` defaults to `context.trustProfile ?? 'default'`, and no `DeviceRecord` or `SessionRecord` field exists to read a real value from. Today, "activating AFK mode" has no storage to activate. |
 | §11.1 "Locked" profile (observation only) | ❌ Missing from the `TrustProfile` union entirely — needs adding. |
 | §11.2 Attention Engine | ❌ Does not exist. Every event today is treated identically by anything downstream (Phase 4's planned Live Session screen renders all of them equally). |
 | §11.3 "While you were away" summary | ❌ Does not exist as a feature, but **all of its inputs already exist** — `StoredEvent`s (Phase 3) and `AuditEvent`s (Phase 5) already contain everything a summary needs to be built from; this is a synthesis layer over existing data, not a new data source. |
@@ -136,7 +136,7 @@ control-plane/src/afk/
 ### Subphase 7.1 — Trust profile persistence and real wiring (the foundation everything else reads)
 
 **Work:**
-- Add `TrustProfile.locked` (§2.2) to `@freebuff/protocol`.
+- Add `TrustProfile.locked` (§2.2) to `@odysseus/protocol`.
 - Add `DeviceRecord.defaultTrustProfile` and `SessionRecord.trustProfile` (§2.1) — additive fields on both existing types and their repository implementations (`MemoryDatabase`, `FirestoreStore`).
 - New endpoints: `PATCH /api/v1/devices/:id` (set default), `PATCH /api/v1/sessions/:id/trust-profile` (change an active session's profile — this is literally "activate AFK profile" from the roadmap's DoD step 2).
 - Replace every `trustProfile ?? 'default'` fallback in `control-plane/src/policy/policy-engine-service.ts` and `control-plane/src/control-plane.ts` with an actual lookup of the session's persisted value.
@@ -190,7 +190,7 @@ While you were away
 ## 4. Directory Structure for Phase 7
 
 ```
-freebuff/
+odysseus/
 ├── packages/
 │   └── attention-engine/          # NEW — pure classification, per §2.3
 │       ├── src/classify.ts

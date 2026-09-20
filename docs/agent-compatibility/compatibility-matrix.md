@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This matrix compares candidate AI coding agents for integration with Freebuff's Local Agent Gateway. The evaluation criteria align with Freebuff's core architectural requirements: **local execution**, **sandboxing**, **durable sessions**, **programmable approvals**, **event streaming**, and **vendor neutrality**.
+This matrix compares candidate AI coding agents for integration with Odysseus's Local Agent Gateway. The evaluation criteria align with Odysseus's core architectural requirements: **local execution**, **sandboxing**, **durable sessions**, **programmable approvals**, **event streaming**, and **vendor neutrality**.
 
 | Rank | Agent | Overall Fit | Phase Target | Key Strength | Key Gap |
 |------|-------|-------------|--------------|--------------|---------|
@@ -46,7 +46,7 @@ This matrix compares candidate AI coding agents for integration with Freebuff's 
 | **MessagePack Binary** | ✅ | ✅ | ❌ | ❌ | ❌ |
 | **WebSocket/SSE** | ✅ | ✅ Daemon mode | ❌ | ❌ | ⚠️ Possible |
 | **Unix Domain Socket** | ✅ | ✅ Daemon mode | ❌ | ❌ | ❌ |
-| **Structured Event Envelope** | ✅ Freebuff native | ✅ Compatible | ⚠️ Adapter transforms | ⚠️ Adapter transforms | ⚠️ Adapter transforms |
+| **Structured Event Envelope** | ✅ Odysseus native | ✅ Compatible | ⚠️ Adapter transforms | ⚠️ Adapter transforms | ⚠️ Adapter transforms |
 | **Sequence Numbers** | ✅ | ✅ | ❌ | ❌ | ❌ |
 | **Correlation IDs** | ✅ | ✅ | ❌ | ❌ | ❌ |
 
@@ -164,7 +164,7 @@ This matrix compares candidate AI coding agents for integration with Freebuff's 
 
 ## Decision Matrix: Adapter Implementation Order
 
-### Criteria Weights (Freebuff Priorities)
+### Criteria Weights (Odysseus Priorities)
 | Criterion | Weight | Rationale |
 |-----------|--------|-----------|
 | Local Execution | 25% | Core architecture requirement |
@@ -194,7 +194,7 @@ For each candidate agent, validate:
 
 1. **Detection**: Can we programmatically detect installation?
 2. **Headless Start**: `agent run --headless --json --prompt "test"`
-3. **Event Parsing**: Parse JSON lines into Freebuff event envelope
+3. **Event Parsing**: Parse JSON lines into Odysseus event envelope
 4. **Prompt/Response**: Send follow-up, verify context maintained
 5. **Cancellation**: SIGINT handling, cleanup verification
 6. **Session Persistence**: Stop/resume, verify state recovery

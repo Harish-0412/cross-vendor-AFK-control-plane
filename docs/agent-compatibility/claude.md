@@ -280,7 +280,7 @@ claude-code run --stream --prompt "Task"
 
 ## Integration Assessment
 
-### Strengths for Freebuff
+### Strengths for Odysseus
 1. **Local execution** - runs on developer's machine
 2. **File-based sessions** - easy checkpoint/resume
 3. **Configurable approvals** - rules-based, no callback needed
@@ -310,7 +310,7 @@ Adapter Strategy: Process Wrapper (Primary)
 ## Custom Agent via Anthropic API
 
 ### Alternative: Build Our Own Agent
-Since Freebuff controls the agent adapter layer, we could build a **custom Claude-powered agent** using the Anthropic API directly:
+Since Odysseus controls the agent adapter layer, we could build a **custom Claude-powered agent** using the Anthropic API directly:
 
 ```typescript
 // Custom agent implementation
@@ -321,10 +321,10 @@ class CustomClaudeAgent {
   
   async run(prompt: string): AsyncIterable<AgentEvent> {
     // Full control over:
-    // - Tool definitions (exact Freebuff schema)
+    // - Tool definitions (exact Odysseus schema)
     // - Sandbox enforcement (pre-tool execution)
     // - Approval callbacks (our policy engine)
-    // - Event format (exact Freebuff envelope)
+    // - Event format (exact Odysseus envelope)
     // - Session persistence (our checkpoint store)
     // - Cost control (token budgets, model selection)
   }
@@ -334,7 +334,7 @@ class CustomClaudeAgent {
 **Advantages**:
 - Full control over event format, tools, sandbox, approvals
 - No CLI parsing brittleness
-- Exact Freebuff protocol compliance
+- Exact Odysseus protocol compliance
 - Can use cheaper models (Haiku) for simple tasks
 
 **Disadvantages**:
@@ -373,7 +373,7 @@ class CustomClaudeAgent {
 | `CLAUDE_CODE_WORKSPACE` | Workspace directory |
 | `ANTHROPIC_MODEL` | Default model override |
 
-## Summary for Freebuff
+## Summary for Odysseus
 
 | Capability | Support | Notes |
 |------------|---------|-------|
@@ -389,7 +389,7 @@ class CustomClaudeAgent {
 | License | ❌ Proprietary | Anthropic terms |
 | Cost | ❌ Paid API | Per-token pricing |
 
-**Verdict**: **Good candidate for Phase 8+ adapter**. Local execution model aligns with Freebuff. Main gaps: proprietary, paid API, no offline, beta status. 
+**Verdict**: **Good candidate for Phase 8+ adapter**. Local execution model aligns with Odysseus. Main gaps: proprietary, paid API, no offline, beta status. 
 
 **Recommendation**: 
 1. Monitor Claude Code CLI release
@@ -397,7 +397,7 @@ class CustomClaudeAgent {
 3. Consider custom API agent for full control (higher effort, better fit)
 4. Document cost model clearly for users
 
-## Comparison: OpenCode vs Claude Code for Freebuff
+## Comparison: OpenCode vs Claude Code for Odysseus
 
 | Factor | OpenCode | Claude Code |
 |--------|----------|-------------|
@@ -412,4 +412,4 @@ class CustomClaudeAgent {
 | Maturity | Released | Preview |
 | Model quality | BYOK (GPT-4, etc.) | Claude 3.5 Sonnet |
 
-**Freebuff Priority**: OpenCode first (open, free, released), Claude Code second (when GA).
+**Odysseus Priority**: OpenCode first (open, free, released), Claude Code second (when GA).

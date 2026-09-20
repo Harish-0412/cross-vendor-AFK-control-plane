@@ -1,7 +1,7 @@
 # Phase 9 — Git, Diff Review and Project Workspaces: Execution Plan
 
 **Document:** Canonical Engineering Execution Plan for Phase 9
-**Project:** Freebuff — The Kubernetes/Control-Plane Layer for AI Coding Agents
+**Project:** Odysseus — The Kubernetes/Control-Plane Layer for AI Coding Agents
 **Target Milestone:** M9 (A user can review what a real agent actually changed, run tests against it, and approve a commit/PR — every git write gated through the same Policy Engine that gates everything else)
 **Depends on:** Phase 8 (a real adapter's `collectDiff()` returning real `git diff` output — Phase 9 has nothing meaningful to review without this), Phase 5 (Policy Engine — `git.commit`/`git.push` are already declared capabilities in that plan; this phase is the first place they're actually exercised for real), Phase 4 (Diff Review screen — built in that phase against fixture data, this phase is what makes it real)
 **Status:** Planning
@@ -184,7 +184,7 @@ GET /api/v1/projects/:id/dashboard
 ## 6. Directory Structure for Phase 9
 
 ```
-freebuff/
+odysseus/
 ├── gateway/core/src/
 │   └── git/
 │       ├── git-exec.ts          # promoted from project-manager.ts

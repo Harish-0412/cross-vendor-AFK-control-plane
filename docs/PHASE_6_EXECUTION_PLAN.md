@@ -1,7 +1,7 @@
 # Phase 6 — Secret Redaction + Data Boundary: Execution Plan
 
 **Document:** Canonical Engineering Execution Plan for Phase 6
-**Project:** Freebuff — The Kubernetes/Control-Plane Layer for AI Coding Agents
+**Project:** Odysseus — The Kubernetes/Control-Plane Layer for AI Coding Agents
 **Target Milestone:** M6 (A secret that exists anywhere in an agent's output, tool results, or diffs never appears in a cloud-bound payload, provably, against a real test corpus)
 **Depends on:** Phase 1 (Gateway Foundation, `EventBus`) — verified complete. Phase 5 (Policy Engine) — for per-project custom pattern configuration, additive only.
 **Status:** Planning
@@ -18,7 +18,7 @@ Before writing a line of new code, an honest inventory of what's already built m
 
 | Roadmap requirement (§10) | Status |
 |---|---|
-| §10.3 "Block by default": `.env`, credential stores, SSH private keys, files outside project scope | ✅ **Already implemented.** `DEFAULT_DENIED_PATHS` in `@freebuff/protocol` (`packages/protocol/src/types/project.ts`) already lists `~/.ssh`, `~/.aws`, `~/.config/gcloud`, `~/.kube`, `~/.env*`, `/etc/shadow`, `/etc/sudoers*`, `**/.env*`, `**/*.pem`, `**/*.key` — and it's already wired into both `gateway/sandbox/src/profiles.ts` and `gateway/sandbox/src/sandbox-manager.ts` as the default deny-list every sandbox profile inherits. |
+| §10.3 "Block by default": `.env`, credential stores, SSH private keys, files outside project scope | ✅ **Already implemented.** `DEFAULT_DENIED_PATHS` in `@odysseus/protocol` (`packages/protocol/src/types/project.ts`) already lists `~/.ssh`, `~/.aws`, `~/.config/gcloud`, `~/.kube`, `~/.env*`, `/etc/shadow`, `/etc/sudoers*`, `**/.env*`, `**/*.pem`, `**/*.key` — and it's already wired into both `gateway/sandbox/src/profiles.ts` and `gateway/sandbox/src/sandbox-manager.ts` as the default deny-list every sandbox profile inherits. |
 | §10.2 "Redact": pattern-based scrubbing of API keys, tokens, private keys, passwords, connection strings | 🟡 **Fully designed and implemented as a spike**, not yet wired into a running pipeline. `spikes/redaction/` has a complete `Redactor` implementation, 39+ patterns across 9 secret categories, a streaming variant, an entropy-based fallback detector, and a `DataBoundary`/`Classifier` pair — proven in isolation with its own test suite, never called from `gateway/core`. |
 | §10.1 "Outbound data path" (Agent Output → Normalizer → Redaction Proxy → Classification → Encryption → Tunnel) | ❌ **The pipeline stage doesn't exist.** Events flow from an adapter straight to the event bus and out the tunnel today, untouched. |
 
@@ -60,7 +60,7 @@ for await (const rawEvent of stream) {
 ### 2.3 Promote the spike into `gateway/redaction`, following the exact package pattern every other Gateway module already uses
 
 ```
-freebuff/gateway/redaction/
+odysseus/gateway/redaction/
 ├── src/
 │   ├── index.ts
 │   ├── patterns.ts          # ported from spikes/redaction, expanded (§4.2)
@@ -99,9 +99,9 @@ The implementation still has to walk an arbitrary object shape at runtime (redac
 
 ### Subphase 6.1 — Promote the spike to `gateway/redaction`
 
-**Work:** move (not copy-and-abandon) the spike's four source files into the new package structure from §2.3, apply the generic-typing fix from §2.4, wire up `package.json`/`tsconfig.json`/`vitest.config.ts` matching every sibling Gateway package (composite project references into `@freebuff/protocol`/`@freebuff/config`, `test`/`build`/`typecheck`/`lint` scripts — the exact pattern already standardized across `gateway/checkpoint`, `gateway/health`, `gateway/sandbox`, etc. after the Phase 1–3 build-consistency work).
+**Work:** move (not copy-and-abandon) the spike's four source files into the new package structure from §2.3, apply the generic-typing fix from §2.4, wire up `package.json`/`tsconfig.json`/`vitest.config.ts` matching every sibling Gateway package (composite project references into `@odysseus/protocol`/`@odysseus/config`, `test`/`build`/`typecheck`/`lint` scripts — the exact pattern already standardized across `gateway/checkpoint`, `gateway/health`, `gateway/sandbox`, etc. after the Phase 1–3 build-consistency work).
 
-**Definition of done:** `pnpm --filter @freebuff/redaction test` passes with the full ported test suite (50+ pattern tests, false-positive tests, performance benchmarks) unchanged in behavior from the spike, and `pnpm build` at the workspace root includes this package with zero new type errors.
+**Definition of done:** `pnpm --filter @odysseus/redaction test` passes with the full ported test suite (50+ pattern tests, false-positive tests, performance benchmarks) unchanged in behavior from the spike, and `pnpm build` at the workspace root includes this package with zero new type errors.
 
 ### Subphase 6.2 — The `RedactionProxy`: from raw strings to typed events
 
@@ -111,7 +111,7 @@ This is the one genuinely new piece of code in this phase. The spike's `Redactor
 // gateway/redaction/src/redaction-proxy.ts
 export interface RedactionProxy {
   redactEvent(event: EventEnvelope): EventEnvelope;
-  getStats(): RedactionProxyStats;   // §6 — for the metrics already typed in @freebuff/protocol
+  getStats(): RedactionProxyStats;   // §6 — for the metrics already typed in @odysseus/protocol
 }
 
 export function createRedactionProxy(
@@ -130,7 +130,7 @@ export function createRedactionProxy(
 The one-line change described in §2.2, plus:
 
 - `GatewayCore` gains a `redactionProxy: RedactionProxy` constructed in the constructor, following the exact pattern `checkpointStore`/`healthModule`/`tunnelClient` already use (all constructed in `GatewayImpl`'s constructor today).
-- `GatewayOptions.redaction` **already exists** as a field (`DEFAULT_GATEWAY_OPTIONS.redaction: { enabled: true, customPatterns: [] }` is already defined in `@freebuff/config`'s `constants.ts` — another place the roadmap was already anticipated in the type layer before the feature existed). Phase 6 makes this field **actually do something**: `redaction.enabled` gates whether `wireAdapterEvents` calls the proxy at all (default `true`; disabling it should require the same `--dev-unsafe-no-sandbox`-style explicit, loudly-logged opt-out the README already mandates for skipping the sandbox — redaction and sandboxing are both non-negotiable-by-default security properties, and should be disable-able through the same class of escape hatch, not two different UX patterns for "I am choosing to turn off a safety feature").
+- `GatewayOptions.redaction` **already exists** as a field (`DEFAULT_GATEWAY_OPTIONS.redaction: { enabled: true, customPatterns: [] }` is already defined in `@odysseus/config`'s `constants.ts` — another place the roadmap was already anticipated in the type layer before the feature existed). Phase 6 makes this field **actually do something**: `redaction.enabled` gates whether `wireAdapterEvents` calls the proxy at all (default `true`; disabling it should require the same `--dev-unsafe-no-sandbox`-style explicit, loudly-logged opt-out the README already mandates for skipping the sandbox — redaction and sandboxing are both non-negotiable-by-default security properties, and should be disable-able through the same class of escape hatch, not two different UX patterns for "I am choosing to turn off a safety feature").
 - `redaction.customPatterns` (already typed, currently always empty) becomes the place a project- or policy-level custom secret pattern gets injected — see §5 for how Phase 5's Policy Engine feeds this.
 
 **Definition of done:** an integration test in `gateway/core/tests/integration/` — extending the existing `gateway.test.ts`/`api-server.test.ts` suite rather than a new isolated harness — where the mock adapter (extended per Subphase 6.4) emits an event containing a fake AWS key, and the test asserts that `bus.publish` and `checkpointStore` both received the redacted version, never the raw one. This is the test that actually proves the §2.2 chokepoint claim rather than just asserting it in a comment.
@@ -171,7 +171,7 @@ Phase 6 does not depend on Phase 5 to function — a workspace with no custom po
 
 ## 6. Metrics (the typed-but-unused fields, finally used)
 
-`@freebuff/protocol` likely warrants a small addition here mirroring the pattern already seen in `PolicyEngineMetrics` (typed, unused, until the engine that produces them exists) — Phase 6 should add:
+`@odysseus/protocol` likely warrants a small addition here mirroring the pattern already seen in `PolicyEngineMetrics` (typed, unused, until the engine that produces them exists) — Phase 6 should add:
 
 ```ts
 export interface RedactionProxyStats {

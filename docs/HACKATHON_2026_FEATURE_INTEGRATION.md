@@ -1,6 +1,6 @@
 # iQOO Hackathon 2026 — Feature Integration & Phase Redefinition
 
-**Purpose:** Analysis of `Freebuff: iQOO Hackathon 2026 Optimization Strategy` against the actual codebase, with corrections where the source document's proposed wiring conflicts with existing architecture, and exact edits to existing phase documents.
+**Purpose:** Analysis of `Odysseus: iQOO Hackathon 2026 Optimization Strategy` against the actual codebase, with corrections where the source document's proposed wiring conflicts with existing architecture, and exact edits to existing phase documents.
 
 **How to read this doc:** each feature gets a verdict (**Accept as-is** / **Accept, modified** / **Reject as stated, replace with**), grounded in what's actually in source, followed by a section listing every phase document that needs to change and precisely what changes.
 
@@ -8,7 +8,7 @@
 
 ## 0. Top-line verdict
 
-The hackathon doc's instinct is right — a passive PWA dashboard scores badly on hardware-tracked rubric items, and Freebuff's governance core is a genuine differentiator worth showcasing live. But two of its four features are described in a way that would either **weaken the security model the whole project exists to demonstrate** (Feature A, as literally written) or **misuse the event protocol** (Feature B, as literally written). Both are fixable with small corrections that also happen to be cheaper to build, because the underlying plumbing already exists. Feature C needs one honest technical caveat about what "NPU" actually means from a browser. Feature D needs a containment boundary so a proprietary OEM demo feature doesn't leak into the vendor-neutral core.
+The hackathon doc's instinct is right — a passive PWA dashboard scores badly on hardware-tracked rubric items, and Odysseus's governance core is a genuine differentiator worth showcasing live. But two of its four features are described in a way that would either **weaken the security model the whole project exists to demonstrate** (Feature A, as literally written) or **misuse the event protocol** (Feature B, as literally written). Both are fixable with small corrections that also happen to be cheaper to build, because the underlying plumbing already exists. Feature C needs one honest technical caveat about what "NPU" actually means from a browser. Feature D needs a containment boundary so a proprietary OEM demo feature doesn't leak into the vendor-neutral core.
 
 None of this is a rejection of the strategy. It's the difference between a demo that looks impressive and a demo that's also still true to what you'd tell a security reviewer afterward — and for a "Technical Depth" + "Novelty" judged category, the second one is the one that survives a judge's follow-up question.
 
@@ -36,7 +36,7 @@ It describes the QR code as containing *"the workstation's Ed25519 public key an
 **Verdict: Reject the wiring as stated, replace with a small Phase 5 extension.**
 
 ### What the source doc gets wrong
-It proposes injecting the corrective instruction "back into the `AgentAdapter` via the WSS tunnel as a `session.tool_result`." Check `packages/protocol/src/types/events.ts`: `session.tool_result` is already a defined event type meaning **the outcome of a tool the agent itself invoked** (e.g., "the agent ran a command, here's stdout/exit code"). Overloading it to also mean "human corrective feedback attached to a denied approval" makes the event stream ambiguous — anything downstream that pattern-matches on `tool_result` (logging, the audit trail, a future analytics view) would now have to disambiguate machine-originated results from human-originated instructions inside the same event type. This is exactly the kind of protocol drift `@freebuff/protocol`'s existence is supposed to prevent.
+It proposes injecting the corrective instruction "back into the `AgentAdapter` via the WSS tunnel as a `session.tool_result`." Check `packages/protocol/src/types/events.ts`: `session.tool_result` is already a defined event type meaning **the outcome of a tool the agent itself invoked** (e.g., "the agent ran a command, here's stdout/exit code"). Overloading it to also mean "human corrective feedback attached to a denied approval" makes the event stream ambiguous — anything downstream that pattern-matches on `tool_result` (logging, the audit trail, a future analytics view) would now have to disambiguate machine-originated results from human-originated instructions inside the same event type. This is exactly the kind of protocol drift `@odysseus/protocol`'s existence is supposed to prevent.
 
 ### What to build instead
 The control plane **already has** the correct mechanism: `POST /api/v1/sessions/:id/prompt` sends a `session.message` command down the tunnel via `tunnelServer.sendCommandToDevice(deviceId, 'session.message', {sessionId, message})` (`control-plane/src/api/http-router.ts`, already implemented and tested). A corrective instruction from a human **is** a new prompt to the agent — that's precisely what `session.message` already models.
@@ -67,9 +67,9 @@ A **Progressive Web App cannot access a phone's NPU silicon directly** — there
 
 **Verdict: Accept, but explicitly fenced off from the core architecture — this is a demo-hardware integration, not a platform feature.**
 
-Office Kit is a proprietary, single-vendor OEM bridge. The entire rest of this project is built around the opposite principle — vendor neutrality, "bring your own agent," works on any Linux/macOS/Windows machine with any browser. Wiring a proprietary phone-OEM API into the Gateway, the Control Plane, or the shared protocol package would be the one place in this codebase where "vendor-neutral" quietly stops being true. That's a real cost, not just a purity concern: every future contributor reading `@freebuff/protocol` would need to know that one code path only works on one phone brand.
+Office Kit is a proprietary, single-vendor OEM bridge. The entire rest of this project is built around the opposite principle — vendor neutrality, "bring your own agent," works on any Linux/macOS/Windows machine with any browser. Wiring a proprietary phone-OEM API into the Gateway, the Control Plane, or the shared protocol package would be the one place in this codebase where "vendor-neutral" quietly stops being true. That's a real cost, not just a purity concern: every future contributor reading `@odysseus/protocol` would need to know that one code path only works on one phone brand.
 
-**The fix is containment, not rejection.** Office Kit integration belongs entirely inside `apps/web`'s optional capability layer — a feature-detected enhancement, structurally identical to how the PWA already has to feature-detect Web Push support (not every browser has it, and the app already has to work without it). Concretely: a `useOfficeKitBridge()` hook that no-ops to nothing when the API isn't present (i.e., on literally every device except the demo hardware), sitting entirely in `apps/web/src/integrations/office-kit/` — a directory that does not exist yet and imports nothing from, and is imported by nothing in, `@freebuff/protocol`, `gateway/*`, or `control-plane/*`. If this directory were deleted entirely, nothing else in the repository should need to change. That's the containment test.
+**The fix is containment, not rejection.** Office Kit integration belongs entirely inside `apps/web`'s optional capability layer — a feature-detected enhancement, structurally identical to how the PWA already has to feature-detect Web Push support (not every browser has it, and the app already has to work without it). Concretely: a `useOfficeKitBridge()` hook that no-ops to nothing when the API isn't present (i.e., on literally every device except the demo hardware), sitting entirely in `apps/web/src/integrations/office-kit/` — a directory that does not exist yet and imports nothing from, and is imported by nothing in, `@odysseus/protocol`, `gateway/*`, or `control-plane/*`. If this directory were deleted entirely, nothing else in the repository should need to change. That's the containment test.
 
 ---
 
@@ -111,7 +111,7 @@ State this decision explicitly rather than letting it happen by accident, becaus
 
 - **Phase 6 (redaction) and Phase 17 (multi-agent orchestration)** remain out of scope, exactly as the source doc's own Action B already correctly argues — nothing here contradicts that.
 - **The deny-override floor and Policy Engine evaluation order (Phase 5, already built)** are not touched by any of these four features — voice feedback attaches to an *already-denied* action; it never becomes a new way to grant one.
-- **`@freebuff/protocol` gets exactly one addition** (the optional `feedback` field, threaded through `ApprovalRecord`/the decision request shape) and zero new event types. Every other feature in this integration lives entirely in `apps/web`, which doesn't exist yet, so it adds no risk to the four phases already built and tested.
+- **`@odysseus/protocol` gets exactly one addition** (the optional `feedback` field, threaded through `ApprovalRecord`/the decision request shape) and zero new event types. Every other feature in this integration lives entirely in `apps/web`, which doesn't exist yet, so it adds no risk to the four phases already built and tested.
 
 ---
 

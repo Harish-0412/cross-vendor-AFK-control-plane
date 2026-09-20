@@ -1,7 +1,7 @@
 # Phase 5 — Policy Engine, Approvals and Audit: Execution Plan
 
 **Document:** Canonical Engineering Execution Plan for Phase 5
-**Project:** Freebuff — The Kubernetes/Control-Plane Layer for AI Coding Agents
+**Project:** Odysseus — The Kubernetes/Control-Plane Layer for AI Coding Agents
 **Target Milestone:** M5 (No agent action classified as HIGH/CRITICAL risk can execute without a server-side policy decision that the Gateway cannot forge, bypass, or roll back — and every decision is provable after the fact)
 **Depends on:** Phase 3 (Cloud Control Plane, verified) and Phase 4 (Web Control Center, for the Approval screen's consumer contract)
 **Status:** Planning — **this is the security core of the entire product.**
@@ -10,7 +10,7 @@
 
 ## 1. Why This Phase Is the Product, Not a Feature
 
-Every other phase in this project could be described, uncharitably but not inaccurately, as "a remote desktop for AI agents." What makes Freebuff a *governance* product rather than a convenience product is Phase 5. Read the project's own tagline back: **"Bring your own agent. We govern the work."** Everything up to this phase — pairing, sandboxing, the tunnel, the PWA — is plumbing that makes governance *possible*. Phase 5 is where governance actually *happens*.
+Every other phase in this project could be described, uncharitably but not inaccurately, as "a remote desktop for AI agents." What makes Odysseus a *governance* product rather than a convenience product is Phase 5. Read the project's own tagline back: **"Bring your own agent. We govern the work."** Everything up to this phase — pairing, sandboxing, the tunnel, the PWA — is plumbing that makes governance *possible*. Phase 5 is where governance actually *happens*.
 
 This has a direct architectural consequence that must be stated before any design decision below: **the Policy Engine's trust boundary is the Control Plane, not the Gateway.** The Gateway runs on a developer's own workstation. A developer can read its source, patch its binary, run a debugger against it, or simply not run it at all and hand-craft tunnel messages themselves. Any policy check that lives *only* in the Gateway is a check the person the policy exists to constrain can trivially remove. This is not a hypothetical — it is exactly the threat model the base specification's §9.2 (referenced in the repo's own README security checklist) already names: *"The deny-override list is enforced in the Policy Engine, server-side — never trust a client-side check alone."*
 
@@ -24,7 +24,7 @@ Verified against the actual codebase (not the plan documents) before writing thi
 
 | Piece | Status |
 |---|---|
-| `ApprovalAction { id, type, riskLevel, description, details, timeoutMs }` | ✅ Already typed in `@freebuff/protocol` (`packages/protocol/src/types/commands.ts:112`) — `riskLevel` already matches the roadmap's LOW/MEDIUM/HIGH/CRITICAL scale exactly |
+| `ApprovalAction { id, type, riskLevel, description, details, timeoutMs }` | ✅ Already typed in `@odysseus/protocol` (`packages/protocol/src/types/commands.ts:112`) — `riskLevel` already matches the roadmap's LOW/MEDIUM/HIGH/CRITICAL scale exactly |
 | `AgentAdapter.requestApproval(sessionId, action)` / `submitApprovalDecision(...)` | ✅ Interface exists; the mock adapter implements it (self-declared — the adapter decides for itself when to ask) |
 | `ApprovalRecord` (control plane) | ✅ Exists (`control-plane/src/types.ts:71`) — `status: pending\|granted\|denied\|timeout`, tied to session/device/user |
 | `POST /sessions/:id/approvals/:id/decision` | ✅ Implemented and tested (Phase 3) |
@@ -56,7 +56,7 @@ deployment.execute
 secret.read
 ```
 
-**Architecture decision:** capabilities are a closed, versioned enum in `@freebuff/protocol` (`packages/protocol/src/types/policy.ts`, new file), not a free-form string. A policy engine that matches against arbitrary strings from an untrusted adapter is a policy engine an adapter can bypass by simply naming its action something the rules don't match. Every adapter declares its capability subset at `installOrDetect()` time (already a method on the interface); the Policy Engine only ever evaluates against this closed set.
+**Architecture decision:** capabilities are a closed, versioned enum in `@odysseus/protocol` (`packages/protocol/src/types/policy.ts`, new file), not a free-form string. A policy engine that matches against arbitrary strings from an untrusted adapter is a policy engine an adapter can bypass by simply naming its action something the rules don't match. Every adapter declares its capability subset at `installOrDetect()` time (already a method on the interface); the Policy Engine only ever evaluates against this closed set.
 
 ### 3.2 Risk Class
 A capability's *default* severity — LOW / MEDIUM / HIGH / CRITICAL, exactly as scoped in the roadmap and already present as `ApprovalAction.riskLevel`. Risk class is **policy-configurable per rule** (a rule can escalate `git.push` from HIGH to CRITICAL for a specific project), but every capability has a **built-in default** so a project with zero custom policy is still safe by default — this is what makes the deny-floor meaningful even before a user ever writes a rule.
@@ -251,14 +251,14 @@ packages/policy-engine/
 └── vitest.config.ts
 ```
 
-**Why a shared package rather than duplicating the function:** if the Gateway's copy and the Control Plane's copy of "what does this policy version say about this action" can ever disagree, the entire two-tier model in §5 collapses into two independently-wrong systems instead of one system checked twice. A single package, versioned and tested once, imported by both, is the only way to make "runs the same evaluation in two places" a guarantee rather than an aspiration. This exactly mirrors why `@freebuff/protocol` already exists as a shared package between Gateway and Control Plane — Phase 5 is applying a pattern the codebase has already validated twice.
+**Why a shared package rather than duplicating the function:** if the Gateway's copy and the Control Plane's copy of "what does this policy version say about this action" can ever disagree, the entire two-tier model in §5 collapses into two independently-wrong systems instead of one system checked twice. A single package, versioned and tested once, imported by both, is the only way to make "runs the same evaluation in two places" a guarantee rather than an aspiration. This exactly mirrors why `@odysseus/protocol` already exists as a shared package between Gateway and Control Plane — Phase 5 is applying a pattern the codebase has already validated twice.
 
 ---
 
 ## 7. Control-Plane Module Layout
 
 ```
-freebuff/control-plane/src/policy/
+odysseus/control-plane/src/policy/
 ├── policy-store.ts         # CRUD for PolicyRule/PolicyVersion (Postgres in prod,
 │                           # MemoryDatabase in dev — extends the existing IDatabase
 │                           # pattern from db/types.ts rather than inventing a new one)
@@ -268,7 +268,7 @@ freebuff/control-plane/src/policy/
 │                            # on the control-plane side
 ├── approval-workflow.ts     # §7.3 — the state machine
 └── policy.schema.ts         # zod schemas for the API request/response bodies,
-                              # added to @freebuff/schemas alongside the existing
+                              # added to @odysseus/schemas alongside the existing
                               # command/device/event/session schemas
 ```
 

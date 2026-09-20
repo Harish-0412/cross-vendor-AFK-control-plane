@@ -1,7 +1,7 @@
 # Phase 2 — Gateway Core & Pairing Protocol: Execution Plan
 
 **Document:** Canonical Engineering Execution Plan for Phase 2  
-**Project:** Freebuff — The Kubernetes/Control-Plane Layer for AI Coding Agents  
+**Project:** Odysseus — The Kubernetes/Control-Plane Layer for AI Coding Agents  
 **Target Milestone:** M2 (A Gateway can generate a device identity, complete a secure pairing with the Control Plane, and establish an authenticated tunnel)  
 **Depends on:** Phase 1 (Local Gateway Foundation) — verified complete: sandbox, health monitoring, transport layer  
 **Status:** Complete
@@ -21,7 +21,7 @@ Phase 2 builds the trust foundation: the Gateway generates an Ed25519 keypair, d
 ### 2.1 Device Identity: Ed25519 keypair generation
 
 - **Key generation:** `crypto.generateKeyPairSync('ed25519')` — Node's native implementation, no external dependencies.
-- **Storage:** Private key persisted to `~/.freebuff/identity/device.key` (restricted to owner-only file permissions via `fs.chmod(0o600)`).
+- **Storage:** Private key persisted to `~/.odysseus/identity/device.key` (restricted to owner-only file permissions via `fs.chmod(0o600)`).
 - **Fingerprint derivation:** The 32-byte public key is encoded as a BIP39-style word list (256-word dictionary) producing an 8-word human-readable fingerprint — readable over a phone call, scannable by eye, verifiable without any technical knowledge.
 - **Why Ed25519 over RSA:** Smaller keys (32 bytes vs 2048+ bytes), faster signing, no parameter selection pitfalls, and it's what the certificate authority (§2.3) will sign anyway.
 
@@ -45,7 +45,7 @@ IDLE → REQUESTED → CODE_GENERATED → FINGERPRINT_SHARED → CONFIRMED → C
 
 ### 2.3 Certificate Authority: Self-contained X.509 CA
 
-- **Root CA:** Generated once during Phase 2 initialization, stored in `~/.freebuff/ca/`. The CA's private key is encrypted at rest with a machine-specific passphrase derived from hardware identifiers (TPM if available, falling back to hostname+MAC hash).
+- **Root CA:** Generated once during Phase 2 initialization, stored in `~/.odysseus/ca/`. The CA's private key is encrypted at rest with a machine-specific passphrase derived from hardware identifiers (TPM if available, falling back to hostname+MAC hash).
 - **Device certificates:** Short-lived (30-day default, renewable), issued by the CA after pairing completion. The certificate's Subject Alternative Name (SAN) includes the device's public key fingerprint — binding the certificate to the specific Ed25519 keypair.
 - **Revocation:** A certificate revocation list (CRL) stored in the Control Plane's database. When a device is revoked (via the phone UI or policy engine), the CRL is updated and the Gateway's tunnel connection is terminated immediately. Future connection attempts are rejected at the TLS layer.
 - **Verification:** `crypto.X509Certificate` (Node 15+) for chain validation — not just the encoder's self-consistency. This was a real bug found and fixed during Phase 2 verification: the initial implementation trusted its own certificate output without cross-checking against Node's own X.509 parser.
@@ -106,7 +106,7 @@ This means a compromised Gateway can't fake its identity (the certificate is sig
 ## 4. Directory Structure for Phase 2
 
 ```
-freebuff/
+odysseus/
 └── gateway/
     ├── identity/
     │   ├── src/
@@ -133,7 +133,7 @@ freebuff/
 
 | Invariant | Enforcement |
 |---|---|
-| Private key never leaves the machine | Key generated and stored in `~/.freebuff/identity/`; never transmitted over the tunnel |
+| Private key never leaves the machine | Key generated and stored in `~/.odysseus/identity/`; never transmitted over the tunnel |
 | One pairing at a time per Gateway | Server-side state machine rejects `409` if a pairing is in flight |
 | Fingerprint verification is mandatory | Protocol has no "skip" path; certificate issuance requires `CONFIRMED` state |
 | Certificates are short-lived | 30-day default; renewable; revocable via CRL |

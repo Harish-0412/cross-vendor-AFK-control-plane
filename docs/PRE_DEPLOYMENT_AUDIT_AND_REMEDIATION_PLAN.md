@@ -2,7 +2,7 @@
 
 **Document type:** Verification audit against the actual running codebase (build + full test suite + targeted security review), not against plan documents.
 **Method:** every finding below was reproduced — a failing test, a passing exploit-shaped test, or a concrete code path traced end to end — not inferred from reading alone. Two items were serious enough to fix immediately rather than only document; both are called out as such, with the regression test that now guards them.
-**Scope:** the whole `freebuff/` workspace as it stands today, across Phases 0–9's actual implementation state (not their plan documents' aspirational state).
+**Scope:** the whole `odysseus/` workspace as it stands today, across Phases 0–9's actual implementation state (not their plan documents' aspirational state).
 
 ---
 
@@ -104,7 +104,7 @@ Default to the real OS-based reader in production; the test suite injects a dete
 
 ### 4.2 🟡 `gateway/policy` (Phase 5's local advisory cache) has zero test coverage
 
-**What's wrong:** `gateway/policy/src/index.ts` is a real, 180-line module implementing exactly the local-policy-cache architecture described in Phase 5's plan (§5: "ships a READ-ONLY CACHE of the active PolicyVersion... CANNOT ITSELF AUTHORIZE"). It has no `tests/` directory and no `*.test.ts` files — `pnpm --filter @freebuff/gateway-policy test` fails outright with "No test files found."
+**What's wrong:** `gateway/policy/src/index.ts` is a real, 180-line module implementing exactly the local-policy-cache architecture described in Phase 5's plan (§5: "ships a READ-ONLY CACHE of the active PolicyVersion... CANNOT ITSELF AUTHORIZE"). It has no `tests/` directory and no `*.test.ts` files — `pnpm --filter @odysseus/gateway-policy test` fails outright with "No test files found."
 
 **Why this matters more than an ordinary coverage gap:** this module sits directly on the trust boundary Phase 5's entire design depends on — its whole job is to give a *fast, non-authoritative* answer while never being mistaken for the authoritative one. Untested code at exactly the seam where "advisory" and "authoritative" must never be confused is the highest-value place in this codebase to have real test coverage, not the lowest.
 
@@ -145,7 +145,7 @@ authUser = {
 ### 4.6 🟢 Remaining 116 lint errors, categorized
 
 After the CRLF fix (§3), what's left is a real but low-severity tail:
-- **~40 `no-unsafe-assignment`/`no-unsafe-argument`** at SDK boundaries — `firebase-admin.ts`, `firestore-store.ts`, `policy-store.ts` — all at the point where an external SDK (`firebase-admin`, `@google-cloud/firestore`) returns loosely-typed data. Fix by introducing a validated boundary type (a zod schema in `@freebuff/schemas`, matching the pattern already used for every other external-input boundary in this project) rather than letting `any` propagate past the SDK call.
+- **~40 `no-unsafe-assignment`/`no-unsafe-argument`** at SDK boundaries — `firebase-admin.ts`, `firestore-store.ts`, `policy-store.ts` — all at the point where an external SDK (`firebase-admin`, `@google-cloud/firestore`) returns loosely-typed data. Fix by introducing a validated boundary type (a zod schema in `@odysseus/schemas`, matching the pattern already used for every other external-input boundary in this project) rather than letting `any` propagate past the SDK call.
 - **~30 `import/order`** — mechanical, `eslint --fix`-able once the underlying files are touched for their real fixes above (fix-and-fix-format-together, don't run a separate no-op formatting commit).
 - **28 warnings in `gateway/pairing`** (not errors — worth a look but not blocking).
 - **One cosmetic false-positive**: `memory-store.ts`'s `verifyChain()` destructures `const { hash, ...rest } = evt` specifically to *exclude* `hash` from the canonicalized object before recomputing it — the unused-var complaint is correct that the binding itself is unused, but the logic is not a bug. Rename to `_hash` to silence it without touching behavior.
@@ -195,7 +195,7 @@ Verified against actual code in the workspace, not commit messages or plan docum
 | 12 — Observability | ❌ Not started — no metrics/logging/tracing stack wired in |
 | 13 — Production Security Hardening | 🟡 **This audit is effectively a down payment on this phase** — several of its stated requirements (signed releases, dependency/secret scanning in CI, sandbox-escape regression tests) are not yet in place |
 | 14 — Cross-Platform Gateway Packaging | ❌ Not started — no installable binaries, runs from source only |
-| 15 — CI/CD and Release Engineering | 🟡 Basic GitHub Actions lint/test workflow exists (`freebuff/.github/workflows/`); no build/sign/publish pipeline |
+| 15 — CI/CD and Release Engineering | 🟡 Basic GitHub Actions lint/test workflow exists (`odysseus/.github/workflows/`); no build/sign/publish pipeline |
 | 16 — Private Beta | ❌ Not started — correctly gated behind everything above |
 | 17 — Multi-Agent Orchestration | ❌ Explicitly deferred (post-MVP by design) |
 | 18 — Enterprise | ❌ Explicitly deferred (post-MVP by design) |

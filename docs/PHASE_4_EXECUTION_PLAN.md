@@ -1,7 +1,7 @@
 # Phase 4 — Mobile-First Web Control Center: Execution Plan
 
 **Document:** Canonical Engineering Execution Plan for Phase 4
-**Project:** Freebuff — The Kubernetes/Control-Plane Layer for AI Coding Agents
+**Project:** Odysseus — The Kubernetes/Control-Plane Layer for AI Coding Agents
 **Target Milestone:** M4 (A user can sign in on a phone, watch a session live, approve/deny an action, and review a diff — with no desktop IDE)
 **Depends on:** Phase 3 (Cloud Control Plane) — verified complete: auth, device pairing, session lifecycle, real-time WebSocket relay, 45/45 tests passing.
 **Status:** Planning
@@ -26,7 +26,7 @@ Every screen in this plan is designed backward from one of those five questions.
 
 ### 1.1 Where this sits relative to the existing frontend/
 
-The repository already contains `frontend/` — a Next.js 15 marketing/landing page ("SmartConnect") built with shaders, GSAP animation, and a full shadcn/ui component set. **That project is not touched by Phase 4.** It is the public-facing "what is this product" site and stays that way. Phase 4 builds a **separate, authenticated application** at `freebuff/apps/web/`, per the roadmap's repository layout. The two share nothing except, optionally, a visual design language — they are different audiences (a visitor vs. a logged-in operator) with different security postures (public vs. authenticated) and different deployment lifecycles.
+The repository already contains `frontend/` — a Next.js 15 marketing/landing page ("SmartConnect") built with shaders, GSAP animation, and a full shadcn/ui component set. **That project is not touched by Phase 4.** It is the public-facing "what is this product" site and stays that way. Phase 4 builds a **separate, authenticated application** at `odysseus/apps/web/`, per the roadmap's repository layout. The two share nothing except, optionally, a visual design language — they are different audiences (a visitor vs. a logged-in operator) with different security postures (public vs. authenticated) and different deployment lifecycles.
 
 Reusing `frontend/`'s dependency choices (Next.js, Tailwind, shadcn/ui, `zustand`, `zod`) as the starting point for `apps/web` is sensible and saves a design-system decision — but as a fresh App Router project, not a fork of the marketing site's routes.
 
@@ -61,7 +61,7 @@ This is the decision most likely to be gotten wrong, so it is stated as a hard r
 
 ### 2.4 Realtime layer: a typed wrapper around the control plane's `/ws/client` socket
 
-The control plane already implements the server side of this exactly as Phase 4 needs it (`ClientServer` in `freebuff/control-plane/src/tunnel/client-server.ts`): connect with `?token=<jwt>`, send `{action: 'subscribe_session', sessionId}` / `subscribe_device`, receive `{type: 'event', ...}` frames. Phase 4's job is a client-side counterpart with the same reliability posture as the Gateway's own tunnel client (Phase 1/2), because a phone on cellular data drops connections far more often than a server:
+The control plane already implements the server side of this exactly as Phase 4 needs it (`ClientServer` in `odysseus/control-plane/src/tunnel/client-server.ts`): connect with `?token=<jwt>`, send `{action: 'subscribe_session', sessionId}` / `subscribe_device`, receive `{type: 'event', ...}` frames. Phase 4's job is a client-side counterpart with the same reliability posture as the Gateway's own tunnel client (Phase 1/2), because a phone on cellular data drops connections far more often than a server:
 
 ```
 apps/web/src/realtime/
@@ -119,13 +119,13 @@ Reuse `frontend/`'s Tailwind + shadcn/ui foundation (Radix primitives, `class-va
 - `apps/web/src/components/pairing/QRScanner.tsx`: Camera capture + video frame processing
 - `apps/web/src/lib/qr-decoder.ts`: Wrapper around QR decoding library with error handling
 - `apps/web/src/hooks/useCamera.ts`: Camera permission management and stream lifecycle
-- No changes to `@freebuff/protocol` or Control Plane — purely additive on the client side
+- No changes to `@odysseus/protocol` or Control Plane — purely additive on the client side
 
 **Definition of done:** a user can scan a QR code displayed on the Gateway's terminal during pairing, the decoded fingerprint matches the displayed words, and pairing completes successfully. Camera permission denial gracefully falls back to manual code entry.
 
 ### Subphase 4.2 — Home, Machine, and Agent screens (read-only)
 
-The three screens that answer "what is happening?" — Home lists machines/running agents/needs-attention/recently-completed (four `GET /api/v1/sessions?state=...` and `GET /api/v1/devices` queries, polled every 30s **and** kept live via `subscribe_device` on every listed device); Machine shows one device's online status, resource usage (from the Gateway's existing health-module heartbeat data — this requires the control plane to persist and expose the heartbeat payload it already receives, a small additive change, see §5.1), and its agents/sessions; Agent shows one adapter's declared capabilities (`AgentAdapter.installOrDetect()`'s result, already typed in `@freebuff/protocol`) and current task.
+The three screens that answer "what is happening?" — Home lists machines/running agents/needs-attention/recently-completed (four `GET /api/v1/sessions?state=...` and `GET /api/v1/devices` queries, polled every 30s **and** kept live via `subscribe_device` on every listed device); Machine shows one device's online status, resource usage (from the Gateway's existing health-module heartbeat data — this requires the control plane to persist and expose the heartbeat payload it already receives, a small additive change, see §5.1), and its agents/sessions; Agent shows one adapter's declared capabilities (`AgentAdapter.installOrDetect()`'s result, already typed in `@odysseus/protocol`) and current task.
 
 **Definition of done:** Home updates in real time when a session anywhere changes state, with zero manual refresh, verified by starting a session from a second browser tab and watching it appear.
 
@@ -224,7 +224,7 @@ Registers a service worker push subscription, sends the subscription endpoint to
 ## 4. Directory Structure for Phase 4
 
 ```
-freebuff/
+odysseus/
 └── apps/
     └── web/
         ├── app/
@@ -250,7 +250,7 @@ freebuff/
         │   │   ├── approval/
         │   │   ├── diff/
         │   │   └── ui/                # shadcn/ui primitives
-        │   └── types/                 # re-exports from @freebuff/protocol where possible —
+        │   └── types/                 # re-exports from @odysseus/protocol where possible —
         │                               # never redeclares EventEnvelope/SessionState locally
         ├── public/
         │   ├── manifest.json
@@ -260,7 +260,7 @@ freebuff/
         └── tsconfig.json
 ```
 
-**Critical rule, stated explicitly because it's easy to violate under deadline pressure:** `apps/web` depends on `@freebuff/protocol` and `@freebuff/schemas` as workspace packages for every type that crosses the wire (`EventEnvelope`, `SessionState`, `ApprovalAction`, etc.). It must **never** hand-roll a parallel copy of these types. This is the same discipline already enforced between the Gateway and the Control Plane in Phases 1–3, and the entire point of `@freebuff/protocol` existing as a shared package — the moment the browser's idea of a `SessionState` drifts from the Gateway's, every symptom will look like a backend bug.
+**Critical rule, stated explicitly because it's easy to violate under deadline pressure:** `apps/web` depends on `@odysseus/protocol` and `@odysseus/schemas` as workspace packages for every type that crosses the wire (`EventEnvelope`, `SessionState`, `ApprovalAction`, etc.). It must **never** hand-roll a parallel copy of these types. This is the same discipline already enforced between the Gateway and the Control Plane in Phases 1–3, and the entire point of `@odysseus/protocol` existing as a shared package — the moment the browser's idea of a `SessionState` drifts from the Gateway's, every symptom will look like a backend bug.
 
 ---
 
@@ -286,7 +286,7 @@ None of these require touching the tunnel protocol, the session lifecycle, or an
 | Layer | Tool | What it proves |
 |---|---|---|
 | Components | Vitest + React Testing Library | Rendering logic, loading/error states, accessibility roles |
-| Realtime client | Vitest, with a mock WebSocket server (reuse the pattern already proven in `freebuff/control-plane/tests/tunnel.test.ts` and `spikes/transport`) | Reconnect state machine, re-subscription on reconnect, no duplicate event delivery |
+| Realtime client | Vitest, with a mock WebSocket server (reuse the pattern already proven in `odysseus/control-plane/tests/tunnel.test.ts` and `spikes/transport`) | Reconnect state machine, re-subscription on reconnect, no duplicate event delivery |
 | End-to-end | Playwright, against a real `ControlPlane` instance started in-process (the same `ControlPlane` class Phase 3's own tests already instantiate) + the mock agent adapter | The full roadmap DoD checklist (§3, Subphase 4.7), run as one scripted flow |
 | PWA/Lighthouse | `lighthouse-ci` | Installability, offline shell, performance budget |
 
@@ -308,7 +308,7 @@ Matches the roadmap's own DoD, made concrete and testable:
 - [ ] Reconnect test: kill network mid-session, restore after 10s, event log has no gap, no duplicate, connection-status banner reflected the outage honestly throughout.
 - [ ] Push subscription registers successfully (no notification actually sent — that's Phase 7).
 - [ ] Lighthouse PWA score: installable, offline app-shell, no console errors.
-- [ ] Zero hand-rolled duplicate types — every wire type imported from `@freebuff/protocol`/`@freebuff/schemas`.
+- [ ] Zero hand-rolled duplicate types — every wire type imported from `@odysseus/protocol`/`@odysseus/schemas`.
 
 ---
 
@@ -363,7 +363,7 @@ This section describes an optional integration with iQOO's proprietary Office Ki
 
 **Containment boundary:**
 - All Office Kit integration code lives entirely in `apps/web/src/integrations/office-kit/`
-- This directory imports nothing from `@freebuff/protocol`, `gateway/*`, or `control-plane/*`
+- This directory imports nothing from `@odysseus/protocol`, `gateway/*`, or `control-plane/*`
 - This directory is imported by nothing in the core application
 - **Containment test:** if this directory were deleted entirely, nothing else in the repository should need to change
 

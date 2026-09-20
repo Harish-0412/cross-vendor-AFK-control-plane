@@ -420,8 +420,8 @@ antigravity session diff sess_abc123 --output changes.patch
 
 ## Integration Assessment
 
-### Strengths for Freebuff
-1. **Fully local-first** - aligns perfectly with Freebuff architecture
+### Strengths for Odysseus
+1. **Fully local-first** - aligns perfectly with Odysseus architecture
 2. **Open source (Apache 2.0)** - no licensing barriers
 3. **Built-in sandboxing** - `strict`/`standard`/`permissive` profiles
 4. **Daemon mode** - persistent server for long-running AFK tasks
@@ -448,7 +448,7 @@ Option A: Daemon Client (Best for AFK)
 - Start `antigravity serve --sandbox strict` as background service
 - Use `antigravity run --client --prompt "..."` for each task
 - WebSocket/SSE for real-time events
-- Webhook for approval callbacks (integrates with Freebuff Policy Engine)
+- Webhook for approval callbacks (integrates with Odysseus Policy Engine)
 - Session management via daemon API
 
 Option B: Process Wrapper (Simpler)
@@ -550,7 +550,7 @@ max_processes = 10
 | `OLLAMA_HOST` | Ollama server URL |
 | `ANTIGRAVITY_SANDBOX` | Sandbox profile |
 
-## Summary for Freebuff
+## Summary for Odysseus
 
 | Capability | Support | Notes |
 |------------|---------|-------|
@@ -568,15 +568,15 @@ max_processes = 10
 | Cost | ✅ Free | Local models, no API fees |
 | Offline | ✅ Full | Air-gapped operation |
 
-**Verdict**: **Ideal Freebuff adapter candidate**. Architecture alignment is nearly perfect: local-first, sandboxed, durable sessions, webhook approvals, open license, free operation. 
+**Verdict**: **Ideal Odysseus adapter candidate**. Architecture alignment is nearly perfect: local-first, sandboxed, durable sessions, webhook approvals, open license, free operation. 
 
 **Recommendation**: 
 1. **Primary target for Phase 8** (first real production adapter after mock)
 2. **Use daemon mode** for AFK scenarios (persistent, resumable)
-3. **Leverage webhook approvals** for Freebuff Policy Engine integration
+3. **Leverage webhook approvals** for Odysseus Policy Engine integration
 4. **Document local model requirements** clearly for users
 
-## Comparison: All Agents for Freebuff
+## Comparison: All Agents for Odysseus
 
 | Factor | OpenCode | Codex | Claude Code | Antigravity |
 |--------|----------|-------|-------------|-------------|
@@ -590,9 +590,9 @@ max_processes = 10
 | **Event Format** | JSON Lines | JSON Lines (exp) | JSON Lines (exp) | **JSON Lines + MsgPack** |
 | **Daemon Mode** | ❌ | ❌ | ❌ | **Yes** |
 | **Maturity** | Released | Beta | Preview | Released |
-| **Freebuff Fit** | ✅ Good | ❌ Poor | ⚠️ OK | **✅ Excellent** |
+| **Odysseus Fit** | ✅ Good | ❌ Poor | ⚠️ OK | **✅ Excellent** |
 
-**Freebuff Adapter Priority**:
+**Odysseus Adapter Priority**:
 1. **Mock Agent** (Phase 0-1) - Built-in, deterministic
 2. **OpenCode** (Phase 8) - Open, released, good CLI
 3. **Antigravity** (Phase 8/9) - Best architectural fit, daemon mode

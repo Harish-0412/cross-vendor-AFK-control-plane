@@ -1,7 +1,7 @@
 # Phase 3 — Cloud Control Plane Foundation: Execution Plan
 
 **Document:** Canonical Engineering Execution Plan for Phase 3  
-**Project:** Freebuff — The Kubernetes/Control-Plane Layer for AI Coding Agents  
+**Project:** Odysseus — The Kubernetes/Control-Plane Layer for AI Coding Agents  
 **Target Milestone:** M3 (A user can remotely start, monitor, approve, and cancel agent sessions on a local workstation from a phone or web browser)  
 **Status:** In Progress / Planning  
 
@@ -13,7 +13,7 @@ Phase 1 and Phase 2 delivered the complete **Local Agent Gateway** running on th
 
 The goal of **Phase 3** is to build the **Cloud Control Plane**: the cloud-hosted central hub that developer workstations (Gateways) connect to via outbound encrypted tunnels, and that mobile browsers and web clients connect to via HTTPS and WebSockets.
 
-This is the foundation for Freebuff's core value proposition: **"Bring your own agent. We govern the work."** The control plane makes agents interchangeable execution engines under unified governance.
+This is the foundation for Odysseus's core value proposition: **"Bring your own agent. We govern the work."** The control plane makes agents interchangeable execution engines under unified governance.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -47,7 +47,7 @@ This is the foundation for Freebuff's core value proposition: **"Bring your own 
 
 ### The Strategic Vision
 
-Phase 3 builds the foundation. Future phases will add the orchestration and governance services that differentiate Freebuff from competitors:
+Phase 3 builds the foundation. Future phases will add the orchestration and governance services that differentiate Odysseus from competitors:
 
 | Service | Phase | Value |
 |---|---|---|
@@ -77,7 +77,7 @@ But first, we need the core control plane that makes all of this possible.
    - **Local Dev Mode**: In-Memory / SQLite persistence with zero external service dependencies—boots in under 2 seconds.
    - **Production Mode**: PostgreSQL schema (Docker Compose or AWS RDS/Neon/Supabase) with transactional isolation.
 3. **Transport Protocol Compatibility**:
-   - Exactly matches `@freebuff/protocol` and `@freebuff/tunnel` message envelopes (`TunnelMessage`, `EventEnvelope`, `CommandEnvelope`).
+   - Exactly matches `@odysseus/protocol` and `@odysseus/tunnel` message envelopes (`TunnelMessage`, `EventEnvelope`, `CommandEnvelope`).
    - The Gateway already knows how to connect, authenticate with its Ed25519 key, queue messages, and reconcile sequences. Phase 3 implements the server counterpart.
 4. **Outbound-Only Invariant**:
    - The Gateway **never** opens an inbound listening port to the internet.
@@ -112,7 +112,7 @@ Subphase 3.7: End-to-End Verification Suite
 **Goal:** Establish the `control-plane/` service repository, HTTP server, configuration management, and database models.
 
 #### Key Deliverables:
-- **Service Root:** `control-plane/` workspace linked to `@freebuff/protocol` and `@freebuff/schemas`.
+- **Service Root:** `control-plane/` workspace linked to `@odysseus/protocol` and `@odysseus/schemas`.
 - **HTTP/WebSocket Framework:** Fastify HTTP server with `@fastify/websocket` / `ws` for high-throughput, low-latency duplex streaming.
 - **Database Schema & Models:**
   - `users`: User identity, password hash / OIDC sub, email, role, created_at.
@@ -306,7 +306,7 @@ control-plane/
 Phase 3 is considered **Complete** when the following criteria are verified:
 - [ ] Control Plane server boots cleanly locally on port 4000.
 - [ ] Web client can register and log in, receiving a valid JWT.
-- [ ] Local Agent Gateway (`@freebuff/core`) can establish an outbound tunnel to the Control Plane WebSocket server.
+- [ ] Local Agent Gateway (`@odysseus/core`) can establish an outbound tunnel to the Control Plane WebSocket server.
 - [ ] User can pair a device from the Web UI using the 8-character pairing code and confirm matching SAS fingerprint words.
 - [ ] User can start a session from the Web UI on the paired device running the Mock Adapter.
 - [ ] Agent streaming events are received in real time over the client WebSocket connection.
