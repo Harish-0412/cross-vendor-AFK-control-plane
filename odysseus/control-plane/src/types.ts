@@ -69,6 +69,14 @@ export interface PairingSession {
   userId?: string | undefined;
   fingerprintHex: string;
   fingerprintWords: string[];
+  /**
+   * The device public key, captured at pairing time.
+   *
+   * The tunnel handshake verifies signatures against this key, so a pairing
+   * that does not carry one produces a device that can never authenticate.
+   */
+  publicKeyJwk?: Record<string, unknown> | undefined;
+  publicKeyPem?: string | undefined;
   status: PairingSessionStatus;
   expiresAt: Date;
   createdAt: Date;

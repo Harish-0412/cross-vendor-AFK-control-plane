@@ -1,4 +1,8 @@
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { createGateway } from '../gateway/core/src/gateway';
+import { DeviceIdentityManager } from '../gateway/identity/src/device-identity';
 import { createApiServer } from '../gateway/core/src/api-server';
 import type { GatewayOptions, SessionConfig, EventEnvelope } from '@odysseus/protocol';
 
@@ -52,7 +56,20 @@ async function runLiveDemo() {
     logLevel: 'info',
   };
 
-  const gateway = createGateway(gatewayOptions);
+  // A throwaway identity per run. The tunnel handshake verifies signatures
+  // against the key registered at pairing time, so the demo has to hold a
+  // real private key rather than just claiming a device id.
+  const identityManager = new DeviceIdentityManager({
+    storage: { storageDir: join(tmpdir(), `odysseus-demo-${Date.now()}`) },
+  });
+  await identityManager.initialize();
+  const identity = identityManager.getIdentity();
+
+  const gateway = createGateway({
+    ...gatewayOptions,
+    deviceId: identity.deviceId,
+    gatewayId: identity.gatewayId,
+  });
   const status = await gateway.getStatus();
   console.log('   ✅ Gateway initialized:');
   console.log(`      Gateway ID:        ${status.gatewayId}`);
@@ -83,6 +100,8 @@ async function runLiveDemo() {
       gatewayId: status.gatewayId,
       fingerprintHex: 'DEADBEEFCAFE',
       fingerprintWords: ['echo', 'falcon', 'summit', 'horizon'],
+      publicKeyJwk: identity.publicKeyJwk,
+      publicKeyPem: identity.publicKeyPem,
     }),
   });
 
@@ -118,20 +137,67 @@ async function runLiveDemo() {
     tunnelWs.addEventListener('error', (err) => reject(err), { once: true });
   });
 
+  // Step 1 of the handshake: identity, signed.
+  const authNonce = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const authTimestamp = new Date().toISOString();
   tunnelWs.send(
     JSON.stringify({
       id: 'auth_msg',
       type: 'auth',
       sequence: 1,
-      timestamp: new Date().toISOString(),
-      payload: { deviceId: status.deviceId, gatewayId: status.gatewayId },
+      timestamp: authTimestamp,
+      payload: {
+        deviceId: identity.deviceId,
+        gatewayId: identity.gatewayId,
+        nonce: authNonce,
+        timestamp: authTimestamp,
+        publicKeyJwk: identity.publicKeyJwk,
+        signature: identityManager.sign(
+          JSON.stringify({
+            deviceId: identity.deviceId,
+            gatewayId: identity.gatewayId,
+            nonce: authNonce,
+            timestamp: authTimestamp,
+            certificateThumbprint: '',
+          }),
+        ),
+      },
     }),
   );
 
-  await new Promise<void>((resolve) => {
+  // Step 2: answer the server-chosen challenge, which is what makes a
+  // captured step 1 useless to replay.
+  await new Promise<void>((resolve, reject) => {
     tunnelWs.addEventListener('message', (event: any) => {
       const msg = JSON.parse(event.data.toString());
+
+      if (msg.type === 'auth_challenge') {
+        tunnelWs.send(
+          JSON.stringify({
+            id: 'auth_challenge_response',
+            type: 'auth',
+            sequence: 2,
+            payload: {
+              challenge: msg.payload.challenge,
+              serverNonce: msg.payload.serverNonce,
+              deviceId: identity.deviceId,
+              signature: identityManager.sign(
+                JSON.stringify({
+                  challenge: msg.payload.challenge,
+                  serverNonce: msg.payload.serverNonce,
+                  issuedAt: msg.payload.issuedAt,
+                }),
+              ),
+            },
+          }),
+        );
+        return;
+      }
+
       if (msg.type === 'auth_success') resolve();
+      if (msg.type === 'auth_failure') {
+        reject(new Error(`tunnel auth refused: ${msg.payload?.code} — ${msg.payload?.reason}`));
+      }
     });
   });
   console.log('   ✅ Gateway WebSocket Tunnel Authenticated: Status ONLINE');

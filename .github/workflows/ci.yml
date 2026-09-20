@@ -1,0 +1,101 @@
+name: CI
+
+# Runs on every push and pull request. The point is that a change which breaks
+# the build, the types or the tests is caught here rather than in a deploy —
+# Render auto-deploys from main, so main staying green is what keeps the
+# hosted Control Plane working.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  # A newer push supersedes an in-flight run on the same ref.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Typecheck, lint and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    defaults:
+      run:
+        working-directory: odysseus
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: odysseus/pnpm-lock.yaml
+
+      - name: Install
+        # Frozen lockfile: a dependency change that was not committed should
+        # fail here rather than resolve to something untested.
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm exec tsc --build
+
+      # Reporting-only, deliberately.
+      #
+      # There are 16 pre-existing no-unsafe-* errors in policy-engine-service.ts
+      # and connection-registry.ts that predate this workflow. Gating on them
+      # would make main red on arrival and the first reaction would be to delete
+      # the step. Surfacing them keeps the debt visible until it is paid; flip
+      # continue-on-error off once it is.
+      - name: Lint
+        run: pnpm lint
+        continue-on-error: true
+
+      - name: Test
+        run: pnpm test
+
+  docker:
+    name: Control Plane image builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Build only — nothing is pushed. This catches a Dockerfile that is
+      # broken before Render discovers it mid-deploy.
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./odysseus
+          file: ./odysseus/Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  secret-scan:
+    name: No secrets in the tree
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks needs history to scan commits, not just the tip.
+          fetch-depth: 0
+
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

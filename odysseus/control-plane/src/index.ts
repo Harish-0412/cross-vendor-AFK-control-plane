@@ -1,5 +1,6 @@
 export * from './types';
 export * from './config';
+export * from './production-guard';
 export * from './auth/jwt';
 export * from './auth/password';
 export * from './db/types';

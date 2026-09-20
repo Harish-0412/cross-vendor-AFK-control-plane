@@ -11,13 +11,18 @@ import type {
 } from '@odysseus/protocol';
 import { WebSocketServer, type WebSocket } from 'ws';
 
+import { isUsablePublicKeyJwk } from '../auth/device-signature';
 import type { IDatabase } from '../db/types';
-import type { ApprovalRecord, StoredEvent } from '../types';
+import type { ApprovalRecord, DeviceRecord, StoredEvent } from '../types';
 
 import type { ConnectionRegistry, GatewayAdmissionPhase } from './connection-registry';
+import { DeviceAuthenticator, type AuthDenial, type PendingChallenge } from './device-auth';
 
 export interface TunnelServerOptions {
   heartbeatTimeoutMs?: number;
+  /** Overrides for the device authentication exchange; see device-auth.ts. */
+  clockSkewToleranceMs?: number;
+  challengeTtlMs?: number;
 }
 
 interface InboundTunnelMessage {
@@ -51,6 +56,9 @@ export class TunnelServer {
   >();
   /** Results that arrived before anyone waited for them. */
   private settledSessionStarts = new Map<string, { started: boolean; error?: string }>();
+  /** Per-socket authentication state: the challenge awaiting its response. */
+  private readonly socketAuth = new WeakMap<WebSocket, { pending?: PendingChallenge }>();
+  private readonly authenticator: DeviceAuthenticator;
   private onEventBroadcast?: (event: StoredEvent) => void;
   private onApprovalCreated?: (approval: ApprovalRecord) => void;
   private onAdmissionPhaseChange?: (
@@ -77,6 +85,12 @@ export class TunnelServer {
     this.db = db;
     this.registry = registry;
     this.heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? 60_000;
+    this.authenticator = new DeviceAuthenticator({
+      ...(options.clockSkewToleranceMs !== undefined
+        ? { clockSkewToleranceMs: options.clockSkewToleranceMs }
+        : {}),
+      ...(options.challengeTtlMs !== undefined ? { challengeTtlMs: options.challengeTtlMs } : {}),
+    });
     this.wss = new WebSocketServer({ noServer: true });
     this.setupWss();
   }
@@ -196,6 +210,234 @@ export class TunnelServer {
     });
   }
 
+  /**
+   * Handle both steps of the gateway authentication exchange.
+   *
+   * Step 1 carries the device's claimed identity and a signature the server
+   * verifies against the key recorded at pairing time. Step 2 answers a
+   * server-chosen challenge, which is what makes a captured step 1 useless to
+   * replay. See `device-auth.ts` for the protocol.
+   */
+  private async handleAuthMessage(
+    socket: WebSocket,
+    req: IncomingMessage,
+    correlationId: string | undefined,
+    payload: Record<string, unknown>,
+    setAuthDevId: (id: string) => void,
+  ): Promise<void> {
+    const state = this.socketAuth.get(socket);
+
+    // A socket that already holds a challenge is answering it. Anything else
+    // on that socket is a fresh attempt, which restarts the exchange.
+    if (state?.pending && typeof payload['challenge'] === 'string') {
+      const pending = state.pending;
+      this.socketAuth.set(socket, {});
+
+      const device = await this.db.devices.findById(pending.deviceId);
+      if (!device) {
+        this.denyAuth(socket, correlationId, {
+          ok: false,
+          code: 'DEVICE_NOT_TRUSTED',
+          reason: 'Device disappeared between challenge and response',
+          retryable: true,
+          fatal: true,
+        });
+        return;
+      }
+
+      const outcome = this.authenticator.completeAuth(pending, payload, device.publicKeyJwk);
+      if (!outcome.ok) {
+        this.denyAuth(socket, correlationId, outcome);
+        return;
+      }
+
+      setAuthDevId(pending.deviceId);
+      await this.db.devices.updateLastSeen(pending.deviceId, new Date());
+
+      this.registry.registerGateway({
+        deviceId: pending.deviceId,
+        gatewayId: pending.gatewayId,
+        socket,
+        connectionId: pending.connectionId,
+        connectedAt: new Date(),
+        lastHeartbeatAt: new Date(),
+        remoteAddress: req.socket.remoteAddress ?? undefined,
+        capabilities: ['sessions', 'approvals', 'commands'],
+      });
+
+      this.send(socket, {
+        id: randomUUID(),
+        type: 'auth_success',
+        sequence: 1,
+        correlationId,
+        timestamp: new Date(),
+        payload: {
+          sessionId: `cpsess_${randomUUID().replace(/-/g, '')}`,
+          assignedGlobalSequence: 1,
+          serverTimestamp: new Date(),
+          capabilities: ['sessions', 'approvals', 'commands'],
+        },
+      });
+      return;
+    }
+
+    // ---------------------------------------------------------------- step 1
+    const deviceId = typeof payload['deviceId'] === 'string' ? payload['deviceId'] : '';
+    const gatewayId = typeof payload['gatewayId'] === 'string' ? payload['gatewayId'] : '';
+    const connectionId =
+      typeof payload['connectionId'] === 'string' ? payload['connectionId'] : 'default';
+
+    const resolution = await this.resolveAuthDevice(deviceId, gatewayId);
+    if ('denial' in resolution) {
+      this.denyAuth(socket, correlationId, resolution.denial);
+      return;
+    }
+    const device = resolution.device;
+
+    const begun = this.authenticator.beginAuth(
+      {
+        deviceId,
+        gatewayId,
+        connectionId,
+        nonce: typeof payload['nonce'] === 'string' ? payload['nonce'] : '',
+        timestamp: typeof payload['timestamp'] === 'string' ? payload['timestamp'] : '',
+        certificateThumbprint:
+          typeof payload['certificateThumbprint'] === 'string'
+            ? payload['certificateThumbprint']
+            : undefined,
+        signature: typeof payload['signature'] === 'string' ? payload['signature'] : '',
+      },
+      device.publicKeyJwk,
+    );
+
+    if (!begun.ok) {
+      this.denyAuth(socket, correlationId, begun);
+      return;
+    }
+
+    this.socketAuth.set(socket, { pending: begun.challenge });
+    this.send(socket, {
+      id: randomUUID(),
+      type: 'auth_challenge',
+      sequence: 1,
+      correlationId,
+      timestamp: new Date(),
+      payload: {
+        challenge: begun.challenge.challenge,
+        serverNonce: begun.challenge.serverNonce,
+        issuedAt: begun.challenge.issuedAtIso,
+        expiresAt: new Date(begun.challenge.expiresAt).toISOString(),
+      },
+    });
+  }
+
+  /**
+   * Find the device this gateway claims to be, creating it from a confirmed
+   * pairing the first time it connects.
+   *
+   * The device is only created when the pairing carries a real public key. A
+   * device row with an empty key can never authenticate, so creating one would
+   * only replace a clear "not paired" error with a confusing permanent failure.
+   */
+  private async resolveAuthDevice(
+    deviceId: string,
+    gatewayId: string,
+  ): Promise<{ device: DeviceRecord } | { denial: AuthDenial }> {
+    if (!deviceId || !gatewayId) {
+      return {
+        denial: {
+          ok: false,
+          code: 'INVALID_CREDENTIALS',
+          reason: 'Missing deviceId or gatewayId',
+          retryable: false,
+          fatal: true,
+        },
+      };
+    }
+
+    let device = await this.db.devices.findById(deviceId);
+
+    if (!device) {
+      const pairing = await this.db.pairings.findByDeviceId(deviceId);
+      if (!pairing || pairing.status !== 'confirmed') {
+        return {
+          denial: {
+            ok: false,
+            code: 'DEVICE_NOT_TRUSTED',
+            reason: 'Device is not yet paired or trusted by a user',
+            retryable: true,
+            fatal: false,
+          },
+        };
+      }
+
+      if (!isUsablePublicKeyJwk(pairing.publicKeyJwk)) {
+        return {
+          denial: {
+            ok: false,
+            code: 'DEVICE_KEY_MISSING',
+            reason:
+              'This pairing recorded no device public key, so the gateway cannot prove its ' +
+              'identity. Re-run pairing with an up-to-date gateway.',
+            retryable: false,
+            fatal: true,
+          },
+        };
+      }
+
+      device = await this.db.devices.create({
+        id: deviceId,
+        gatewayId,
+        userId: pairing.userId || 'usr_anonymous',
+        friendlyName: `Device ${deviceId.slice(-6)}`,
+        platform: 'unknown',
+        publicKeyPem: pairing.publicKeyPem ?? '',
+        publicKeyJwk: pairing.publicKeyJwk,
+        fingerprintHex: pairing.fingerprintHex,
+        fingerprintWords: pairing.fingerprintWords,
+        status: 'trusted',
+      });
+    }
+
+    if (device.status === 'revoked' || device.status === 'suspended') {
+      return {
+        denial: {
+          ok: false,
+          code: 'DEVICE_REVOKED',
+          reason: `Device status is ${device.status}`,
+          retryable: false,
+          fatal: true,
+        },
+      };
+    }
+
+    return { device };
+  }
+
+  /**
+   * Report a refusal in the shape TunnelClient's failure taxonomy expects, so
+   * a permanent rejection exits rather than reconnecting forever.
+   */
+  private denyAuth(socket: WebSocket, correlationId: string | undefined, denial: AuthDenial): void {
+    this.socketAuth.set(socket, {});
+    this.send(socket, {
+      id: randomUUID(),
+      type: 'auth_failure',
+      sequence: 1,
+      correlationId,
+      timestamp: new Date(),
+      payload: {
+        code: denial.code,
+        reason: denial.reason,
+        retryable: denial.retryable,
+        ...(denial.retryable ? { retryAfterMs: 5000 } : {}),
+      },
+    });
+    if (denial.fatal) {
+      socket.close(denial.code === 'DEVICE_REVOKED' ? 4003 : 4001, 'Authentication failed');
+    }
+  }
+
   private async handleSocketMessage(
     socket: WebSocket,
     req: IncomingMessage,
@@ -208,113 +450,10 @@ export class TunnelServer {
       const msg = JSON.parse(raw) as InboundTunnelMessage;
       const { id, type, sequence, correlationId, payload } = msg;
 
-      // 1. Handle initial Authentication
+      // 1. Authentication. Both steps of the challenge-response arrive as
+      // `auth`; which one this is depends on the state held for this socket.
       if (type === 'auth') {
-        const deviceId =
-          typeof payload?.['deviceId'] === 'string' ? payload['deviceId'] : undefined;
-        const gatewayId =
-          typeof payload?.['gatewayId'] === 'string' ? payload['gatewayId'] : undefined;
-
-        if (!deviceId || !gatewayId) {
-          this.send(socket, {
-            id: randomUUID(),
-            type: 'auth_failure',
-            sequence: 1,
-            correlationId: id,
-            timestamp: new Date(),
-            payload: {
-              code: 'INVALID_CREDENTIALS',
-              reason: 'Missing deviceId or gatewayId',
-              retryable: false,
-            },
-          });
-          socket.close(4001, 'Authentication failed');
-          return;
-        }
-
-        let device = await this.db.devices.findById(deviceId);
-        if (!device) {
-          const pairing = await this.db.pairings.findByDeviceId(deviceId);
-          if (pairing && pairing.status === 'confirmed') {
-            device = await this.db.devices.create({
-              id: deviceId,
-              gatewayId,
-              userId: pairing.userId || 'usr_anonymous',
-              friendlyName: `Device ${deviceId.slice(-6)}`,
-              platform: 'unknown',
-              publicKeyPem: '',
-              publicKeyJwk: {},
-              fingerprintHex: pairing.fingerprintHex,
-              fingerprintWords: pairing.fingerprintWords,
-              status: 'trusted',
-            });
-          } else {
-            this.send(socket, {
-              id: randomUUID(),
-              type: 'auth_failure',
-              sequence: 1,
-              correlationId: id,
-              timestamp: new Date(),
-              payload: {
-                code: 'DEVICE_NOT_TRUSTED',
-                reason: 'Device is not yet paired or trusted by a user',
-                retryable: true,
-                retryAfterMs: 5000,
-              },
-            });
-            return;
-          }
-        }
-
-        if (device.status === 'revoked' || device.status === 'suspended') {
-          this.send(socket, {
-            id: randomUUID(),
-            type: 'auth_failure',
-            sequence: 1,
-            correlationId: id,
-            timestamp: new Date(),
-            payload: {
-              code: 'DEVICE_REVOKED',
-              reason: `Device status is ${device.status}`,
-              retryable: false,
-            },
-          });
-          socket.close(4003, 'Device revoked');
-          return;
-        }
-
-        setAuthDevId(deviceId);
-        await this.db.devices.updateLastSeen(deviceId, new Date());
-
-        // A gateway running several tunnels labels each one, so they are kept
-        // side by side rather than each replacing the last.
-        const connectionId =
-          typeof payload?.['connectionId'] === 'string' ? payload['connectionId'] : 'default';
-
-        this.registry.registerGateway({
-          deviceId,
-          gatewayId,
-          socket,
-          connectionId,
-          connectedAt: new Date(),
-          lastHeartbeatAt: new Date(),
-          remoteAddress: req.socket.remoteAddress ?? undefined,
-          capabilities: ['sessions', 'approvals', 'commands'],
-        });
-
-        this.send(socket, {
-          id: randomUUID(),
-          type: 'auth_success',
-          sequence: 1,
-          correlationId: id,
-          timestamp: new Date(),
-          payload: {
-            sessionId: `cpsess_${randomUUID().replace(/-/g, '')}`,
-            assignedGlobalSequence: 1,
-            serverTimestamp: new Date(),
-            capabilities: ['sessions', 'approvals', 'commands'],
-          },
-        });
+        await this.handleAuthMessage(socket, req, id, payload ?? {}, setAuthDevId);
         return;
       }
 

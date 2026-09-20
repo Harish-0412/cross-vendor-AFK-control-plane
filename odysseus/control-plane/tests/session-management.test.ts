@@ -2,12 +2,19 @@ import { WebSocket } from 'ws';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 import { ControlPlane } from '../src/control-plane';
+import {
+  connectAuthenticatedGateway,
+  createTestIdentity,
+  deviceRecordFor,
+  type TestDeviceIdentity,
+} from './helpers/gateway-handshake';
 
 describe('Subphase 3.5 — Task & Session Management APIs', () => {
   let cp: ControlPlane;
   let baseUrl: string;
   let tunnelUrl: string;
   let accessToken: string;
+  let gatewayIdentity: TestDeviceIdentity;
 
   beforeEach(async () => {
     cp = new ControlPlane({ port: 0 });
@@ -38,40 +45,26 @@ describe('Subphase 3.5 — Task & Session Management APIs', () => {
       status: 'confirmed',
       expiresAt: new Date(Date.now() + 300_000),
     });
-    await cp.db.devices.create({
-      id: deviceId,
-      gatewayId: 'gw_session_test',
-      userId: (await cp.db.users.findByEmail('session-test@odysseus.dev'))!.id,
-      friendlyName: 'Session Test Device',
-      platform: 'linux',
-      publicKeyPem: '',
-      publicKeyJwk: {},
-      fingerprintHex: 'SESS1',
-      fingerprintWords: ['session', 'test'],
-      status: 'trusted',
-    });
+    gatewayIdentity = createTestIdentity(deviceId, 'gw_session_test');
+    await cp.db.devices.create(
+      deviceRecordFor(gatewayIdentity, {
+        userId: (await cp.db.users.findByEmail('session-test@odysseus.dev'))!.id,
+        friendlyName: 'Session Test Device',
+        fingerprintHex: 'SESS1',
+        fingerprintWords: ['session', 'test'],
+      }) as never,
+    );
   });
 
   afterEach(async () => {
     await cp.stop();
   });
 
-  // Helper: connect gateway and return ws
-  async function connectGateway(deviceId: string) {
-    const ws = new WebSocket(tunnelUrl);
-    await new Promise<void>((resolve) => ws.on('open', () => resolve()));
-    ws.send(JSON.stringify({
-      id: 'auth',
-      type: 'auth',
-      sequence: 1,
-      payload: { deviceId, gatewayId: 'gw_session_test' },
-    }));
-    await new Promise<void>((resolve) => {
-      ws.on('message', (data) => {
-        if (JSON.parse(data.toString('utf8')).type === 'auth_success') resolve();
-      });
-    });
-    return ws;
+  // Connect a gateway the way the real one connects: signed challenge-response
+  // against the key registered for the device. A shortcut here would mean
+  // these tests keep passing even if the handshake stopped verifying anything.
+  async function connectGateway(_deviceId: string) {
+    return connectAuthenticatedGateway(WebSocket as never, tunnelUrl, gatewayIdentity);
   }
 
   it('should create a session on a connected device and mark it running', async () => {

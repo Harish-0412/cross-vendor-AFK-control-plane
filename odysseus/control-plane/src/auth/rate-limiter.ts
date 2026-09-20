@@ -30,6 +30,20 @@ export const DEFAULT_REGISTER_RATE_LIMIT: AuthRateLimiterConfig = {
   maxAttemptsPerWindow: 10,
 };
 
+/**
+ * Pairing-code verification.
+ *
+ * A pairing code is short and human-typed, so the space is small enough to
+ * walk through if attempts are unlimited — and the prize is a trusted device
+ * on someone else’s account, which is a worse outcome than a guessed
+ * password. The window is tighter than login for that reason: a real user
+ * types the code once, maybe twice with a typo.
+ */
+export const DEFAULT_PAIRING_RATE_LIMIT: AuthRateLimiterConfig = {
+  windowMs: 10 * 60 * 1000,
+  maxAttemptsPerWindow: 8,
+};
+
 interface WindowEntry {
   count: number;
   windowStartedAt: number;

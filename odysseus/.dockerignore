@@ -1,0 +1,34 @@
+# Never copy installed modules: they are platform-specific and the image
+# installs its own with a frozen lockfile.
+node_modules
+**/node_modules
+
+# Build output is regenerated inside the image.
+dist
+**/dist
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# Secrets must never enter an image layer. Layers are cached, shipped and
+# often readable by anyone who can pull the image — a deleted file in a later
+# layer is still present in the earlier one.
+.env
+.env.*
+**/.env
+**/.env.*
+*.pem
+*.key
+
+# Local identity material. The gateway's device keys live here and have no
+# business in a Control Plane image.
+.odysseus
+**/.odysseus
+
+# Nothing below is needed to run the service.
+.git
+.github
+**/coverage
+**/*.log
+**/.DS_Store
+**/.vscode
+**/.idea

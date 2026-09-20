@@ -2,6 +2,10 @@ import { WebSocket } from 'ws';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 import { ControlPlane } from '../src/control-plane';
+import {
+  connectAuthenticatedGateway,
+  createTestIdentity,
+} from './helpers/gateway-handshake';
 
 describe('Subphase 3.3 — Device Registry & Pairing Handshake Relay', () => {
   let cp: ControlPlane;
@@ -46,6 +50,10 @@ describe('Subphase 3.3 — Device Registry & Pairing Handshake Relay', () => {
   // ──────────────────────────────────────────────────────────
   // Helper: initiate pairing from the gateway side
   // ──────────────────────────────────────────────────────────
+  // Pairing now registers the device public key, because the tunnel
+  // handshake verifies signatures against it.
+  const identity = createTestIdentity(DEVICE_ID, GATEWAY_ID);
+
   async function initiatePairing(
     code = PAIR_CODE,
     deviceId = DEVICE_ID,
@@ -60,6 +68,8 @@ describe('Subphase 3.3 — Device Registry & Pairing Handshake Relay', () => {
         gatewayId,
         fingerprintHex: 'GRA5TGR8',
         fingerprintWords: FINGERPRINT_WORDS,
+        publicKeyJwk: identity.publicKeyJwk,
+        publicKeyPem: identity.publicKeyPem,
       }),
     });
     expect(res.status).toBe(201);
@@ -162,6 +172,7 @@ describe('Subphase 3.3 — Device Registry & Pairing Handshake Relay', () => {
           gatewayId: 'gw_expiry_test',
           fingerprintHex: 'AAAA',
           fingerprintWords: ['alpha'],
+          publicKeyJwk: identity.publicKeyJwk,
         }),
       });
 
@@ -286,22 +297,8 @@ describe('Subphase 3.3 — Device Registry & Pairing Handshake Relay', () => {
         body: JSON.stringify({ pairingId, confirmed: true, friendlyName: 'Dev Box' }),
       });
 
-      // Connect gateway via tunnel
-      const ws = new WebSocket(tunnelUrl);
-      await new Promise<void>((resolve) => ws.on('open', () => resolve()));
-
-      ws.send(JSON.stringify({
-        id: 'auth1', type: 'auth', sequence: 1,
-        timestamp: new Date().toISOString(),
-        payload: { deviceId: DEVICE_ID, gatewayId: GATEWAY_ID },
-      }));
-
-      await new Promise<void>((resolve) => {
-        ws.on('message', (data) => {
-          const msg = JSON.parse(data.toString('utf8'));
-          if (msg.type === 'auth_success') resolve();
-        });
-      });
+      // Connect gateway via tunnel, signing the challenge as the real one does
+      const ws = await connectAuthenticatedGateway(WebSocket as never, tunnelUrl, identity);
 
       expect(cp.registry.isDeviceOnline(DEVICE_ID)).toBe(true);
 
@@ -490,22 +487,8 @@ describe('Subphase 3.3 — Device Registry & Pairing Handshake Relay', () => {
         body: JSON.stringify({ pairingId, confirmed: true, friendlyName: 'Revoke Me' }),
       });
 
-      // Connect gateway via tunnel
-      const ws = new WebSocket(tunnelUrl);
-      await new Promise<void>((resolve) => ws.on('open', () => resolve()));
-
-      ws.send(JSON.stringify({
-        id: 'auth1', type: 'auth', sequence: 1,
-        timestamp: new Date().toISOString(),
-        payload: { deviceId: DEVICE_ID, gatewayId: GATEWAY_ID },
-      }));
-
-      await new Promise<void>((resolve) => {
-        ws.on('message', (data) => {
-          const msg = JSON.parse(data.toString('utf8'));
-          if (msg.type === 'auth_success') resolve();
-        });
-      });
+      // Connect gateway via tunnel, signing the challenge as the real one does
+      const ws = await connectAuthenticatedGateway(WebSocket as never, tunnelUrl, identity);
 
       expect(cp.registry.isDeviceOnline(DEVICE_ID)).toBe(true);
 

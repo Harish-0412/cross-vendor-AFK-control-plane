@@ -2,8 +2,6 @@ import crypto, { randomUUID } from 'node:crypto';
 
 import type { BudgetLimit, OrchestrationRun, RoutingDecision } from '@odysseus/protocol';
 
-import { normalizePairingCode } from './pairing-code';
-
 import type {
   User,
   DeviceRecord,
@@ -20,6 +18,7 @@ import type {
   CostEventRecord,
 } from '../types';
 
+import { normalizePairingCode } from './pairing-code';
 import type {
   IDatabase,
   IUserRepository,

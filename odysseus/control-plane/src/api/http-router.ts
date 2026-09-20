@@ -6,12 +6,14 @@ import type { Capability, SessionConfig, TaskKind, TrustProfile } from '@odysseu
 import { CreatePolicyVersionSchema } from '@odysseus/schemas';
 
 import { SummaryGenerator } from '../afk/summary-generator';
+import { isUsablePublicKeyJwk } from '../auth/device-signature';
 import { verifyFirebaseIdToken } from '../auth/firebase-admin';
 import { signJwt, verifyJwt } from '../auth/jwt';
 import { hashPassword, verifyPassword } from '../auth/password';
 import {
   AuthRateLimiter,
   DEFAULT_LOGIN_RATE_LIMIT,
+  DEFAULT_PAIRING_RATE_LIMIT,
   DEFAULT_REGISTER_RATE_LIMIT,
 } from '../auth/rate-limiter';
 import { normalizePairingCode } from '../db/pairing-code';
@@ -64,6 +66,7 @@ export class HttpRouter {
   // key on when the abuse is account-creation spam itself).
   private readonly loginRateLimiter = new AuthRateLimiter(DEFAULT_LOGIN_RATE_LIMIT);
   private readonly registerRateLimiter = new AuthRateLimiter(DEFAULT_REGISTER_RATE_LIMIT);
+  private readonly pairingRateLimiter = new AuthRateLimiter(DEFAULT_PAIRING_RATE_LIMIT);
 
   constructor(
     db: IDatabase,
@@ -414,8 +417,23 @@ export class HttpRouter {
           ? (body['fingerprintWords'] as string[])
           : [];
 
+        // The device public key is captured here, at pairing time, because the
+        // tunnel handshake verifies gateway signatures against it. A pairing
+        // without a key produces a device that can never authenticate, so it is
+        // rejected up front rather than discovered at the first connection.
+        const publicKeyJwk = body['publicKeyJwk'];
+        const publicKeyPem =
+          typeof body['publicKeyPem'] === 'string' ? body['publicKeyPem'] : undefined;
+
         if (!code || !deviceId || !gatewayId) {
           return this.sendJson(res, 400, { error: 'Missing pairing initiation fields' });
+        }
+        if (!isUsablePublicKeyJwk(publicKeyJwk)) {
+          return this.sendJson(res, 400, {
+            error:
+              'publicKeyJwk is required and must be a public JWK. Update the gateway: ' +
+              'pairing now registers the device key used to verify its tunnel signatures.',
+          });
         }
         const pairing = await this.db.pairings.create({
           code,
@@ -423,6 +441,8 @@ export class HttpRouter {
           gatewayId,
           fingerprintHex,
           fingerprintWords,
+          publicKeyJwk,
+          ...(publicKeyPem ? { publicKeyPem } : {}),
           status: 'pending',
           expiresAt: new Date(Date.now() + this.config.pairingCodeTtlSec * 1000),
         });
@@ -452,6 +472,18 @@ export class HttpRouter {
         if (!authUser) {
           return this.sendJson(res, 401, { error: 'Unauthorized: log in to pair a device' });
         }
+        // Codes are short and typed by hand, so unlimited guesses would make
+        // them enumerable. Limited per user rather than per IP: the attacker
+        // controls their IP, and an authenticated account is the thing a
+        // stolen pairing would actually attach a device to.
+        if (!this.pairingRateLimiter.isAllowed(authUser.id)) {
+          return this.sendJson(res, 429, {
+            error: 'Too many pairing attempts. Please try again later.',
+            retryAfterSeconds: this.pairingRateLimiter.retryAfterSeconds(authUser.id),
+          });
+        }
+        this.pairingRateLimiter.recordAttempt(authUser.id);
+
         const code =
           typeof body['code'] === 'string' ? normalizePairingCode(body['code']) : undefined;
         if (!code) {
@@ -522,14 +554,24 @@ export class HttpRouter {
 
         let device = await this.db.devices.findById(pairing.deviceId);
         if (!device) {
+          if (!isUsablePublicKeyJwk(pairing.publicKeyJwk)) {
+            // Refusing here keeps a device that cannot authenticate out of the
+            // database entirely, so the user gets one clear error now instead of
+            // a gateway that connects and is rejected forever.
+            return this.sendJson(res, 409, {
+              error:
+                'This pairing recorded no device public key, so the device cannot be trusted. ' +
+                'Re-run pairing with an up-to-date gateway.',
+            });
+          }
           device = await this.db.devices.create({
             id: pairing.deviceId,
             gatewayId: pairing.gatewayId,
             userId: authUser.id,
             friendlyName: friendlyName || `Workstation (${pairing.deviceId.slice(-6)})`,
             platform: 'unknown',
-            publicKeyPem: '',
-            publicKeyJwk: {},
+            publicKeyPem: pairing.publicKeyPem ?? '',
+            publicKeyJwk: pairing.publicKeyJwk,
             fingerprintHex: pairing.fingerprintHex,
             fingerprintWords: pairing.fingerprintWords,
             status: 'trusted',
@@ -1553,8 +1595,7 @@ export class HttpRouter {
         // "Unknown adapter: undefined" — after the session had already been
         // recorded. `agent` is still accepted from callers as an alias.
         const providedConfig = rawConfig as unknown as
-          | (Partial<SessionConfig> & { agent?: string; projectId?: string })
-          | undefined;
+          (Partial<SessionConfig> & { agent?: string; projectId?: string }) | undefined;
         const resolvedPrompt = providedConfig?.prompt ?? prompt;
         const sessionConfig: SessionConfig = {
           ...(providedConfig ?? {}),

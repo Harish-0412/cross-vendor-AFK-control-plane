@@ -119,7 +119,8 @@ export function mergeGatewayOptions(
     if (opts.controlPlane) {
       type ControlPlane = NonNullable<GatewayOptions['controlPlane']>;
       const c = opts.controlPlane;
-      const dst = (merged.controlPlane as ControlPlane | undefined) ?? ({ url: c.url } as ControlPlane);
+      const dst =
+        (merged.controlPlane as ControlPlane | undefined) ?? ({ url: c.url } as ControlPlane);
       if (c.url !== undefined) dst.url = c.url;
       if (c.autoConnect !== undefined) dst.autoConnect = c.autoConnect;
       if (c.authToken !== undefined) dst.authToken = c.authToken;

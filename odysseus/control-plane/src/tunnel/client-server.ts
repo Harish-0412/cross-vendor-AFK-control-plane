@@ -44,24 +44,46 @@ export class ClientServer {
       const clientId = `client_${randomUUID().replace(/-/g, '')}`;
       let userId: string | undefined;
 
-      // Check for token in query parameter
+      // Every client socket must present a token.
+      //
+      // A missing token previously fell through to an 'anonymous' user and
+      // the connection was accepted. On localhost that was a convenience; on
+      // a public deployment it is an unauthenticated subscriber to other
+      // people's session events. An absent credential is now refused exactly
+      // like an invalid one, because to an attacker they are the same move.
       const host = req.headers.host || 'localhost';
       const url = new URL(req.url || '/', `http://${host}`);
-      const token = url.searchParams.get('token');
+      // Browsers cannot set headers on a WebSocket handshake, so the query
+      // parameter is the only option for the web client; the header is here
+      // for non-browser callers that can do better.
+      const header = req.headers['authorization'];
+      const bearer =
+        typeof header === 'string' && header.startsWith('Bearer ')
+          ? header.slice('Bearer '.length).trim()
+          : null;
+      const token = url.searchParams.get('token') ?? bearer;
 
-      if (token) {
-        try {
-          const payload = verifyJwt(token, this.jwtSecret);
-          userId = payload.sub;
-        } catch {
-          socket.close(4001, 'Unauthorized: Invalid token');
-          return;
-        }
+      if (!token) {
+        socket.close(4001, 'Unauthorized: authentication token required');
+        return;
+      }
+
+      try {
+        const payload = verifyJwt(token, this.jwtSecret);
+        userId = payload.sub;
+      } catch {
+        socket.close(4001, 'Unauthorized: Invalid token');
+        return;
+      }
+
+      if (!userId) {
+        socket.close(4001, 'Unauthorized: token carries no subject');
+        return;
       }
 
       const clientConn = {
         clientId,
-        userId: userId || 'anonymous',
+        userId,
         socket,
         connectedAt: new Date(),
         subscribedSessions: new Set<string>(),

@@ -516,10 +516,18 @@ export class TunnelClient {
   private handleAuthChallenge(payload: AuthChallengePayload): void {
     if (!this.authProvider) return;
 
+    // `issuedAt` is typed as a Date but arrives as whatever JSON.parse
+    // produced — a string. Calling .toISOString() on it threw, which meant
+    // the challenge response was never sent and auth silently timed out.
+    // The server signs the exact string it transmitted, so the raw value is
+    // what must go into the signature base.
+    const issuedAt =
+      payload.issuedAt instanceof Date ? payload.issuedAt.toISOString() : String(payload.issuedAt);
+
     const signatureBase = JSON.stringify({
       challenge: payload.challenge,
       serverNonce: payload.serverNonce,
-      issuedAt: payload.issuedAt.toISOString(),
+      issuedAt,
     });
     const signature = this.authProvider.sign(signatureBase);
 

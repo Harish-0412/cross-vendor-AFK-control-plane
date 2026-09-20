@@ -1,0 +1,54 @@
+# Fly.io deployment for the Odysseus Control Plane.
+#
+# This is the upgrade path from Render's free tier, not the starting point.
+# Fly has no free allowance any more, but it is worth the few dollars a month
+# once the latency matters: you can place the machine in a region near you,
+# and there is no sleep/cold-start behaviour to work around.
+#
+# Deploy with:
+#   cd odysseus
+#   fly launch --no-deploy --copy-config
+#   fly secrets set JWT_SECRET=... CORS_ORIGINS=... USE_FIRESTORE=true ...
+#   fly deploy
+
+app = "odysseus-control-plane"
+primary_region = "bom"   # Mumbai. Change to the region closest to you.
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  CONTROL_PLANE_HOST = "0.0.0.0"
+  PORT = "4000"
+  SECURE_COOKIES = "true"
+  USE_FIRESTORE = "true"
+
+[http_service]
+  internal_port = 4000
+  force_https = true
+
+  # The whole architecture is a long-lived WebSocket. A machine that stops
+  # when it looks idle would drop the gateway tunnel, so autostop is off and
+  # one machine is always running.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    # WebSocket connections are long-lived and cheap; the default request-based
+    # limits would be wrong here.
+    type = "connections"
+    hard_limit = 500
+    soft_limit = 400
+
+  [[http_service.checks]]
+    grace_period = "20s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

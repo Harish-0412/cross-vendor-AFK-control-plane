@@ -39,6 +39,12 @@ export class ControlPlane {
   public costGovernor: CostGovernor;
   public riskEngine: RiskEngine;
   public multiAgentOrchestrator: MultiAgentOrchestrator;
+  /**
+   * True when no persistent database was configured. The production guard
+   * refuses to start on this, because a container restart would erase every
+   * user, pairing and audit record.
+   */
+  public readonly usingMemoryDatabase: boolean;
   private server?: http.Server | undefined;
   private actualPort = 0;
 
@@ -62,6 +68,7 @@ export class ControlPlane {
     } else {
       this.db = new MemoryDatabase();
     }
+    this.usingMemoryDatabase = this.db instanceof MemoryDatabase;
     this.registry = new ConnectionRegistry();
 
     this.tunnelServer = new TunnelServer(this.db, this.registry, {
@@ -190,12 +197,20 @@ export class ControlPlane {
         const path = url.pathname;
 
         if (path.startsWith('/ws/tunnel') || path === '/tunnel') {
+          // No Origin check for the gateway tunnel: it is not a browser, it
+          // sends no Origin, and its identity is proven by the signed
+          // handshake instead.
           this.tunnelServer.handleUpgrade(req, socket, head);
         } else if (
           path.startsWith('/ws/client') ||
           path.startsWith('/ws/events') ||
           path === '/client'
         ) {
+          if (!this.isAllowedWebSocketOrigin(req.headers.origin)) {
+            socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+            socket.destroy();
+            return;
+          }
           this.clientServer.handleUpgrade(req, socket, head);
         } else {
           socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
@@ -242,6 +257,26 @@ export class ControlPlane {
     return `http://${host}:${this.actualPort || this.config.port}`;
   }
 
+  /**
+   * Decide whether a browser WebSocket handshake may proceed.
+   *
+   * Browsers do not apply CORS to WebSocket upgrades, so the REST allowlist
+   * does nothing here. Without this check any page the user visits while
+   * logged in could open a socket to the Control Plane and act as them —
+   * Cross-Site WebSocket Hijacking.
+   *
+   * A request with no Origin header is not a browser (curl, a native app, a
+   * test) and is allowed through to token authentication, which is the real
+   * gate. The Origin check exists to stop *browsers* acting on behalf of
+   * another site, and a browser always sends one.
+   */
+  isAllowedWebSocketOrigin(origin: string | undefined): boolean {
+    if (!origin) return true;
+
+    const allowed = this.config.corsOrigins;
+    if (allowed.includes('*')) return true;
+    return allowed.includes(origin);
+  }
   getWsTunnelUrl(): string {
     const host = this.config.host === '0.0.0.0' ? 'localhost' : this.config.host;
     return `ws://${host}:${this.actualPort || this.config.port}/ws/tunnel`;

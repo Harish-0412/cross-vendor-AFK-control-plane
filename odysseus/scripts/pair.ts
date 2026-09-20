@@ -30,6 +30,11 @@ async function main() {
         gatewayId: session.gatewayId,
         fingerprintHex: session.fingerprintHex,
         fingerprintWords: session.fingerprintWords,
+        // Registered here so the Control Plane can verify the tunnel
+        // signatures this gateway produces. Without it, the device is
+        // created but can never authenticate.
+        publicKeyJwk: identityManager.getIdentity().publicKeyJwk,
+        publicKeyPem: identityManager.getIdentity().publicKeyPem,
       }),
     });
 

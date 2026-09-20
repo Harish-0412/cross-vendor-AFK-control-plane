@@ -65,6 +65,10 @@ async function main(): Promise<void> {
       gatewayId: pairSession.gatewayId,
       fingerprintHex: pairSession.fingerprintHex,
       fingerprintWords: pairSession.fingerprintWords,
+      // Registered so the tunnel handshake can verify this gateway signs
+      // with the key the pairing recorded.
+      publicKeyJwk: identity.publicKeyJwk,
+      publicKeyPem: identity.publicKeyPem,
     }),
   });
 

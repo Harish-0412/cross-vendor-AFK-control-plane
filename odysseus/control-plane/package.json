@@ -18,7 +18,7 @@
   ],
   "scripts": {
     "build": "tsc --build",
-    "start": "npx tsx src/server.ts",
+    "start": "tsx src/server.ts",
     "dev": "tsc -w",
     "typecheck": "tsc --build --dry",
     "lint": "eslint src --ext .ts",
@@ -34,7 +34,8 @@
     "@odysseus/schemas": "workspace:*",
     "firebase-admin": "^14.3.0",
     "web-push": "^3.6.7",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "tsx": "^4.19.2"
   },
   "devDependencies": {
     "@types/node": "^20.12.0",

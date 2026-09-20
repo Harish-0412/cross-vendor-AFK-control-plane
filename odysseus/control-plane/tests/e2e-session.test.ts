@@ -2,6 +2,10 @@ import { WebSocket } from 'ws';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 import { ControlPlane } from '../src/control-plane';
+import {
+  connectAuthenticatedGateway,
+  createTestIdentity,
+} from './helpers/gateway-handshake';
 
 describe('End-to-End Session Lifecycle & Real-time Multiplexing', () => {
   let cp: ControlPlane;
@@ -37,6 +41,7 @@ describe('End-to-End Session Lifecycle & Real-time Multiplexing', () => {
     // 2. Gateway initiates pairing & User confirms device
     const deviceId = 'dev_e2e_workstation_1';
     const gatewayId = 'gw_e2e_1';
+    const identity = createTestIdentity(deviceId, gatewayId);
     await fetch(`${baseUrl}/api/v1/internal/pairing/initiate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -46,6 +51,8 @@ describe('End-to-End Session Lifecycle & Real-time Multiplexing', () => {
         gatewayId,
         fingerprintHex: 'ABCD1234',
         fingerprintWords: ['test', 'word'],
+        publicKeyJwk: identity.publicKeyJwk,
+        publicKeyPem: identity.publicKeyPem,
       }),
     });
 
@@ -67,27 +74,13 @@ describe('End-to-End Session Lifecycle & Real-time Multiplexing', () => {
       body: JSON.stringify({ code: 'E2E1-PAIR', confirmed: true, friendlyName: 'Workstation' }),
     });
 
-    // 3. Gateway connects to Tunnel
-    const gatewayWs = new WebSocket(tunnelUrl);
-    await new Promise((resolve) => gatewayWs.on('open', resolve));
-
-    // Gateway authenticates
-    gatewayWs.send(
-      JSON.stringify({
-        id: 'msg_auth',
-        type: 'auth',
-        sequence: 1,
-        timestamp: new Date().toISOString(),
-        payload: { deviceId, gatewayId },
-      }),
+    // 3. Gateway connects to the tunnel and proves its identity by signing
+    // the server's challenge with the key registered during pairing.
+    const gatewayWs = await connectAuthenticatedGateway(
+      WebSocket as never,
+      tunnelUrl,
+      identity,
     );
-
-    await new Promise<void>((resolve) => {
-      gatewayWs.on('message', (data) => {
-        const msg = JSON.parse(data.toString('utf8'));
-        if (msg.type === 'auth_success') resolve();
-      });
-    });
 
     expect(cp.registry.isDeviceOnline(deviceId)).toBe(true);
 

@@ -1,0 +1,90 @@
+# Render blueprint for the Odysseus Control Plane.
+#
+# Render is the recommended host: it is the only one of Render / Fly / Railway
+# that still has a genuinely free tier, and it runs persistent web services
+# with native WebSocket support — which this architecture requires, because the
+# gateway holds one socket open for its entire life.
+#
+# Free-tier behaviour worth knowing before you rely on it:
+#   * The instance sleeps after ~15 minutes with no inbound traffic. A
+#     connected gateway heartbeats every 15s, so it stays awake while you are
+#     actually using it.
+#   * When your workstation is off, it sleeps. Cold start is roughly a minute.
+#     The gateway reconnects on its own — its backoff is capped at 20s with
+#     unlimited retries — so a sleeping Control Plane is a delay, not an
+#     outage you have to fix by hand.
+#   * No persistent disk, which is why Firestore holds the state rather than a
+#     local file.
+#
+# Apply with: Render Dashboard → New → Blueprint → point at this repository.
+
+services:
+  - type: web
+    name: odysseus-control-plane
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./odysseus/Dockerfile
+    # The build context is the workspace root: the Control Plane depends on
+    # sibling packages linked with `workspace:*`.
+    dockerContext: ./odysseus
+    healthCheckPath: /health
+    autoDeploy: true
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # Render injects PORT; the app reads it. Do not hardcode one here.
+
+      - key: CONTROL_PLANE_HOST
+        value: 0.0.0.0
+
+      # Generated once by Render and then held constant. Rotating it logs
+      # every user out, so it is deliberately not tied to a deploy.
+      - key: JWT_SECRET
+        generateValue: true
+
+      - key: SECURE_COOKIES
+        value: 'true'
+
+      # The exact origin of the deployed frontend. The Control Plane refuses to
+      # start in production if this is unset, because the default is localhost
+      # and every real request would be rejected with a CORS error that looks
+      # like a frontend bug.
+      - key: CORS_ORIGINS
+        sync: false
+
+      # Persistence. Without this the in-memory store is used and every
+      # restart erases users, paired devices and the audit log — so the
+      # production guard refuses to start.
+      - key: USE_FIRESTORE
+        value: 'true'
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      # Paste the full private key including the BEGIN/END lines.
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false
+
+      # Web Push. Optional, but this is what makes AFK work — without it an
+      # approval request waits until you happen to open the tab.
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false
+
+      # Encrypts stored third-party credentials at rest.
+      - key: CREDENTIAL_ENCRYPTION_SECRET
+        generateValue: true
+
+      # GitHub integration. Leave unset to run without it.
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_CALLBACK_URL
+        sync: false

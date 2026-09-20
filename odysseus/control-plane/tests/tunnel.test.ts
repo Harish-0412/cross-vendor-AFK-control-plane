@@ -2,6 +2,12 @@ import { WebSocket } from 'ws';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { ControlPlane } from '../src/control-plane';
+import {
+  connectAuthenticatedGateway,
+  createTestIdentity,
+  deviceRecordFor,
+  performHandshake,
+} from './helpers/gateway-handshake';
 
 describe('Subphase 3.4 — Tunnel Server & Realtime Multiplexer', () => {
   let cp: ControlPlane;
@@ -24,37 +30,19 @@ describe('Subphase 3.4 — Tunnel Server & Realtime Multiplexer', () => {
   // ──────────────────────────────────────────────────────────
   describe('Gateway Tunnel Auth', () => {
     it('should authenticate a trusted gateway and return capabilities', async () => {
-      await cp.db.devices.create({
-        id: 'dev_auth_ok',
-        gatewayId: 'gw_auth_ok',
-        userId: 'usr_owner',
-        friendlyName: 'Trusted Box',
-        platform: 'linux',
-        publicKeyPem: '',
-        publicKeyJwk: {},
-        fingerprintHex: 'HEX1234',
-        fingerprintWords: ['apple', 'banana'],
-        status: 'trusted',
-      });
+      // A real key pair: the handshake is a signature check, so a device
+      // without one cannot authenticate and the test would prove nothing.
+      const identity = createTestIdentity('dev_auth_ok', 'gw_auth_ok');
+      await cp.db.devices.create(
+        deviceRecordFor(identity, { friendlyName: 'Trusted Box' }) as never,
+      );
 
       const ws = new WebSocket(tunnelUrl);
       await new Promise<void>((resolve) => ws.on('open', () => resolve()));
 
-      ws.send(JSON.stringify({
-        id: 'a1',
-        type: 'auth',
-        sequence: 1,
-        timestamp: new Date().toISOString(),
-        payload: { deviceId: 'dev_auth_ok', gatewayId: 'gw_auth_ok' },
-      }));
+      const { message: authMsg, ok } = await performHandshake(ws, identity);
 
-      const authMsg = await new Promise<Record<string, unknown>>((resolve) => {
-        ws.on('message', (data) => {
-          const msg = JSON.parse(data.toString('utf8'));
-          if (msg.type === 'auth_success') resolve(msg);
-        });
-      });
-
+      expect(ok).toBe(true);
       expect(authMsg.type).toBe('auth_success');
       expect(cp.registry.isDeviceOnline('dev_auth_ok')).toBe(true);
       expect((authMsg.payload as Record<string, unknown>).capabilities).toContain('sessions');
@@ -128,33 +116,12 @@ describe('Subphase 3.4 — Tunnel Server & Realtime Multiplexer', () => {
   // ──────────────────────────────────────────────────────────
   describe('Heartbeats', () => {
     it('should ack heartbeats and update lastSeenAt', async () => {
-      await cp.db.devices.create({
-        id: 'dev_hb',
-        gatewayId: 'gw_hb',
-        userId: 'usr_owner',
-        friendlyName: 'HB Device',
-        platform: 'darwin',
-        publicKeyPem: '',
-        publicKeyJwk: {},
-        fingerprintHex: 'HBHB',
-        fingerprintWords: ['kiwi'],
-        status: 'trusted',
-      });
+      const identity = createTestIdentity('dev_hb', 'gw_hb');
+      await cp.db.devices.create(
+        deviceRecordFor(identity, { friendlyName: 'HB Device', platform: 'darwin' }) as never,
+      );
 
-      const ws = new WebSocket(tunnelUrl);
-      await new Promise<void>((resolve) => ws.on('open', () => resolve()));
-
-      ws.send(JSON.stringify({
-        id: 'hb1',
-        type: 'auth',
-        sequence: 1,
-        payload: { deviceId: 'dev_hb', gatewayId: 'gw_hb' },
-      }));
-      await new Promise<void>((resolve) => {
-        ws.on('message', (data) => {
-          if (JSON.parse(data.toString('utf8')).type === 'auth_success') resolve();
-        });
-      });
+      const ws = await connectAuthenticatedGateway(WebSocket as never, tunnelUrl, identity);
 
       const before = (await cp.db.devices.findById('dev_hb'))!.lastSeenAt!.getTime();
       await new Promise((r) => setTimeout(r, 20));
@@ -197,6 +164,7 @@ describe('Subphase 3.4 — Tunnel Server & Realtime Multiplexer', () => {
       const { accessToken, user } = (await reg.json()) as { accessToken: string; user: { id: string } };
 
       const deviceId = 'dev_relay_1';
+      const relayIdentity = createTestIdentity(deviceId, 'gw_relay');
       await cp.db.pairings.create({
         code: 'RELAY1',
         deviceId,
@@ -206,33 +174,21 @@ describe('Subphase 3.4 — Tunnel Server & Realtime Multiplexer', () => {
         status: 'confirmed',
         expiresAt: new Date(Date.now() + 300_000),
       });
-      await cp.db.devices.create({
-        id: deviceId,
-        gatewayId: 'gw_relay',
-        userId: user.id,
-        friendlyName: 'Relay Device',
-        platform: 'linux',
-        publicKeyPem: '',
-        publicKeyJwk: {},
-        fingerprintHex: 'RELAY1',
-        fingerprintWords: ['relay'],
-        status: 'trusted',
-      });
+      await cp.db.devices.create(
+        deviceRecordFor(relayIdentity, {
+          userId: user.id,
+          friendlyName: 'Relay Device',
+          fingerprintHex: 'RELAY1',
+          fingerprintWords: ['relay'],
+        }) as never,
+      );
 
-      // Gateway connects
-      const gw = new WebSocket(tunnelUrl);
-      await new Promise<void>((resolve) => gw.on('open', () => resolve()));
-      gw.send(JSON.stringify({
-        id: 'gw_auth',
-        type: 'auth',
-        sequence: 1,
-        payload: { deviceId, gatewayId: 'gw_relay' },
-      }));
-      await new Promise<void>((resolve) => {
-        gw.on('message', (data) => {
-          if (JSON.parse(data.toString('utf8')).type === 'auth_success') resolve();
-        });
-      });
+      // Gateway connects and proves its identity, exactly as the real one does.
+      const gw = await connectAuthenticatedGateway(
+        WebSocket as never,
+        tunnelUrl,
+        relayIdentity,
+      );
 
       // Create a session so the event has a session context
       const sess = await fetch(`${cp.getUrl()}/api/v1/sessions`, {
@@ -294,32 +250,12 @@ describe('Subphase 3.4 — Tunnel Server & Realtime Multiplexer', () => {
   // ──────────────────────────────────────────────────────────
   describe('Command round-trip', () => {
     it('should deliver a command to the gateway and receive an ack', async () => {
-      await cp.db.devices.create({
-        id: 'dev_cmd',
-        gatewayId: 'gw_cmd',
-        userId: 'usr_owner',
-        friendlyName: 'Cmd Device',
-        platform: 'windows',
-        publicKeyPem: '',
-        publicKeyJwk: {},
-        fingerprintHex: 'CMD1234',
-        fingerprintWords: ['cmd'],
-        status: 'trusted',
-      });
+      const identity = createTestIdentity('dev_cmd', 'gw_cmd');
+      await cp.db.devices.create(
+        deviceRecordFor(identity, { friendlyName: 'Cmd Device', platform: 'windows' }) as never,
+      );
 
-      const gw = new WebSocket(tunnelUrl);
-      await new Promise<void>((resolve) => gw.on('open', () => resolve()));
-      gw.send(JSON.stringify({
-        id: 'c1',
-        type: 'auth',
-        sequence: 1,
-        payload: { deviceId: 'dev_cmd', gatewayId: 'gw_cmd' },
-      }));
-      await new Promise<void>((resolve) => {
-        gw.on('message', (data) => {
-          if (JSON.parse(data.toString('utf8')).type === 'auth_success') resolve();
-        });
-      });
+      const gw = await connectAuthenticatedGateway(WebSocket as never, tunnelUrl, identity);
 
       // Track inbound commands
       let inboundCmd: Record<string, unknown> | null = null;
