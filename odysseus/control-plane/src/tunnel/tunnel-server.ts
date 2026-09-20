@@ -41,6 +41,16 @@ export class TunnelServer {
       timer: NodeJS.Timeout;
     }
   >();
+  /** Callers awaiting a session.started event, keyed by sessionId. */
+  private pendingSessionStarts = new Map<
+    string,
+    {
+      resolve: (result: { started: boolean; error?: string; timedOut?: boolean }) => void;
+      timer: NodeJS.Timeout;
+    }
+  >();
+  /** Results that arrived before anyone waited for them. */
+  private settledSessionStarts = new Map<string, { started: boolean; error?: string }>();
   private onEventBroadcast?: (event: StoredEvent) => void;
   private onApprovalCreated?: (approval: ApprovalRecord) => void;
   private onAdmissionPhaseChange?: (
@@ -69,6 +79,60 @@ export class TunnelServer {
     this.heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? 60_000;
     this.wss = new WebSocketServer({ noServer: true });
     this.setupWss();
+  }
+
+  /**
+   * Wait for the gateway to report that a session actually started.
+   *
+   * `sendCommandToDevice` resolving only means the gateway received and
+   * accepted the start command. The adapter may still fail to launch. This
+   * waits for the `session.started` event (or a failure event) so the HTTP
+   * response reflects what really happened rather than what was requested.
+   */
+  waitForSessionStart(
+    sessionId: string,
+    timeoutMs = 15_000,
+  ): Promise<{ started: boolean; error?: string; timedOut?: boolean }> {
+    // The event can arrive before the caller starts waiting, so a result
+    // recorded in the meantime is returned immediately.
+    const settled = this.settledSessionStarts.get(sessionId);
+    if (settled) {
+      this.settledSessionStarts.delete(sessionId);
+      return Promise.resolve(settled);
+    }
+
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingSessionStarts.delete(sessionId);
+        resolve({
+          started: false,
+          timedOut: true,
+          error:
+            'Gateway accepted the start command but never reported session.started; ' +
+            'the adapter may have failed to launch',
+        });
+      }, timeoutMs);
+      if (typeof timer.unref === 'function') timer.unref();
+
+      this.pendingSessionStarts.set(sessionId, { resolve, timer });
+    });
+  }
+
+  private resolveSessionStart(
+    sessionId: string,
+    result: { started: boolean; error?: string },
+  ): void {
+    const pending = this.pendingSessionStarts.get(sessionId);
+    if (pending) {
+      clearTimeout(pending.timer);
+      this.pendingSessionStarts.delete(sessionId);
+      pending.resolve(result);
+      return;
+    }
+    // Arrived before anyone waited — hold it briefly so the waiter sees it.
+    this.settledSessionStarts.set(sessionId, result);
+    const expiry = setTimeout(() => this.settledSessionStarts.delete(sessionId), 30_000);
+    if (typeof expiry.unref === 'function') expiry.unref();
   }
 
   setOnAdmissionPhaseChange(
@@ -349,10 +413,36 @@ export class TunnelServer {
             envelope,
           });
 
+          // A session becomes `running` only when the gateway reports that it
+          // actually started. An ack means the command was received, not that
+          // the adapter launched anything — treating the two as the same is
+          // how a session ends up live-looking and silent.
+          if (envelope.eventType === 'session.started') {
+            await this.db.sessions.update(envelope.sessionId, { state: 'running' });
+            this.resolveSessionStart(envelope.sessionId, { started: true });
+          }
+
+          if (envelope.eventType === 'session.failed' || envelope.eventType === 'session.crashed') {
+            const reason =
+              (envelope.payload as { error?: string; reason?: string })?.error ??
+              (envelope.payload as { reason?: string })?.reason ??
+              `Session ${envelope.eventType.split('.')[1]}`;
+            this.resolveSessionStart(envelope.sessionId, { started: false, error: reason });
+          }
+
           if (envelope.eventType === 'session.status_changed') {
             const state = (envelope.payload as { state?: SessionState })?.state;
             if (state) {
               await this.db.sessions.update(envelope.sessionId, { state });
+              if (state === 'running') {
+                this.resolveSessionStart(envelope.sessionId, { started: true });
+              }
+              if (state === 'failed') {
+                this.resolveSessionStart(envelope.sessionId, {
+                  started: false,
+                  error: 'Gateway reported the session as failed',
+                });
+              }
             }
           }
 

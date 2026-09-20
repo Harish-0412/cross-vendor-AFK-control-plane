@@ -89,7 +89,31 @@ describe('Subphase 3.5 — Task & Session Management APIs', () => {
           type: 'ack',
           sequence: 10,
           correlationId: msg.id,
-          payload: { received: true },
+          payload: { received: true, success: true },
+        }));
+
+        // A real gateway reports that the adapter actually started. The ack
+        // alone only means the command was received, and the Control Plane no
+        // longer treats that as "running".
+        const sessionId = ((msg.payload as Record<string, unknown>).payload as Record<
+          string,
+          unknown
+        >).sessionId as string;
+        gw.send(JSON.stringify({
+          id: 'evt_started_' + sessionId,
+          type: 'event',
+          sequence: 11,
+          payload: {
+            event: {
+              eventId: 'evt_' + sessionId + '_started',
+              eventType: 'session.started',
+              eventVersion: 1,
+              sessionId,
+              sequence: 0,
+              occurredAt: new Date().toISOString(),
+              payload: { adapter: 'mock' },
+            },
+          },
         }));
       }
     });

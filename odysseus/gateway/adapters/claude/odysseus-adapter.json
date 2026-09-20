@@ -1,0 +1,10 @@
+{
+  "id": "claude-code",
+  "name": "Claude Code",
+  "entry": "./src/index.ts",
+  "export": "ClaudeCodeAdapter",
+  "protocolVersion": "1",
+  "platforms": ["linux", "darwin", "win32"],
+  "description": "Anthropic's Claude Code CLI driven in headless mode via stream-json",
+  "detect": { "command": "claude", "versionFlag": "--version", "timeoutMs": 5000 }
+}

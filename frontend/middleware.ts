@@ -3,11 +3,7 @@ import type { NextRequest } from 'next/server';
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  // The recorded demo is self-contained and needs no live login cookie.
-  if (process.env.NEXT_PUBLIC_DEMO_MODE !== 'false') {
-    return NextResponse.next();
-  }
-  
+
   // Exclude public paths and static assets
   if (
     pathname === '/' ||

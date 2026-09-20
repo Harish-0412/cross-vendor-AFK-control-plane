@@ -1600,8 +1600,20 @@ export class HttpRouter {
             const startedOk = ackPayload.success !== false;
 
             if (result.acknowledged && startedOk) {
-              await this.db.sessions.update(sessionId, { state: 'running' });
-              sessionRecord.state = 'running';
+              // The ack only says the gateway took the command. Wait for the
+              // gateway to report that the adapter actually started before
+              // calling this session running — otherwise a session that failed
+              // to launch is indistinguishable from one that is working.
+              const startOutcome = await this.tunnelServer.waitForSessionStart(sessionId);
+              if (startOutcome.started) {
+                await this.db.sessions.update(sessionId, { state: 'running' });
+                sessionRecord.state = 'running';
+              } else {
+                const errMsg = startOutcome.error ?? 'Session did not start';
+                await this.db.sessions.update(sessionId, { state: 'failed', error: errMsg });
+                sessionRecord.state = 'failed';
+                sessionRecord.error = errMsg;
+              }
             } else if (result.acknowledged) {
               const errMsg = ackPayload.error ?? 'Gateway rejected the session start command';
               await this.db.sessions.update(sessionId, { state: 'failed', error: errMsg });

@@ -117,6 +117,19 @@ importers:
         specifier: ^1.5.0
         version: 1.6.1(@types/node@20.19.43)
 
+  gateway/adapters/claude:
+    dependencies:
+      '@odysseus/protocol':
+        specifier: workspace:*
+        version: link:../../../packages/protocol
+    devDependencies:
+      '@types/node':
+        specifier: ^20.12.0
+        version: 20.19.43
+      vitest:
+        specifier: ^1.5.0
+        version: 1.6.1(@types/node@20.19.43)
+
   gateway/adapters/mock:
     dependencies:
       '@odysseus/config':

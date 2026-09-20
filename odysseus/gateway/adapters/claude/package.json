@@ -1,0 +1,13 @@
+{
+  "name": "@odysseus/claude-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Claude Code CLI adapter for Odysseus",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./src/index.ts" } },
+  "scripts": { "build": "tsc --build", "test": "vitest run", "typecheck": "tsc --build --dry" },
+  "dependencies": { "@odysseus/protocol": "workspace:*" },
+  "devDependencies": { "@types/node": "^20.12.0", "vitest": "^1.5.0" }
+}
