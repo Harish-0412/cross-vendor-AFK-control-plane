@@ -1,5 +1,5 @@
 {
-  "name": "@freebuff/integration-harness",
+  "name": "@odysseus/integration-harness",
   "version": "0.1.0",
   "private": true,
   "description": "Disposable integration test harness for AI coding agents",

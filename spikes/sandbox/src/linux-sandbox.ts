@@ -13,7 +13,7 @@ interface LinuxSandboxHandle extends SandboxHandle {
 export class LinuxSandbox implements PlatformSandbox {
   readonly platform: 'linux' = 'linux';
   private handles: Map<string, LinuxSandboxHandle> = new Map();
-  private cgroupBase = '/sys/fs/cgroup/freebuff';
+  private cgroupBase = '/sys/fs/cgroup/odysseus';
 
   async isSupported(): Promise<boolean> {
     if (PLATFORM !== 'linux') return false;

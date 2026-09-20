@@ -11,14 +11,73 @@ import {
   Settings,
   ScrollText,
   FileCode2,
+  FolderGit2,
+  Plug,
+  Building2,
+  Wallet,
+  GitBranch,
 } from "lucide-react";
 
-export const navigationItems = [
+const primaryItems = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Devices", href: "/devices", icon: Monitor },
   { name: "Sessions", href: "/sessions", icon: Activity },
   { name: "Approvals", href: "/approvals", icon: ShieldAlert },
 ];
+
+const workspaceItems = [
+  { name: "Projects", href: "/projects", icon: FolderGit2 },
+  { name: "Integrations", href: "/integrations", icon: Plug },
+  { name: "Organization", href: "/organization", icon: Building2 },
+];
+
+const intelligenceItems = [
+  { name: "Budgets", href: "/budgets", icon: Wallet },
+  { name: "Routing", href: "/routing", icon: GitBranch },
+];
+
+const governanceItems = [
+  { name: "Audit Log", href: "/audit", icon: ScrollText },
+  { name: "Policy", href: "/policy", icon: FileCode2 },
+  { name: "Settings", href: "/settings", icon: Settings },
+];
+
+function NavGroup({
+  label,
+  items,
+  pathname,
+}: {
+  label?: string;
+  items: { name: string; href: string; icon: React.ComponentType<{ className?: string }> }[];
+  pathname: string;
+}) {
+  return (
+    <div className="space-y-0.5">
+      {label && (
+        <span className="px-3 pb-1 pt-3 block text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+          {label}
+        </span>
+      )}
+      {items.map((item) => {
+        const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+        return (
+          <Link
+            key={item.name}
+            href={item.href}
+            className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+              isActive
+                ? "bg-primary/10 text-primary font-semibold"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground"
+            }`}
+          >
+            <item.icon className="h-4 w-4 flex-shrink-0" />
+            {item.name}
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -31,67 +90,25 @@ export function Sidebar() {
             <Shield className="h-5 w-5" />
           </div>
           <div className="flex flex-col">
-            <span className="font-semibold text-foreground tracking-tight text-sm">FreeBuff AFK</span>
+            <span className="font-semibold text-foreground tracking-tight text-sm">Odysseus AFK</span>
             <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-mono">Control Plane</span>
           </div>
         </Link>
       </div>
-      <nav className="flex flex-1 flex-col overflow-y-auto p-4 space-y-1">
-        {navigationItems.map((item) => {
-          const isActive = pathname.startsWith(item.href);
-          return (
-            <Link
-              key={item.name}
-              href={item.href}
-              className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                isActive
-                  ? "bg-primary/10 text-primary font-semibold"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
-              }`}
-            >
-              <item.icon className="h-4 w-4 flex-shrink-0" />
-              {item.name}
-            </Link>
-          );
-        })}
 
-        <div className="mt-6 pt-4 border-t border-border space-y-1">
-          <span className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-            Governance
-          </span>
-          <Link
-            href="/audit"
-            className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-              pathname.startsWith("/audit")
-                ? "bg-primary/10 text-primary font-semibold"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground"
-            }`}
-          >
-            <ScrollText className="h-4 w-4 flex-shrink-0" />
-            Audit Log
-          </Link>
-          <Link
-            href="/policy"
-            className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-              pathname.startsWith("/policy")
-                ? "bg-primary/10 text-primary font-semibold"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground"
-            }`}
-          >
-            <FileCode2 className="h-4 w-4 flex-shrink-0" />
-            Policy
-          </Link>
-          <Link
-            href="/settings"
-            className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-              pathname.startsWith("/settings")
-                ? "bg-primary/10 text-primary font-semibold"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground"
-            }`}
-          >
-            <Settings className="h-4 w-4 flex-shrink-0" />
-            Settings
-          </Link>
+      <nav className="flex flex-1 flex-col overflow-y-auto p-3 gap-1">
+        <NavGroup items={primaryItems} pathname={pathname} />
+
+        <div className="mt-2 border-t border-border pt-2">
+          <NavGroup label="Workspace" items={workspaceItems} pathname={pathname} />
+        </div>
+
+        <div className="mt-2 border-t border-border pt-2">
+          <NavGroup label="Intelligence" items={intelligenceItems} pathname={pathname} />
+        </div>
+
+        <div className="mt-2 border-t border-border pt-2">
+          <NavGroup label="Governance" items={governanceItems} pathname={pathname} />
         </div>
       </nav>
     </div>

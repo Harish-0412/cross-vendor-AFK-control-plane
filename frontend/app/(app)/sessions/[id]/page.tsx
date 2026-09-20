@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, use, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { EventEnvelope, SessionState } from "@freebuff/protocol";
+import type { EventEnvelope, SessionState } from "@odysseus/protocol";
 import {
   ArrowLeft,
   Bot,

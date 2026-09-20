@@ -11,7 +11,7 @@ interface MacOSSandboxHandle extends SandboxHandle {
 export class MacOSSandbox implements PlatformSandbox {
   readonly platform: 'darwin' = 'darwin';
   private handles: Map<string, MacOSSandboxHandle> = new Map();
-  private profileDir = '/tmp/freebuff-sandbox-profiles';
+  private profileDir = '/tmp/odysseus-sandbox-profiles';
 
   async isSupported(): Promise<boolean> {
     if (PLATFORM !== 'darwin') return false;

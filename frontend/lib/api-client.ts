@@ -1,6 +1,8 @@
 // frontend/lib/api-client.ts
 // Centralized API client with silent refresh and typed HTTP methods
 
+import { DEMO_MODE, mockApiResponse } from './demo-data';
+
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -81,6 +83,10 @@ export async function fetchWithAuth<T = unknown>(
   endpoint: string,
   options: RequestInit = {},
 ): Promise<T> {
+  if (DEMO_MODE) {
+    const body = typeof options.body === 'string' ? JSON.parse(options.body) : undefined;
+    return mockApiResponse(endpoint, options.method || 'GET', body) as T;
+  }
   const url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
 
   const headers = new Headers(options.headers || {});

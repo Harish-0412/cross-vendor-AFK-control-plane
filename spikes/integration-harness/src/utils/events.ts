@@ -122,7 +122,7 @@ export function normalizeClaudeCodeEvent(raw: any, sessionId: string, sequence: 
   };
 }
 
-export function createFreebuffEventEnvelope(event: NormalizedEvent, deviceId: string): any {
+export function createOdysseusEventEnvelope(event: NormalizedEvent, deviceId: string): any {
   return {
     event_id: event.eventId,
     event_type: event.eventType,

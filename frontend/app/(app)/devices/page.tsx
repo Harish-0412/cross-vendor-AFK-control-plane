@@ -150,7 +150,7 @@ export default function DevicesPage() {
           <Monitor className="h-10 w-10 text-muted-foreground mb-3" />
           <h3 className="text-base font-semibold text-foreground">No devices paired yet</h3>
           <p className="text-sm text-muted-foreground mt-1 max-w-md">
-            Pair your local workstation or remote server running the FreeBuff Gateway to start executing agent tasks.
+            Pair your local workstation or remote server running the Odysseus Gateway to start executing agent tasks.
           </p>
           <Link href="/devices/pair" className="mt-4">
             <Button size="sm" className="gap-1.5">

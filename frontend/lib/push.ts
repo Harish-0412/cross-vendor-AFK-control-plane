@@ -15,7 +15,7 @@ import { apiClient } from "@/lib/api-client";
  */
 
 const SW_PATH = "/sw.js";
-const SUBSCRIBED_FLAG = "freebuff_push_subscribed";
+const SUBSCRIBED_FLAG = "odysseus_push_subscribed";
 
 export function isPushSupported(): boolean {
   return (

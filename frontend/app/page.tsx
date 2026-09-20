@@ -98,7 +98,7 @@ export default function Home() {
       >
         <CardNav
           logo=""
-          logoAlt="FreeBuff AFK"
+          logoAlt="Odysseus AFK"
           items={[
             {
               label: "About",

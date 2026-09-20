@@ -280,7 +280,7 @@ export default function AuthSectionOne({ mode = "signup" }: AuthSectionOneProps)
             </div>
 
             <div className="text-xs text-white/50 pb-2">
-              FreeBuff AFK Control Plane v0.1.0
+              Odysseus AFK Control Plane v0.1.0
             </div>
           </div>
         </div>

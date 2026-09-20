@@ -17,6 +17,7 @@ import {
   Loader2,
   RefreshCw,
   AlertTriangle,
+  Bot,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiClient, ApiError } from "@/lib/api-client";
@@ -44,6 +45,12 @@ interface DeviceDetail {
     diskFreeMb?: number;
   } | null;
   fingerprintHex?: string;
+  agents?: Array<{
+    id: string;
+    name: string;
+    status: "connected" | "disconnected";
+    note: string;
+  }>;
   activeSessions: Array<{
     id: string;
     state: string;
@@ -268,6 +275,49 @@ export default function DeviceDetailPage({
               </div>
             </div>
           </div>
+
+          {/* Active & Recent Sessions */}
+          {device.agents && (
+            <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight">
+                    <Bot className="h-4 w-4 text-primary" /> Agent Availability
+                  </h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Demo inventory from this connected gateway. Only agents with prior session history are connected.
+                  </p>
+                </div>
+                <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                  {device.agents.filter((agent) => agent.status === "connected").length} connected
+                </span>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {device.agents.map((agent) => {
+                  const connected = agent.status === "connected";
+                  return (
+                    <div
+                      key={agent.id}
+                      className={`flex items-center gap-3 rounded-lg border p-3 ${
+                        connected
+                          ? "border-emerald-500/20 bg-emerald-500/5"
+                          : "border-border bg-muted/30 opacity-70"
+                      }`}
+                    >
+                      <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${connected ? "bg-emerald-500" : "bg-muted-foreground/50"}`} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-foreground">{agent.name}</p>
+                        <p className="truncate text-[11px] text-muted-foreground">{agent.note}</p>
+                      </div>
+                      <span className={`ml-auto text-[10px] font-bold uppercase tracking-wide ${connected ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>
+                        {agent.status}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Active & Recent Sessions */}
           <div className="rounded-xl border border-border bg-card p-6 shadow-sm">

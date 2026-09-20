@@ -31,7 +31,7 @@ export default function PairDevicePage() {
 
   const handleVerifyCode = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanCode = code.trim().toUpperCase();
+    const cleanCode = code.trim().toUpperCase().replace(/-/g, '');
     if (!cleanCode) return;
 
     setIsVerifying(true);
@@ -135,7 +135,7 @@ export default function PairDevicePage() {
               <div className="space-y-2">
                 <h2 className="text-xl font-semibold">Enter Pairing Code</h2>
                 <p className="text-sm text-muted-foreground max-w-md">
-                  Run <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">freebuff pair</code> in your gateway terminal and enter the pairing code shown.
+                  Run <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">odysseus pair</code> in your gateway terminal and enter the pairing code shown.
                 </p>
               </div>
 

@@ -519,6 +519,25 @@ export default function SettingsPage() {
             )}
           </motion.div>
 
+          {/* Notification preferences link */}
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.12 }}
+            className="rounded-2xl border border-border bg-card p-6 shadow-sm"
+          >
+            <h2 className="text-base font-semibold tracking-tight mb-1">Notification Preferences</h2>
+            <p className="text-xs text-muted-foreground mb-4">
+              Configure which events trigger push and email notifications.
+            </p>
+            <Link href="/settings/notifications">
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+                <Bell className="h-3.5 w-3.5" />
+                Manage Notifications
+              </Button>
+            </Link>
+          </motion.div>
+
           {/* Account actions */}
           <motion.div
             initial={{ opacity: 0, y: 16 }}

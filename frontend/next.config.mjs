@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  transpilePackages: ['@freebuff/protocol'],
+  transpilePackages: ['@odysseus/protocol'],
   eslint: {
     ignoreDuringBuilds: true,
   },

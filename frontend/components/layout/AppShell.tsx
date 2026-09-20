@@ -40,7 +40,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">Connecting to FreeBuff Control Plane...</p>
+          <p className="text-sm text-muted-foreground">Connecting to Odysseus Control Plane...</p>
         </div>
       </div>
     );

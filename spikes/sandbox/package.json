@@ -1,5 +1,5 @@
 {
-  "name": "@freebuff/sandbox-poc",
+  "name": "@odysseus/sandbox-poc",
   "version": "0.1.0",
   "private": true,
   "description": "Cross-platform sandbox proof of concept",

@@ -1,4 +1,4 @@
-/* FreeBuff AFK — Web Push service worker (Phase 7.3).
+/* Odysseus AFK — Web Push service worker (Phase 7.3).
  * Minimal, dependency-free: shows notifications, opens the right page on click.
  */
 
@@ -15,15 +15,15 @@ self.addEventListener("push", (event) => {
   try {
     data = event.data ? event.data.json() : {};
   } catch {
-    data = { title: "FreeBuff AFK", body: "Something happened." };
+    data = { title: "Odysseus AFK", body: "Something happened." };
   }
 
-  const title = data.title || "FreeBuff AFK";
+  const title = data.title || "Odysseus AFK";
   const options = {
     body: data.body || "",
     icon: "/icon-light-32x32.png",
     badge: "/icon-light-32x32.png",
-    tag: data.tag || "freebuff-afk",
+    tag: data.tag || "odysseus-afk",
     data: {
       url: data.url || "/approvals",
       sessionId: data.sessionId,

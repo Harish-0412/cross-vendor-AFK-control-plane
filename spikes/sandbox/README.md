@@ -109,19 +109,19 @@ await sandbox.destroy(handle.id);
 ### Cgroups v2 Configuration
 ```bash
 # Create cgroup
-mkdir -p /sys/fs/cgroup/freebuff/sandbox_<id>
+mkdir -p /sys/fs/cgroup/odysseus/sandbox_<id>
 
 # CPU limit (50%)
-echo 50000 > /sys/fs/cgroup/freebuff/sandbox_<id>/cpu.max
+echo 50000 > /sys/fs/cgroup/odysseus/sandbox_<id>/cpu.max
 
 # Memory limit (2GB)
-echo 2147483648 > /sys/fs/cgroup/freebuff/sandbox_<id>/memory.max
+echo 2147483648 > /sys/fs/cgroup/odysseus/sandbox_<id>/memory.max
 
 # Process limit
-echo 10 > /sys/fs/cgroup/freebuff/sandbox_<id>/pids.max
+echo 10 > /sys/fs/cgroup/odysseus/sandbox_<id>/pids.max
 
 # Add process
-echo <PID> > /sys/fs/cgroup/freebuff/sandbox_<id>/cgroup.procs
+echo <PID> > /sys/fs/cgroup/odysseus/sandbox_<id>/cgroup.procs
 ```
 
 ## macOS Implementation Details
@@ -164,10 +164,10 @@ AssignProcessToJobObject(job, processHandle);
 ### AppContainer (Filesystem)
 ```powershell
 # Create AppContainer profile
-New-AppContainerProfile -Name "FreebuffSandbox" -Description "Freebuff agent sandbox"
+New-AppContainerProfile -Name "OdysseusSandbox" -Description "Odysseus agent sandbox"
 
 # Set filesystem capabilities
-Set-AppContainerProfileAcl -Name "FreebuffSandbox" -Path "C:\project" -AccessRights "FullControl"
+Set-AppContainerProfileAcl -Name "OdysseusSandbox" -Path "C:\project" -AccessRights "FullControl"
 ```
 
 ## Test Checklist

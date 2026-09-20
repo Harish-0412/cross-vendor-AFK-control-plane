@@ -2,8 +2,9 @@
 // Realtime WebSocket client for web frontend connecting to Control Plane /ws/client
 
 import { create } from 'zustand';
-import type { EventEnvelope } from '@freebuff/protocol';
+import type { EventEnvelope } from '@odysseus/protocol';
 import { getAccessToken } from './api-client';
+import { DEMO_MODE } from './demo-data';
 
 export type RealtimeStatus = 'connecting' | 'connected' | 'reconnecting' | 'offline';
 
@@ -49,6 +50,10 @@ class RealtimeClient {
 
   connect(): void {
     if (typeof window === 'undefined') return;
+    if (DEMO_MODE) {
+      useRealtimeStore.getState().setStatus('connected');
+      return;
+    }
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       return;
     }

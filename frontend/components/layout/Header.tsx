@@ -1,19 +1,27 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { LogOut, Shield, Wifi, WifiOff } from "lucide-react";
+import { LogOut, Moon, Sun, WifiOff } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
 import { useAuthStore } from "@/lib/auth";
 import { realtimeClient, useRealtimeStore } from "@/lib/realtime";
 import { Button } from "@/components/ui/button";
 import { KillSwitch } from "@/components/layout/KillSwitch";
+import { Shield } from "lucide-react";
 
 export function Header() {
   const router = useRouter();
   const { user, logout } = useAuthStore();
   const status = useRealtimeStore((s) => s.status);
   const [scrolled, setScrolled] = useState(false);
+  const { theme, setTheme, resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -26,6 +34,10 @@ export function Header() {
     realtimeClient.disconnect();
     await logout();
     router.push("/login");
+  };
+
+  const toggleTheme = () => {
+    setTheme(resolvedTheme === "dark" ? "light" : "dark");
   };
 
   const getStatusBadge = () => {
@@ -42,7 +54,7 @@ export function Header() {
         return (
           <div className="flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-400 border border-amber-500/20">
             <span className="h-2 w-2 rounded-full bg-amber-500 animate-ping" />
-            <span className="hidden sm:inline">{status === 'connecting' ? 'Connecting...' : 'Reconnecting...'}</span>
+            <span className="hidden sm:inline">{status === "connecting" ? "Connecting..." : "Reconnecting..."}</span>
           </div>
         );
       case "offline":
@@ -67,7 +79,7 @@ export function Header() {
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <Shield className="h-5 w-5" />
           </div>
-          <span className="font-semibold text-foreground tracking-tight text-lg">FreeBuff AFK</span>
+          <span className="font-semibold text-foreground tracking-tight text-lg">Odysseus AFK</span>
         </Link>
       </div>
 
@@ -79,6 +91,22 @@ export function Header() {
       <div className="flex items-center gap-3">
         <KillSwitch />
         {getStatusBadge()}
+
+        {mounted && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleTheme}
+            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+            title={resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {resolvedTheme === "dark" ? (
+              <Sun className="h-4 w-4" />
+            ) : (
+              <Moon className="h-4 w-4" />
+            )}
+          </Button>
+        )}
 
         {user && (
           <div className="hidden md:flex flex-col text-right">
