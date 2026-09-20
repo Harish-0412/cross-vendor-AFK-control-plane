@@ -1,0 +1,32 @@
+{
+  "name": "@odysseus/policy-engine",
+  "version": "0.1.0",
+  "description": "Pure policy evaluation logic shared by Gateway and Control Plane — zero I/O",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --build --dry",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@odysseus/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@odysseus/protocol": "workspace:*",
+    "vitest": "^2.0.0"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "name": "@odysseus/sandbox",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sandbox Manager for Odysseus AFK Control Plane - multi-platform process isolation",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --build --dry",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@odysseus/protocol": "workspace:*",
+    "@odysseus/schemas": "workspace:*",
+    "@odysseus/config": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "vitest": "^1.5.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./src/index.ts"
+    }
+  }
+}

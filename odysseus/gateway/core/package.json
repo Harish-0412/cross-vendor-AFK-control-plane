@@ -1,0 +1,40 @@
+{
+  "name": "@odysseus/gateway-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Gateway Core - Central orchestrator for Odysseus AFK Control Plane",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --build --dry",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@odysseus/protocol": "workspace:*",
+    "@odysseus/schemas": "workspace:*",
+    "@odysseus/config": "workspace:*",
+    "@odysseus/mock-adapter": "workspace:*",
+    "@odysseus/checkpoint": "workspace:*",
+    "@odysseus/health": "workspace:*",
+    "@odysseus/tunnel": "workspace:*",
+    "@odysseus/redaction": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^1.5.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./src/index.ts"
+    }
+  }
+}

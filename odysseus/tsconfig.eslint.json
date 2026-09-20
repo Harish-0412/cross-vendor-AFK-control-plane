@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "_comment": [
+    "Type-aware linting needs a program that contains every file ESLint visits,",
+    "including test files. The per-package build configs deliberately exclude",
+    "tests, and the root tsconfig.json is a solution file with `files: []`, so",
+    "neither can serve that purpose."
+  ],
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": true,
+    "paths": {
+      "@odysseus/protocol": ["./packages/protocol/src/index.ts"],
+      "@odysseus/schemas": ["./packages/schemas/src/index.ts"],
+      "@odysseus/config": ["./packages/config/src/index.ts"],
+      "@odysseus/mock-adapter": ["./gateway/adapters/mock/src/index.ts"],
+      "@odysseus/checkpoint": ["./gateway/checkpoint/src/index.ts"],
+      "@odysseus/health": ["./gateway/health/src/index.ts"],
+      "@odysseus/sandbox": ["./gateway/sandbox/src/index.ts"],
+      "@odysseus/tunnel": ["./gateway/tunnel/src/index.ts"],
+      "@odysseus/identity": ["./gateway/identity/src/index.ts"],
+      "@odysseus/pairing": ["./gateway/pairing/src/index.ts"],
+      "@odysseus/certificate": ["./gateway/certificate/src/index.ts"],
+      "@odysseus/reconciliation": ["./gateway/reconciliation/src/index.ts"],
+      "@odysseus/gateway-core": ["./gateway/core/src/index.ts"],
+      "@odysseus/control-plane": ["./control-plane/src/index.ts"]
+    }
+  },
+  "include": [
+    "packages/*/src/**/*.ts",
+    "gateway/*/src/**/*.ts",
+    "gateway/*/tests/**/*.ts",
+    "gateway/adapters/*/src/**/*.ts",
+    "gateway/adapters/*/tests/**/*.ts",
+    "control-plane/src/**/*.ts",
+    "control-plane/tests/**/*.ts"
+  ],
+  "exclude": ["node_modules", "dist"]
+}
