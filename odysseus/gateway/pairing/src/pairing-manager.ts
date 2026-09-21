@@ -33,6 +33,12 @@ import {
 
 export interface PairingManagerOptions {
   autoStartPolling?: boolean;
+  /**
+   * Print the built-in plain-text instructions when a session starts.
+   * A caller that renders its own pairing screen (scripts/pair.ts) turns
+   * this off; everything else keeps the default.
+   */
+  printInstructions?: boolean;
   pollIntervalMs?: number;
   maxPollAttempts?: number;
 }
@@ -81,6 +87,7 @@ export class PairingManager {
     this.identityManager = identityManager;
     this.options = {
       autoStartPolling: false,
+      printInstructions: true,
       pollIntervalMs: PAIRING_POLL_INTERVAL_MS,
       maxPollAttempts: PAIRING_MAX_POLL_ATTEMPTS,
       ...options,
@@ -195,7 +202,7 @@ export class PairingManager {
       },
     });
 
-    this.printPairingInstructions(session);
+    if (this.options.printInstructions) this.printPairingInstructions(session);
 
     if (this.options.autoStartPolling) {
       this.startPolling();

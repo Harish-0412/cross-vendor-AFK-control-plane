@@ -81,6 +81,17 @@ interface AuthState {
 }
 
 function formatAuthError(err: unknown, fallback: string): string {
+  // The hosted Control Plane sleeps when idle and takes about a minute to
+  // wake. The proxy gives up first and answers 502/503/504 — which used to
+  // surface as "Request failed with status 504" and read like a broken
+  // sign-up form. Say what is actually happening.
+  if (err instanceof ApiError && [502, 503, 504].includes(err.status)) {
+    return 'The server is waking up — free hosting sleeps when idle. Give it a few seconds and try again.';
+  }
+  if (err instanceof TypeError) {
+    // fetch rejects with TypeError when the network itself failed.
+    return 'Could not reach the server. Check your connection and try again.';
+  }
   if (typeof err === 'object' && err !== null) {
     const code = (err as { code?: string }).code || '';
     const msg = (err as { message?: string }).message || '';

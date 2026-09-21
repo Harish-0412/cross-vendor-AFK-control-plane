@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,15 @@ export default function PairDevicePage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [code, setCode] = useState("");
+
+  // `pnpm pair` prints a link to this page with the code in the query, so
+  // following it from the terminal skips retyping. Read from location
+  // rather than useSearchParams, which would force a Suspense boundary on
+  // an otherwise static page.
+  useEffect(() => {
+    const fromLink = new URLSearchParams(window.location.search).get("code");
+    if (fromLink) setCode(fromLink.trim().toUpperCase());
+  }, []);
   const [friendlyName, setFriendlyName] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);

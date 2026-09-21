@@ -189,7 +189,16 @@ export class ControlPlane {
 
     return new Promise((resolve, reject) => {
       this.server = http.createServer((req, res) => {
-        void this.router.handleRequest(req, res).catch(() => {
+        logAccess(req, res);
+        void this.router.handleRequest(req, res).catch((error: unknown) => {
+          // Previously swallowed silently: a route that threw returned a 500
+          // and left no trace, so a production failure was invisible in the
+          // logs. The request line is enough to find it; no body is logged.
+          // eslint-disable-next-line no-console
+          console.error(
+            `[Odysseus Control Plane] Unhandled error on ${req.method ?? '?'} ${pathOf(req)}:`,
+            error,
+          );
           if (!res.headersSent) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Internal Server Error' }));
@@ -297,4 +306,33 @@ export class ControlPlane {
   getPort(): number {
     return this.actualPort;
   }
+}
+
+/** The request path without its query string, which can carry codes. */
+function pathOf(req: http.IncomingMessage): string {
+  const raw = req.url ?? '/';
+  const q = raw.indexOf('?');
+  return q === -1 ? raw : raw.slice(0, q);
+}
+
+/**
+ * One line per request: method, path, status, duration.
+ *
+ * Without it the hosted Control Plane recorded nothing about requests, so a
+ * failed sign-in left no evidence of whether it even arrived. Deliberately
+ * minimal: no query strings, headers, bodies or tokens. Health checks are
+ * skipped — the platform polls them constantly and they would drown the rest.
+ * Set ACCESS_LOG=false to disable.
+ */
+function logAccess(req: http.IncomingMessage, res: http.ServerResponse): void {
+  if (process.env.ACCESS_LOG === 'false') return;
+  const path = pathOf(req);
+  if (path === '/health' || path === '/api/v1/health') return;
+
+  const started = process.hrtime.bigint();
+  res.once('finish', () => {
+    const ms = Number(process.hrtime.bigint() - started) / 1e6;
+    // eslint-disable-next-line no-console
+    console.info(`[http] ${req.method ?? '?'} ${path} ${res.statusCode} ${ms.toFixed(0)}ms`);
+  });
 }

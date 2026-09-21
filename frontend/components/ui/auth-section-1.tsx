@@ -1,7 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { API_BASE_URL } from "@/lib/api-client";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -58,6 +59,7 @@ export default function AuthSectionOne({ mode = "signup" }: AuthSectionOneProps)
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const serverState = useServerWakeUp();
 
   const handleGoogleAuth = async () => {
     clearError();
@@ -154,6 +156,25 @@ export default function AuthSectionOne({ mode = "signup" }: AuthSectionOneProps)
               </div>
               <span className="relative bg-card px-3 text-muted-foreground">or</span>
             </div>
+
+            {serverState !== "ready" && !formError && (
+              <div
+                role="status"
+                className="mb-4 flex items-center gap-2 rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground"
+              >
+                {serverState === "waking" ? (
+                  <>
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                    <span>Waking up the server — the first visit after a while takes up to a minute.</span>
+                  </>
+                ) : (
+                  <>
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                    <span>The server is not responding yet. You can still try — it may be starting.</span>
+                  </>
+                )}
+              </div>
+            )}
 
             {formError && (
               <div className="mb-4 flex items-center gap-2 rounded-lg bg-destructive/10 border border-destructive/20 p-3 text-xs text-destructive">
@@ -395,4 +416,42 @@ function GoogleIcon() {
   );
 }
 
+/**
+ * Start waking the Control Plane as soon as the sign-in page opens.
+ *
+ * Free hosting sleeps after ~15 minutes idle and needs about a minute to
+ * start. If the first request is the sign-up itself, the proxy times out
+ * before the server is up and the user sees a failure. Pinging /health on
+ * mount means the server is usually awake by the time the form is filled in.
+ */
+function useServerWakeUp(): "waking" | "ready" | "unreachable" {
+  const [state, setState] = useState<"waking" | "ready" | "unreachable">("waking");
 
+  useEffect(() => {
+    let cancelled = false;
+    const deadline = Date.now() + 120_000;
+
+    const ping = async () => {
+      while (!cancelled && Date.now() < deadline) {
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/v1/health`, { cache: "no-store" });
+          if (res.ok) {
+            if (!cancelled) setState("ready");
+            return;
+          }
+        } catch {
+          /* still starting, or offline — retry below */
+        }
+        await new Promise((resolve) => setTimeout(resolve, 4_000));
+      }
+      if (!cancelled) setState("unreachable");
+    };
+
+    void ping();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return state;
+}
