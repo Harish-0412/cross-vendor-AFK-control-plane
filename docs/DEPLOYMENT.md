@@ -153,47 +153,91 @@ WebSocket upgrades are Origin-checked against it.
 > cold-starts. Through the proxy that can surface as a timeout — retry once.
 ## Step 4 — Pair your workstation
 
-On your PC:
+Run these on the PC that has your code. Environment variables are set
+differently per shell — **`VAR=value command` is bash syntax and fails in
+PowerShell** with "The term ... is not recognized".
 
-```bash
-cd odysseus
-CONTROL_PLANE_URL=https://odysseus-control-plane.onrender.com pnpm pair
+**PowerShell (Windows):**
+
+```powershell
+cd "C:\SideQuest\AI Coding Agent AFK Control Plane\odysseus"
+$env:CONTROL_PLANE_URL = "https://odysseus-control-plane.onrender.com"
+$env:ODYSSEUS_WEB_URL  = "https://cross-vendor-afk-control-plane.vercel.app"
+pnpm pair
 ```
 
-It prints a code and a fingerprint. Open the web app on your phone, enter the
-code, and **check the fingerprint words match what your terminal printed** —
-that is the out-of-band step that makes pairing meaningful rather than a code
-you type on faith.
+**bash / macOS / Linux:**
 
-Pairing registers your device's public key. Everything the gateway sends from
-then on is signed with the matching private key, which never leaves your
-machine.
+```bash
+CONTROL_PLANE_URL=https://odysseus-control-plane.onrender.com \
+ODYSSEUS_WEB_URL=https://cross-vendor-afk-control-plane.vercel.app \
+pnpm pair
+```
+
+It prints a pairing code and a set of fingerprint words, then waits (5 min).
+On your phone or browser:
+
+1. Open the web app and **register** (first time) or log in.
+2. Go to **Devices → Pair**, enter the code.
+3. **Check the fingerprint words match the terminal exactly** before
+   confirming. That comparison is what makes pairing meaningful: it proves the
+   device you are trusting is the one in front of you.
+4. Confirm. The terminal prints `Pairing confirmed!`.
+
+Pairing registers this machine's public key. From then on the gateway proves
+its identity by signing a server challenge; the private key never leaves
+`~/.odysseus`.
+
+> If Render has been asleep, the first request takes about a minute. If
+> `pnpm pair` says it cannot reach the Control Plane, wait and run it again.
 
 ## Step 5 — Run the gateway
 
-```bash
-cd odysseus
-ODYSSEUS_CONTROL_PLANE_URL=wss://odysseus-control-plane.onrender.com/ws/tunnel pnpm gateway
+**PowerShell:**
+
+```powershell
+cd "C:\SideQuest\AI Coding Agent AFK Control Plane\odysseus"
+$env:ODYSSEUS_CONTROL_PLANE_URL = "wss://odysseus-control-plane.onrender.com/ws/tunnel"
+pnpm gateway --project-root "C:\path\to\your\project"
 ```
 
-Or persist it in `~/.odysseus/config.yaml`:
+**bash:**
+
+```bash
+ODYSSEUS_CONTROL_PLANE_URL=wss://odysseus-control-plane.onrender.com/ws/tunnel \
+  pnpm gateway --project-root /path/to/your/project
+```
+
+`--project-root` is the repository the agent is allowed to work in; repeat it
+for more than one. The gateway only serves the roots you list.
+
+To avoid setting the variable every time, put it in `~/.odysseus/config.yaml`
+(on Windows: `C:\Users\<you>\.odysseus\config.yaml`):
 
 ```yaml
 controlPlane:
   url: wss://odysseus-control-plane.onrender.com/ws/tunnel
   autoConnect: true
 projectRoots:
-  - C:\your\project
+  - C:\path\to\your\project
 ```
 
-Config precedence is flags > environment > file > defaults. Check what it
-resolved to without starting anything:
+Precedence is flags > environment > file > defaults. Check what it resolved to
+without starting anything:
 
-```bash
+```powershell
 pnpm gateway --print-config
 ```
 
-Open the web app on your phone. Your workstation should show as online.
+A healthy start logs the device identity, each detected agent, and then
+`auth_success` once the signed handshake completes. Open the web app on your
+phone — the workstation shows as **online**, and you can start a session.
+
+Which agent it drives depends on what is installed. OpenCode and Claude Code
+have adapters; on Windows both are npm `.cmd` shims, which the adapters resolve
+to the real executable (never via a shell — the prompt is an argument, and a
+shell would make it injectable). If detection still fails, point at the binary
+directly with `OPENCODE_BINARY`.
 
 ---
 

@@ -34,6 +34,10 @@ class RealtimeClient {
   private reconnectAttempts = 0;
   private maxReconnectDelayMs = 10_000;
   private isIntentionallyClosed = false;
+  /** The upgrade succeeded for the current socket. */
+  private opened = false;
+  /** The server accepted the token and sent its 'connected' welcome. */
+  private welcomed = false;
 
   private sessionListeners = new Map<string, Set<(envelope: EventEnvelope) => void>>();
   private deviceListeners = new Map<string, Set<(data: unknown) => void>>();
@@ -72,6 +76,9 @@ class RealtimeClient {
 
     useRealtimeStore.getState().setStatus(this.reconnectAttempts > 0 ? 'reconnecting' : 'connecting');
 
+    this.opened = false;
+    this.welcomed = false;
+
     try {
       this.ws = new WebSocket(url);
     } catch {
@@ -80,23 +87,30 @@ class RealtimeClient {
     }
 
     this.ws.onopen = () => {
-      this.reconnectAttempts = 0;
-      useRealtimeStore.getState().setStatus('connected');
-
-      // Resubscribe active session listeners
-      for (const sessionId of this.sessionListeners.keys()) {
-        this.send({ action: 'subscribe_session', sessionId });
-      }
-
-      // Resubscribe active device listeners
-      for (const deviceId of this.deviceListeners.keys()) {
-        this.send({ action: 'subscribe_device', deviceId });
-      }
+      // The upgrade succeeding does not mean the server accepted the token —
+      // it authenticates right after, and says so with a 'connected' welcome.
+      // Reporting 'connected' here showed a green status for sockets that
+      // were about to be rejected.
+      this.opened = true;
     };
 
     this.ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data) as Record<string, unknown>;
+        if (msg.type === 'connected') {
+          this.welcomed = true;
+          // Backoff resets only once the server has accepted us, so a socket
+          // that is repeatedly rejected keeps backing off.
+          this.reconnectAttempts = 0;
+          useRealtimeStore.getState().setStatus('connected');
+          for (const sessionId of this.sessionListeners.keys()) {
+            this.send({ action: 'subscribe_session', sessionId });
+          }
+          for (const deviceId of this.deviceListeners.keys()) {
+            this.send({ action: 'subscribe_device', deviceId });
+          }
+          return;
+        }
         if (msg.type === 'event') {
           const evtMsg = msg as unknown as InboundEventMessage;
           const envelope = evtMsg.envelope;
@@ -137,10 +151,18 @@ class RealtimeClient {
       this.ws = null;
       if (!this.isIntentionallyClosed) {
         useRealtimeStore.getState().setStatus('reconnecting');
-        // 4001 means the token was rejected — almost always because the
-        // access token expired while the socket was open. Reconnecting with
-        // the same token would fail identically forever, so refresh first.
-        if (event.code === 4001) {
+        // The server rejected the token — almost always because the access
+        // token expired. Reconnecting with the same token would fail the same
+        // way forever, so refresh first.
+        //
+        // The 4001 close code alone is not enough: on the deployed Control
+        // Plane, the platform proxy delivered an immediate server close as
+        // 1006 with no code. "Opened but never welcomed" survives that, and
+        // cannot be confused with a network failure, which never opens —
+        // so a flaky mobile connection does not trigger a refresh that could
+        // sign the user out.
+        const rejected = event.code === 4001 || (this.opened && !this.welcomed);
+        if (rejected) {
           void requestRefreshToken().then((fresh) => {
             if (fresh) this.scheduleReconnect();
             else useRealtimeStore.getState().setStatus('offline');

@@ -13,6 +13,7 @@ import { createInterface } from 'node:readline';
 
 import type { SessionConfig } from '@odysseus/protocol';
 
+import { resolveCommand, type ResolvedCommand } from './resolve-command';
 import type { ClaudeProcessOptions } from './types';
 
 export interface ClaudeRun {
@@ -61,21 +62,27 @@ export function permissionModeFor(approvalMode: SessionConfig['approvalMode']): 
 
 export class ClaudeProcessManager implements ClaudeProcessController {
   private readonly binary: string;
+  /** What is actually spawned; differs from binary for Windows npm shims. */
+  private readonly resolved: ResolvedCommand;
   private readonly options: ClaudeProcessOptions;
 
   constructor(options: ClaudeProcessOptions = {}) {
     this.options = options;
     this.binary = options.binaryPath ?? 'claude';
+    this.resolved = resolveCommand(this.binary);
   }
 
   async detect(): Promise<{ path: string; version: string } | null> {
     const timeoutMs = this.options.detectTimeoutMs ?? 5000;
     try {
-      const output = await this.execCapture([this.binary, '--version'], timeoutMs);
+      const output = await this.execCapture(
+        [this.resolved.command, ...this.resolved.prefixArgs, '--version'],
+        timeoutMs,
+      );
       if (output.code !== 0) return null;
       // `claude --version` prints something like "2.1.10 (Claude Code)".
       const version = output.stdout.trim().split(/\s+/)[0] ?? 'unknown';
-      return { path: this.binary, version };
+      return { path: this.resolved.command, version };
     } catch {
       return null;
     }
@@ -158,7 +165,7 @@ export class ClaudeProcessManager implements ClaudeProcessController {
   }): ClaudeRun {
     const args = this.buildArgs(options);
 
-    const child = spawn(this.binary, args, {
+    const child = spawn(this.resolved.command, [...this.resolved.prefixArgs, ...args], {
       cwd: options.projectRoot,
       env: { ...process.env, ...(options.config?.env ?? {}) },
       stdio: ['pipe', 'pipe', 'pipe'],

@@ -53,8 +53,12 @@ async function main() {
     process.exit(1);
   }
 
+  // Where to send the user. Defaults to the local dev frontend; set
+  // ODYSSEUS_WEB_URL to the deployed app when pairing against a hosted
+  // Control Plane.
+  const webUrl = (process.env.ODYSSEUS_WEB_URL ?? 'http://localhost:3000').replace(/\/+$/, '');
   console.log(`Open the web UI and enter the code above:`);
-  console.log(`  http://localhost:3000/devices/pair\n`);
+  console.log(`  ${webUrl}/devices/pair\n`);
   console.log('Waiting for confirmation', { expires: session.expiresAt.toISOString() });
   process.stdout.write('\n');
 

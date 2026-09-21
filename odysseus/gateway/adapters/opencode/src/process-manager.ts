@@ -11,6 +11,7 @@ import type {
 } from '@odysseus/protocol';
 import { SandboxManager } from '@odysseus/sandbox';
 
+import { resolveCommand, type ResolvedCommand } from './resolve-command';
 import type { OpenCodeProcessOptions } from './types';
 
 const execFileAsync = promisify(execFile);
@@ -26,6 +27,8 @@ export interface OpenCodeProcessController {
 
 export class OpenCodeProcessManager implements OpenCodeProcessController {
   private readonly binaryPath: string;
+  /** What is actually spawned; differs from binaryPath for Windows npm shims. */
+  private readonly resolved: ResolvedCommand;
   private readonly minimumVersion: string;
 
   constructor(
@@ -33,17 +36,21 @@ export class OpenCodeProcessManager implements OpenCodeProcessController {
     options: OpenCodeProcessOptions = {},
   ) {
     this.binaryPath = options.binaryPath ?? process.env.OPENCODE_BINARY ?? 'opencode';
+    this.resolved = resolveCommand(this.binaryPath);
     this.minimumVersion = options.minimumVersion ?? '1.0.0';
   }
 
   async detect(): Promise<{ path: string; version: string } | null> {
     try {
-      const { stdout } = await execFileAsync(this.binaryPath, ['--version'], {
-        windowsHide: true,
-        timeout: 5_000,
-      });
+      const { stdout } = await execFileAsync(
+        this.resolved.command,
+        [...this.resolved.prefixArgs, '--version'],
+        { windowsHide: true, timeout: 5_000 },
+      );
       const version = stdout.trim().replace(/^v/, '');
-      return /^\d+\.\d+\.\d+/.test(version) ? { path: this.binaryPath, version } : null;
+      return /^\d+\.\d+\.\d+/.test(version)
+        ? { path: this.resolved.command, version }
+        : null;
     } catch {
       return null;
     }
@@ -70,8 +77,8 @@ export class OpenCodeProcessManager implements OpenCodeProcessController {
     if (config.prompt) args.push(config.prompt);
     const sandboxConfig: SandboxConfig = {
       projectRoot: config.projectRoot,
-      agentBinary: this.binaryPath,
-      agentArgs: args,
+      agentBinary: this.resolved.command,
+      agentArgs: [...this.resolved.prefixArgs, ...args],
       env: config.env ?? {},
       resourceLimits: config.resourceLimits ?? {},
       networkPolicy: { mode: config.sandbox?.networkPolicy === 'none' ? 'deny-all' : 'allow-all' },
