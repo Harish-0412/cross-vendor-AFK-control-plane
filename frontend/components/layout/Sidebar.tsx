@@ -15,13 +15,13 @@ import {
   Plug,
   Building2,
   Wallet,
-  GitBranch,
-} from "lucide-react";
+  GitBranch, History, } from "lucide-react";
 
 const primaryItems = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Devices", href: "/devices", icon: Monitor },
   { name: "Sessions", href: "/sessions", icon: Activity },
+  { name: "History", href: "/history", icon: History },
   { name: "Approvals", href: "/approvals", icon: ShieldAlert },
 ];
 

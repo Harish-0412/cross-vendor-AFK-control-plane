@@ -5,6 +5,7 @@ import { AfkOrchestrator } from './afk/afk-orchestrator';
 import { EscalationScheduler } from './afk/escalation-scheduler';
 import { PushSender } from './afk/push-sender';
 import { HttpRouter } from './api/http-router';
+import { HistoryIngest } from './integrations/history-ingest';
 import { IntegrationAccessService } from './integrations/integration-access';
 import { getFirebaseFirestore, isFirebaseAdminConfigured } from './auth/firebase-admin';
 import { loadConfig } from './config';
@@ -188,6 +189,7 @@ export class ControlPlane {
       this.tunnelServer,
       this.auditLog,
       (userId, message) => this.clientServer.sendToUser(userId, message),
+      new HistoryIngest(this.db, this.costGovernor),
     );
     this.router.setIntegrationAccess(this.integrationAccess);
     this.tunnelServer.setOnIntegrationUpdate((deviceId, payload) => {

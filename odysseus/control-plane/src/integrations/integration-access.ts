@@ -23,6 +23,8 @@ import type { AuditLog } from '../policy/audit-log';
 import type { TunnelServer } from '../tunnel/tunnel-server';
 import type { DeviceRecord } from '../types';
 
+import type { HistoryIngest } from './history-ingest';
+
 /** No 0/O, 1/I/L: the code is read off one screen and typed into another. */
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
@@ -45,7 +47,85 @@ export class IntegrationAccessService {
     private readonly tunnel: TunnelServer,
     private readonly audit: AuditLog,
     private readonly notify: IntegrationNotifier = () => undefined,
+    private readonly ingest?: HistoryIngest,
   ) {}
+
+  // ------------------------------------------------------------ history
+
+  /** Ask the device to rescan titles/metadata (and usage, if granted) now. */
+  async requestSync(device: DeviceRecord, integration: unknown) {
+    if (!isIntegrationId(integration)) throw new IntegrationAccessError(404, 'Unknown integration');
+    const record = await this.db.integrationGrants.find(device.id, integration);
+    if (record?.status !== 'active') {
+      throw new IntegrationAccessError(409, 'Connect this integration before syncing it');
+    }
+    return this.command(device.id, 'integration.sync', { integration });
+  }
+
+  /**
+   * Ask the device for one conversation's content. Only the conversation id
+   * is sent; the gateway maps it to a file from its own scan, so nothing the
+   * web app sends can name a path.
+   */
+  async requestContent(user: { id: string }, id: string) {
+    const record = await this.db.externalConversations.find(id);
+    if (!record || record.userId !== user.id)
+      throw new IntegrationAccessError(404, 'Conversation not found');
+    if (!record.hasTranscript)
+      throw new IntegrationAccessError(409, 'The tool kept no transcript for this conversation');
+    return this.command(record.deviceId, 'integration.sync_content', {
+      integration: record.integration,
+      externalId: record.externalId,
+    });
+  }
+
+  async listHistory(
+    user: { id: string },
+    filter: { integration?: string | undefined; deviceId?: string | undefined },
+  ) {
+    const records = await this.db.externalConversations.listByUser(user.id, {
+      ...(isIntegrationId(filter.integration) ? { integration: filter.integration } : {}),
+      ...(filter.deviceId ? { deviceId: filter.deviceId } : {}),
+    });
+    return records
+      .map(({ lastScanId: _scan, tokensRecorded: _t, updatedRecordAt: _u, ...rest }) => rest)
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  }
+
+  async getConversation(user: { id: string }, id: string) {
+    const record = await this.db.externalConversations.find(id);
+    if (!record || record.userId !== user.id)
+      throw new IntegrationAccessError(404, 'Conversation not found');
+    const { lastScanId: _scan, tokensRecorded: _t, updatedRecordAt: _u, ...conversation } = record;
+    const items = record.contentSynced ? await this.db.externalConversations.readItems(id) : [];
+    return { conversation, items };
+  }
+
+  async listUsage(user: { id: string }) {
+    const records = await this.db.providerUsage.listByUser(user.id);
+    return records.map((record) => ({
+      deviceId: record.deviceId,
+      integration: record.integration,
+      snapshot: record.snapshot,
+      receivedAt: record.receivedAt.toISOString(),
+    }));
+  }
+
+  private async command(deviceId: string, commandType: string, payload: Record<string, unknown>) {
+    const response = await this.tunnel.sendCommandToDevice(deviceId, commandType, payload, 20_000);
+    if (!response.delivered) {
+      throw new IntegrationAccessError(
+        409,
+        'The workstation is offline. Start the gateway and try again.',
+      );
+    }
+    const result = response.payload as
+      { success?: boolean; error?: string; result?: unknown } | undefined;
+    if (!response.acknowledged || !result?.success) {
+      throw new IntegrationAccessError(422, result?.error ?? 'The workstation could not do that');
+    }
+    return { accepted: true, result: result.result };
+  }
 
   catalog() {
     return Object.values(INTEGRATIONS);
@@ -174,6 +254,8 @@ export class IntegrationAccessService {
       scopes: [],
       reason: delivered ? 'Revoked from the web app' : REVOKE_PENDING,
     });
+    // Synced history goes with the grant (the user chose delete-on-revoke).
+    await this.ingest?.purge(device.id, integration);
     await this.audit.record({
       actor: { type: 'user', id: user.id },
       deviceId: device.id,
@@ -210,6 +292,35 @@ export class IntegrationAccessService {
     if (!device) return;
     const update = payload as { kind?: unknown } | undefined;
 
+    const dataKinds = ['history_summaries', 'history_content', 'usage_snapshot', 'sync_failed'];
+    if (typeof update?.kind === 'string' && dataKinds.includes(update.kind)) {
+      if (!this.ingest) return;
+      const integration = (payload as { integration?: unknown }).integration;
+      if (!isIntegrationId(integration)) return;
+      // Data is only accepted while the integration is connected. Anything
+      // arriving after a revoke — including a scan already in flight — is
+      // dropped, so a revoke really does stop the flow.
+      const grant = await this.db.integrationGrants.find(deviceId, integration);
+      if (
+        !grant ||
+        grant.status === 'revoked' ||
+        grant.status === 'expired' ||
+        grant.status === 'denied'
+      )
+        return;
+      const change = await this.ingest.ingest(device, payload as Record<string, unknown>);
+      if (change) {
+        this.notify(device.userId, {
+          type: 'integration_data',
+          deviceId,
+          integration,
+          kind: update.kind,
+          change,
+        });
+      }
+      return;
+    }
+
     if (update?.kind === 'grant_changed') {
       const state = (payload as { state?: Partial<IntegrationGrantState> }).state;
       if (!state || !isIntegrationId(state.integration)) return;
@@ -239,6 +350,10 @@ export class IntegrationAccessService {
         ...(state.expiresAt ? { expiresAt: String(state.expiresAt) } : {}),
         ...(state.reason ? { reason: String(state.reason).slice(0, 300) } : {}),
       });
+
+      if (status === 'revoked' || status === 'expired') {
+        await this.ingest?.purge(deviceId, state.integration);
+      }
 
       if (status !== 'pending') {
         await this.audit.record({

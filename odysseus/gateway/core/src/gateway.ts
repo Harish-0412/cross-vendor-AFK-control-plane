@@ -77,6 +77,10 @@ export interface IntegrationCommandHandler {
   receiveRequest(payload: unknown): Promise<unknown>;
   revoke(integration: unknown, by: 'web' | 'workstation'): Promise<boolean>;
   list(): Promise<unknown>;
+  /** Rescan titles/metadata (and usage, if granted) for an integration. */
+  sync?(payload: unknown): Promise<unknown>;
+  /** Send one conversation's content, identified by id only. */
+  syncContent?(payload: unknown): Promise<unknown>;
 }
 
 export class GatewayImpl implements GatewayCore {
@@ -526,6 +530,15 @@ export class GatewayImpl implements GatewayCore {
       switch (commandType) {
         // The Control Plane may ask for access and may revoke it. There is no
         // command that approves: approval only happens at this machine.
+        case 'integration.sync':
+        case 'integration.sync_content': {
+          const handler = this.integrationHandler;
+          const run = commandType === 'integration.sync' ? handler?.sync : handler?.syncContent;
+          if (!handler || !run) {
+            return { success: false, error: 'Integrations are not enabled on this gateway' };
+          }
+          return { success: true, result: await run.call(handler, payload) };
+        }
         case 'integration.grant_request':
         case 'integration.revoke':
         case 'integration.list': {

@@ -16,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiClient } from "@/lib/api-client";
+import { ProviderLimits } from "@/components/integrations/ProviderLimits";
 
 interface Budget {
   id: string;
@@ -102,6 +103,16 @@ export default function BudgetsPage() {
           Add Budget
         </Button>
       </div>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">Plan limits</h2>
+          <p className="text-sm text-muted-foreground">
+            Remaining usage on subscription plans, as your connected tools recorded it. These are not dollar costs.
+          </p>
+        </div>
+        <ProviderLimits />
+      </section>
 
       {loading ? (
         <div className="flex items-center justify-center py-16">

@@ -138,6 +138,12 @@ export interface CostEventRecord {
   userId: string;
   tokens: number;
   costUsd: number;
+  /**
+   * How the tokens were paid for. Subscription tokens (a ChatGPT plan, say) count
+   * toward token budgets but carry no per-token dollar cost, so costUsd is 0 —
+   * recording an estimated price would invent a figure nobody was charged.
+   */
+  billing?: 'metered' | 'subscription' | undefined;
   recordedAt: Date;
 }
 

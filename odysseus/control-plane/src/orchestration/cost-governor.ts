@@ -24,6 +24,7 @@ export class CostGovernor {
     organizationId?: string;
     tokens: number;
     costUsd: number;
+    billing?: 'metered' | 'subscription' | undefined;
   }): Promise<BudgetUsage[]> {
     if (
       !Number.isFinite(data.tokens) ||

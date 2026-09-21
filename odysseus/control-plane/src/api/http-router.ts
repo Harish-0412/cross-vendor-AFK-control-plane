@@ -479,7 +479,7 @@ export class HttpRouter {
       // --- INTEGRATIONS ---
       // The web app can list, request and revoke. It cannot grant: approval
       // happens only at the workstation, and the gateway enforces it.
-      if (path === '/api/v1/integrations' && method === 'GET') {
+      if (path === '/api/v1/integrations/catalog' && method === 'GET') {
         if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
         if (!this.integrationAccess) {
           return this.sendJson(res, 503, { error: 'Integrations are not enabled' });
@@ -517,6 +517,13 @@ export class HttpRouter {
             );
             return this.sendJson(res, 201, created);
           }
+          if (segments.length === 7 && segments[6] === 'sync' && method === 'POST') {
+            return this.sendJson(
+              res,
+              202,
+              await this.integrationAccess.requestSync(device, segments[5]),
+            );
+          }
           if (segments.length === 6 && method === 'DELETE') {
             return this.sendJson(
               res,
@@ -531,6 +538,56 @@ export class HttpRouter {
           }
           throw error;
         }
+      }
+
+      // --- IMPORTED HISTORY & PROVIDER USAGE ---
+      // Everything is scoped to the signed-in user; another user's
+      // conversation answers exactly like a missing one.
+      if (segments[0] === 'api' && segments[1] === 'v1' && segments[2] === 'history') {
+        if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+        if (!this.integrationAccess) {
+          return this.sendJson(res, 503, { error: 'Integrations are not enabled' });
+        }
+        try {
+          if (segments.length === 3 && method === 'GET') {
+            return this.sendJson(
+              res,
+              200,
+              await this.integrationAccess.listHistory(authUser, {
+                integration: url.searchParams.get('integration') ?? undefined,
+                deviceId: url.searchParams.get('deviceId') ?? undefined,
+              }),
+            );
+          }
+          if (segments.length === 4 && method === 'GET') {
+            return this.sendJson(
+              res,
+              200,
+              await this.integrationAccess.getConversation(authUser, segments[3] ?? ''),
+            );
+          }
+          if (segments.length === 5 && segments[4] === 'content' && method === 'POST') {
+            return this.sendJson(
+              res,
+              202,
+              await this.integrationAccess.requestContent(authUser, segments[3] ?? ''),
+            );
+          }
+          return this.sendJson(res, 405, { error: 'Method not allowed' });
+        } catch (error) {
+          if (error instanceof IntegrationAccessError) {
+            return this.sendJson(res, error.status, { error: error.message });
+          }
+          throw error;
+        }
+      }
+
+      if (path === '/api/v1/usage/providers' && method === 'GET') {
+        if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+        if (!this.integrationAccess) {
+          return this.sendJson(res, 503, { error: 'Integrations are not enabled' });
+        }
+        return this.sendJson(res, 200, await this.integrationAccess.listUsage(authUser));
       }
 
       // --- DEVICE PAIRING & MANAGEMENT ---

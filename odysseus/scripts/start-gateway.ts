@@ -35,7 +35,12 @@ import {
   type PreflightCheck,
 } from '../gateway/core/src/index';
 import { DeviceIdentityManager } from '../gateway/identity/src/device-identity';
-import { IntegrationManager, defaultPathContext } from '../gateway/integrations/src/index';
+import {
+  HistorySync,
+  IntegrationManager,
+  defaultPathContext,
+} from '../gateway/integrations/src/index';
+import { isIntegrationId } from '../packages/protocol/src/index';
 
 import { promptForApproval, renderRequest, signerFor } from './grant-prompt';
 
@@ -157,11 +162,22 @@ async function main(): Promise<void> {
   // Consent-gated access to Antigravity / Codex / ChatGPT-export / OpenAI
   // org data. This process holds the device key, so it is the only place a
   // grant can be verified — and the only place one can be approved.
+  const pathContext = defaultPathContext();
+  // Created before the manager so a newly approved grant can start a sync.
+  let history: HistorySync | undefined;
   const integrations = new IntegrationManager({
     signer: signerFor(identityManager),
-    ctx: defaultPathContext(),
+    ctx: pathContext,
     onUpdate: (update) => {
       tunnelClient.send('integration_update', update);
+      if (update.kind === 'grant_changed') {
+        if (update.state.status === 'active') {
+          // Titles and usage appear in the web app as soon as access is granted.
+          void history?.syncAll(update.state.integration).catch(() => undefined);
+        } else if (update.state.status === 'revoked' || update.state.status === 'expired') {
+          history?.forget(update.state.integration);
+        }
+      }
       if (update.kind === 'access_refused') {
         deviceLog.warn('integration.access_refused', {
           integration: update.integration,
@@ -203,7 +219,29 @@ async function main(): Promise<void> {
     },
     revoke: (integration, by) => integrations.revoke(integration, by),
     list: () => integrations.list(),
+    sync: async (payload) => {
+      const integration = (payload as { integration?: unknown }).integration;
+      if (!isIntegrationId(integration)) throw new Error('Unknown integration');
+      // Answer now; the scan reports its results as it goes.
+      void history?.syncAll(integration).catch(() => undefined);
+      return { started: true };
+    },
+    syncContent: async (payload) => {
+      const value = payload as { integration?: unknown; externalId?: unknown };
+      if (!isIntegrationId(value.integration)) throw new Error('Unknown integration');
+      if (!history) throw new Error('History sync is not running');
+      return history.syncContent(value.integration, value.externalId);
+    },
   });
+
+  history = new HistorySync({
+    manager: integrations,
+    ctx: pathContext,
+    emit: (update) => tunnelClient.send('integration_update', update),
+  });
+  // Keep granted integrations current. Unchanged files are served from a
+  // cache, so a quiet interval costs only a directory listing.
+  history.startAuto();
   // Picks up approvals and revokes made with `pnpm grants` in another
   // terminal, and expires requests nobody answered.
   integrations.startWatching();
@@ -244,6 +282,8 @@ async function main(): Promise<void> {
     switch (event.type) {
       case 'auth_success':
         runtime.notifyTunnelConnected();
+        // Bring the web app up to date after a reconnect (e.g. the PC woke up).
+        void history?.syncAllActive();
         break;
       case 'state_change':
         if (event.state === 'disconnected' || event.state === 'reconnecting') {

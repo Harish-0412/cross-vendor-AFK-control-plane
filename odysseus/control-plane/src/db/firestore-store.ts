@@ -26,6 +26,10 @@ import { normalizePairingCode } from './pairing-code';
 import type {
   IIntegrationGrantRepository,
   IntegrationGrantRecord,
+  IExternalConversationRepository,
+  ExternalConversationRecord,
+  IProviderUsageRepository,
+  ProviderUsageRecord,
   IDatabase,
   IUserRepository,
   IDeviceRepository,
@@ -1036,6 +1040,8 @@ export class FirestoreDatabase implements IDatabase {
   public pushSubscriptions: IPushSubscriptionRepository;
   public audit: IAuditRepository;
   public integrationGrants: IIntegrationGrantRepository;
+  public externalConversations: IExternalConversationRepository;
+  public providerUsage: IProviderUsageRepository;
 
   constructor(private firestore: Firestore) {
     this.users = new FirestoreUserRepository(this.firestore);
@@ -1047,6 +1053,8 @@ export class FirestoreDatabase implements IDatabase {
     this.organizations = new FirestoreOrganizationRepository(this.firestore);
     this.orchestration = new FirestoreOrchestrationRepository(this.firestore);
     this.integrationGrants = new FirestoreIntegrationGrantRepository(this.firestore);
+    this.externalConversations = new FirestoreExternalConversationRepository(this.firestore);
+    this.providerUsage = new FirestoreProviderUsageRepository(this.firestore);
     this.events = new FirestoreEventRepository(this.firestore);
     this.approvals = new FirestoreApprovalRepository(this.firestore);
     this.pushSubscriptions = new FirestorePushSubscriptionRepository(this.firestore);
@@ -1088,5 +1096,117 @@ export class FirestoreIntegrationGrantRepository implements IIntegrationGrantRep
     if (!doc.exists) return null;
     const data = doc.data()!;
     return { ...data, updatedAt: toDate(data['updatedAt']) } as IntegrationGrantRecord;
+  }
+}
+
+/**
+ * Conversation content is stored in chunk documents of at most
+ * `ITEMS_PER_CHUNK` items. A Firestore document is capped at 1 MiB and one
+ * item can carry up to 4,000 characters, so chunks keep every write well
+ * under the limit.
+ */
+const ITEMS_PER_CHUNK = 100;
+
+export class FirestoreExternalConversationRepository implements IExternalConversationRepository {
+  constructor(private db: Firestore) {}
+  private col = () => this.db.collection('external_conversations');
+  private chunks = () => this.db.collection('external_conversation_items');
+
+  private fromDoc(data: Record<string, unknown>): ExternalConversationRecord {
+    return { ...data, updatedRecordAt: toDate(data['updatedRecordAt']) } as ExternalConversationRecord;
+  }
+
+  async upsert(record: ExternalConversationRecord): Promise<void> {
+    await this.col().doc(record.id).set(cleanUndefined(record as unknown as Record<string, unknown>));
+  }
+
+  async find(id: string): Promise<ExternalConversationRecord | null> {
+    const doc = await this.col().doc(id).get();
+    return doc.exists ? this.fromDoc(doc.data()!) : null;
+  }
+
+  async listByUser(
+    userId: string,
+    filter: { integration?: ExternalConversationRecord['integration'] | undefined; deviceId?: string | undefined } = {},
+  ): Promise<ExternalConversationRecord[]> {
+    let query = this.col().where('userId', '==', userId);
+    if (filter.integration) query = query.where('integration', '==', filter.integration);
+    if (filter.deviceId) query = query.where('deviceId', '==', filter.deviceId);
+    const snap = await query.get();
+    return snap.docs.map((doc) => this.fromDoc(doc.data()));
+  }
+
+  async listByDeviceIntegration(
+    deviceId: string,
+    integration: ExternalConversationRecord['integration'],
+  ): Promise<ExternalConversationRecord[]> {
+    const snap = await this.col()
+      .where('deviceId', '==', deviceId)
+      .where('integration', '==', integration)
+      .get();
+    return snap.docs.map((doc) => this.fromDoc(doc.data()));
+  }
+
+  async writeItems(id: string, part: number, items: import('@odysseus/protocol').HistoryItem[]): Promise<void> {
+    // Part 0 starts a fresh copy: drop any chunks left from an earlier sync.
+    if (part === 0) await this.deleteChunks(id);
+    const batch = this.db.batch();
+    for (let start = 0; start < items.length; start += ITEMS_PER_CHUNK) {
+      const index = part * 1000 + start / ITEMS_PER_CHUNK;
+      batch.set(this.chunks().doc(`${id}__${String(index).padStart(6, '0')}`), {
+        conversationId: id,
+        index,
+        items: items.slice(start, start + ITEMS_PER_CHUNK).map((item) =>
+          cleanUndefined(item as unknown as Record<string, unknown>),
+        ),
+      });
+    }
+    await batch.commit();
+  }
+
+  async readItems(id: string): Promise<import('@odysseus/protocol').HistoryItem[]> {
+    const snap = await this.chunks().where('conversationId', '==', id).get();
+    return snap.docs
+      .map((doc) => doc.data() as { index: number; items: import('@odysseus/protocol').HistoryItem[] })
+      .sort((a, b) => a.index - b.index)
+      .flatMap((chunk) => chunk.items);
+  }
+
+  private async deleteChunks(id: string): Promise<void> {
+    const snap = await this.chunks().where('conversationId', '==', id).get();
+    if (snap.empty) return;
+    const batch = this.db.batch();
+    for (const doc of snap.docs) batch.delete(doc.ref);
+    await batch.commit();
+  }
+
+  async delete(ids: string[]): Promise<void> {
+    for (const id of ids) {
+      await this.deleteChunks(id);
+      await this.col().doc(id).delete();
+    }
+  }
+}
+
+export class FirestoreProviderUsageRepository implements IProviderUsageRepository {
+  constructor(private db: Firestore) {}
+  private col = () => this.db.collection('provider_usage');
+
+  async upsert(record: ProviderUsageRecord): Promise<void> {
+    await this.col()
+      .doc(`${record.deviceId}__${record.integration}`)
+      .set(cleanUndefined(record as unknown as Record<string, unknown>));
+  }
+
+  async listByUser(userId: string): Promise<ProviderUsageRecord[]> {
+    const snap = await this.col().where('userId', '==', userId).get();
+    return snap.docs.map((doc) => {
+      const data = doc.data();
+      return { ...data, receivedAt: toDate(data['receivedAt']) } as ProviderUsageRecord;
+    });
+  }
+
+  async delete(deviceId: string, integration: ProviderUsageRecord['integration']): Promise<void> {
+    await this.col().doc(`${deviceId}__${integration}`).delete();
   }
 }

@@ -198,6 +198,8 @@ export interface IDatabase {
   pushSubscriptions: IPushSubscriptionRepository;
   audit: IAuditRepository;
   integrationGrants: IIntegrationGrantRepository;
+  externalConversations: IExternalConversationRepository;
+  providerUsage: IProviderUsageRepository;
 }
 
 /**
@@ -229,4 +231,54 @@ export interface IIntegrationGrantRepository {
     deviceId: string,
     integration: import('@odysseus/protocol').IntegrationId,
   ): Promise<IntegrationGrantRecord | null>;
+}
+
+/** A past conversation imported from an external tool (Codex, Antigravity, …). */
+export interface ExternalConversationRecord
+  extends Omit<import('@odysseus/protocol').ExternalConversationSummary, 'integration'> {
+  /** `${integration}_${deviceId}_${externalId}` */
+  id: string;
+  integration: import('@odysseus/protocol').IntegrationId;
+  deviceId: string;
+  userId: string;
+  contentSynced: boolean;
+  contentSyncedAt?: string | undefined;
+  contentTruncated?: boolean | undefined;
+  /** Tokens already passed to the CostGovernor, so a re-sync records only the difference. */
+  tokensRecorded: number;
+  /** The scan that last saw this conversation; older ones are removed on a complete scan. */
+  lastScanId: string;
+  updatedRecordAt: Date;
+}
+
+export interface IExternalConversationRepository {
+  upsert(record: ExternalConversationRecord): Promise<void>;
+  find(id: string): Promise<ExternalConversationRecord | null>;
+  listByUser(
+    userId: string,
+    filter?: { integration?: import('@odysseus/protocol').IntegrationId | undefined; deviceId?: string | undefined },
+  ): Promise<ExternalConversationRecord[]>;
+  listByDeviceIntegration(
+    deviceId: string,
+    integration: import('@odysseus/protocol').IntegrationId,
+  ): Promise<ExternalConversationRecord[]>;
+  /** Replace (part 0) or extend (later parts) a conversation's synced content. */
+  writeItems(id: string, part: number, items: import('@odysseus/protocol').HistoryItem[]): Promise<void>;
+  readItems(id: string): Promise<import('@odysseus/protocol').HistoryItem[]>;
+  /** Remove conversations and their content. */
+  delete(ids: string[]): Promise<void>;
+}
+
+export interface ProviderUsageRecord {
+  deviceId: string;
+  userId: string;
+  integration: import('@odysseus/protocol').IntegrationId;
+  snapshot: import('@odysseus/protocol').ProviderUsageSnapshot;
+  receivedAt: Date;
+}
+
+export interface IProviderUsageRepository {
+  upsert(record: ProviderUsageRecord): Promise<void>;
+  listByUser(userId: string): Promise<ProviderUsageRecord[]>;
+  delete(deviceId: string, integration: import('@odysseus/protocol').IntegrationId): Promise<void>;
 }

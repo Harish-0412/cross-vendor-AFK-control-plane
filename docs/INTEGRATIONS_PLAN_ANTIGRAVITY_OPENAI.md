@@ -5,7 +5,7 @@ conversations, live sessions, and remaining usage. Every connection needs your
 explicit, revocable permission, and that permission is **enforced on your
 workstation**, where the data lives, so the web app alone cannot bypass it.
 
-**Status:** P0 (permissions) is implemented and tested. P1 onwards not started.
+**Status:** P0–P3 are implemented and tested: permissions, Codex history and usage, Antigravity history, and the web screens to connect, browse and see limits. P4–P7 remain.
 
 **Decisions (confirmed):** sync titles and metadata by default, with content per
 conversation; delete synced history on revoke; approve in the running gateway
@@ -372,9 +372,9 @@ permission checks**.
 | Phase | Delivers | Done when |
 |---|---|---|
 | **P0 — Permissions** ✅ | Signed grants, approval on the workstation, gateway checks, safe file reader, audit, `pnpm grants`, web request/revoke routes, revokes held for offline devices | Done: 33 permission tests and 8 end-to-end tests pass; two protections were disabled on purpose to confirm the tests catch it |
-| **P1 — Codex history + usage** | Rollout parser, token/rate-limit reader, `billing: 'subscription'` | Real sessions appear read-only; the limits card matches what Codex shows |
-| **P2 — Antigravity history** | Full-transcript parser, cursors, live read-only mirror | The 1 transcript imports fully (not truncated); the other 5 are listed as "no transcript" |
-| **P3 — Frontend** | Integrations, imported-session badges, provider-limit cards | Request → approve on PC → connected, end to end, from a phone |
+| **P1 — Codex history + usage** ✅ | Rollout parser, plan-limit reader, subscription billing | Done: 55 real sessions import (54 titled, 106.7M tokens); limits read exactly as Codex recorded them, and shown as reset rather than current once their window has passed |
+| **P2 — Antigravity history** ✅ | Full-transcript parser, conversations without transcripts listed | Done: the 1 real transcript imports untruncated with tool calls, results, errors and checkpoints; the other 4 are listed as having no transcript. Live mirror of an open IDE session is covered by the 5-minute resync, not a file watcher |
+| **P3 — Frontend** ✅ | Integrations (connect/approve/sync/revoke), History list and conversation view, plan-limit cards | Done: builds and typechecks; end-to-end API tests cover connect → history → content → usage → revoke. Not yet clicked through in a signed-in browser |
 | **P4 — Codex live sessions** | Codex adapter checked against the installed CLI | A session started from the phone runs Codex on the PC |
 | **P5 — ChatGPT export import** | Local import command, tree parser | A sample export imports with branches in the right order |
 | **P6 — OpenAI org spend** | Admin key held on the gateway, usage/costs polling | Spend matches OpenAI's own Costs page |

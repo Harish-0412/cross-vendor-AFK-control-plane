@@ -17,13 +17,13 @@ import {
   ScrollText,
   FileCode2,
   Settings,
-  X,
-} from "lucide-react";
+  X, History, } from "lucide-react";
 
 const primaryTabs = [
   { name: "Home", href: "/dashboard", icon: LayoutDashboard },
   { name: "Devices", href: "/devices", icon: Monitor },
   { name: "Sessions", href: "/sessions", icon: Activity },
+  { name: "History", href: "/history", icon: History },
   { name: "Approvals", href: "/approvals", icon: ShieldAlert },
 ];
 

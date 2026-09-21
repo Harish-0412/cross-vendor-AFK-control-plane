@@ -4,7 +4,21 @@
     "rootDir": "src",
     "outDir": "dist"
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"],
-  "references": [{ "path": "../../packages/protocol" }]
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ],
+  "references": [
+    {
+      "path": "../../packages/protocol"
+    },
+    {
+      "path": "../redaction"
+    }
+  ]
 }

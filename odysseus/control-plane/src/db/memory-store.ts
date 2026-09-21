@@ -22,6 +22,10 @@ import { normalizePairingCode } from './pairing-code';
 import type {
   IIntegrationGrantRepository,
   IntegrationGrantRecord,
+  IExternalConversationRepository,
+  ExternalConversationRecord,
+  IProviderUsageRepository,
+  ProviderUsageRecord,
   IDatabase,
   IUserRepository,
   IDeviceRepository,
@@ -665,6 +669,8 @@ export class MemoryDatabase implements IDatabase {
   public pushSubscriptions = new MemoryPushSubscriptionRepository();
   public audit = new MemoryAuditRepository();
   public integrationGrants = new MemoryIntegrationGrantRepository();
+  public externalConversations = new MemoryExternalConversationRepository();
+  public providerUsage = new MemoryProviderUsageRepository();
 }
 
 export class MemoryIntegrationGrantRepository implements IIntegrationGrantRepository {
@@ -685,5 +691,71 @@ export class MemoryIntegrationGrantRepository implements IIntegrationGrantReposi
     integration: IntegrationGrantRecord['integration'],
   ): Promise<IntegrationGrantRecord | null> {
     return this.records.get(`${deviceId}:${integration}`) ?? null;
+  }
+}
+
+export class MemoryExternalConversationRepository implements IExternalConversationRepository {
+  private readonly records = new Map<string, ExternalConversationRecord>();
+  private readonly items = new Map<string, import('@odysseus/protocol').HistoryItem[]>();
+
+  async upsert(record: ExternalConversationRecord): Promise<void> {
+    this.records.set(record.id, { ...record });
+  }
+
+  async find(id: string): Promise<ExternalConversationRecord | null> {
+    return this.records.get(id) ?? null;
+  }
+
+  async listByUser(
+    userId: string,
+    filter: { integration?: ExternalConversationRecord['integration'] | undefined; deviceId?: string | undefined } = {},
+  ): Promise<ExternalConversationRecord[]> {
+    return [...this.records.values()].filter(
+      (record) =>
+        record.userId === userId &&
+        (!filter.integration || record.integration === filter.integration) &&
+        (!filter.deviceId || record.deviceId === filter.deviceId),
+    );
+  }
+
+  async listByDeviceIntegration(
+    deviceId: string,
+    integration: ExternalConversationRecord['integration'],
+  ): Promise<ExternalConversationRecord[]> {
+    return [...this.records.values()].filter(
+      (record) => record.deviceId === deviceId && record.integration === integration,
+    );
+  }
+
+  async writeItems(id: string, part: number, items: import('@odysseus/protocol').HistoryItem[]): Promise<void> {
+    const existing = part === 0 ? [] : (this.items.get(id) ?? []);
+    this.items.set(id, [...existing, ...items]);
+  }
+
+  async readItems(id: string): Promise<import('@odysseus/protocol').HistoryItem[]> {
+    return this.items.get(id) ?? [];
+  }
+
+  async delete(ids: string[]): Promise<void> {
+    for (const id of ids) {
+      this.records.delete(id);
+      this.items.delete(id);
+    }
+  }
+}
+
+export class MemoryProviderUsageRepository implements IProviderUsageRepository {
+  private readonly records = new Map<string, ProviderUsageRecord>();
+
+  async upsert(record: ProviderUsageRecord): Promise<void> {
+    this.records.set(`${record.deviceId}:${record.integration}`, record);
+  }
+
+  async listByUser(userId: string): Promise<ProviderUsageRecord[]> {
+    return [...this.records.values()].filter((record) => record.userId === userId);
+  }
+
+  async delete(deviceId: string, integration: ProviderUsageRecord['integration']): Promise<void> {
+    this.records.delete(`${deviceId}:${integration}`);
   }
 }

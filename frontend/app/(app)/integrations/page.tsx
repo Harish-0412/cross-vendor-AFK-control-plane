@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { apiClient } from "@/lib/api-client";
+import { AiToolIntegrations } from "@/components/integrations/AiToolIntegrations";
 
 interface Integration {
   id: string;
@@ -77,8 +78,21 @@ export default function IntegrationsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Integrations</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Connect version control providers to enable AI-driven git workflows</p>
+        <p className="text-sm text-muted-foreground mt-0.5">Connect the AI coding tools on your computer, and your version control providers</p>
       </div>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">AI coding tools</h2>
+          <p className="text-sm text-muted-foreground">
+            See past conversations and plan usage from tools that run on your workstation. Access is approved on
+            that computer, and you can revoke it at any time.
+          </p>
+        </div>
+        <AiToolIntegrations />
+      </section>
+
+      <h2 className="text-lg font-semibold text-foreground">Version control</h2>
 
       {loading ? (
         <div className="flex items-center justify-center py-16">

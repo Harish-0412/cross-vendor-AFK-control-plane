@@ -129,6 +129,7 @@ export interface IntegrationGrantState {
 
 /** Payload of the gateway → Control Plane `integration_update` tunnel message. */
 export type IntegrationUpdate =
+  | IntegrationDataUpdate
   | { kind: 'grant_changed'; state: IntegrationGrantState }
   | {
       kind: 'access_refused';
@@ -154,3 +155,111 @@ export interface GrantRequestCommand {
   confirmation: { salt: string; sha256: string };
   expiresAt: string;
 }
+
+// --------------------------------------------------------------- history
+
+/** Hard limits on what one sync may send, so a huge session cannot flood the tunnel or the database. */
+export const HISTORY_LIMITS = {
+  titleChars: 120,
+  itemTextChars: 4000,
+  itemsPerConversation: 3000,
+  itemsPerMessage: 200,
+  summariesPerMessage: 100,
+} as const;
+
+export interface TokenTotals {
+  input: number;
+  cachedInput: number;
+  output: number;
+  reasoning: number;
+  total: number;
+}
+
+/**
+ * One past conversation, as listed before any content is synced. The title is
+ * derived from the first message the user typed, redacted and shortened on the
+ * workstation; nothing else from the conversation is included.
+ */
+export interface ExternalConversationSummary {
+  /** The tool's own id for the conversation (Codex session / Antigravity conversation UUID). */
+  externalId: string;
+  integration: IntegrationId;
+  title: string;
+  startedAt: string;
+  updatedAt: string;
+  messageCount: number;
+  toolCallCount: number;
+  model?: string | undefined;
+  /** Working folder, shown as a ~ path. */
+  workspace?: string | undefined;
+  /** Present only when the grant includes usage.read. */
+  tokens?: TokenTotals | undefined;
+  /** False when the tool kept no readable transcript for this conversation. */
+  hasTranscript: boolean;
+}
+
+export type HistoryItemKind =
+  | 'user'
+  | 'assistant'
+  | 'thinking'
+  | 'tool_call'
+  | 'tool_result'
+  | 'tool_error'
+  | 'system'
+  | 'error';
+
+export interface HistoryItem {
+  seq: number;
+  kind: HistoryItemKind;
+  /** Redacted on the workstation. */
+  text: string;
+  toolName?: string | undefined;
+  at?: string | undefined;
+  /** Text was cut to HISTORY_LIMITS.itemTextChars. */
+  truncated?: boolean | undefined;
+}
+
+// ----------------------------------------------------------------- usage
+
+export interface UsageWindow {
+  name: 'primary' | 'secondary';
+  usedPercent: number;
+  windowMinutes: number;
+  resetsAt: string;
+}
+
+/**
+ * Remaining-usage figures for a provider, with where they came from and when.
+ * A field that the source did not report is absent — never defaulted.
+ */
+export interface ProviderUsageSnapshot {
+  provider: 'codex' | 'openai-org';
+  source: 'codex-rate-limits' | 'openai-costs-api';
+  observedAt: string;
+  planType?: string | undefined;
+  windows?: UsageWindow[] | undefined;
+  credits?: { hasCredits: boolean; unlimited: boolean; balance?: string | undefined } | undefined;
+}
+
+/** Everything a gateway may report about an integration, carried by `integration_update`. */
+export type IntegrationDataUpdate =
+  | {
+      kind: 'history_summaries';
+      integration: IntegrationId;
+      conversations: ExternalConversationSummary[];
+      /** True on the last batch of a full scan; conversations not seen by then are gone. */
+      complete: boolean;
+      scanId: string;
+    }
+  | {
+      kind: 'history_content';
+      integration: IntegrationId;
+      externalId: string;
+      items: HistoryItem[];
+      part: number;
+      final: boolean;
+      /** The conversation had more items than HISTORY_LIMITS.itemsPerConversation. */
+      truncated: boolean;
+    }
+  | { kind: 'usage_snapshot'; integration: IntegrationId; snapshot: ProviderUsageSnapshot }
+  | { kind: 'sync_failed'; integration: IntegrationId; reason: string };
