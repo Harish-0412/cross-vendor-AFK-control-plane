@@ -197,4 +197,36 @@ export interface IDatabase {
   approvals: IApprovalRepository;
   pushSubscriptions: IPushSubscriptionRepository;
   audit: IAuditRepository;
+  integrationGrants: IIntegrationGrantRepository;
+}
+
+/**
+ * The Control Plane's copy of each device's integration grants, for display.
+ *
+ * The authority is the gateway: it holds the signed grant and checks it before
+ * every read. This copy only lets the web app show status — nothing is ever
+ * granted because a record here says so.
+ */
+export interface IntegrationGrantRecord {
+  deviceId: string;
+  userId: string;
+  integration: import('@odysseus/protocol').IntegrationId;
+  status: import('@odysseus/protocol').GrantStatus;
+  scopes: import('@odysseus/protocol').IntegrationScope[];
+  requestId?: string | undefined;
+  grantId?: string | undefined;
+  roots?: string[] | undefined;
+  grantedAt?: string | undefined;
+  expiresAt?: string | undefined;
+  reason?: string | undefined;
+  updatedAt: Date;
+}
+
+export interface IIntegrationGrantRepository {
+  upsert(record: Omit<IntegrationGrantRecord, 'updatedAt'>): Promise<IntegrationGrantRecord>;
+  listByDevice(deviceId: string): Promise<IntegrationGrantRecord[]>;
+  find(
+    deviceId: string,
+    integration: import('@odysseus/protocol').IntegrationId,
+  ): Promise<IntegrationGrantRecord | null>;
 }

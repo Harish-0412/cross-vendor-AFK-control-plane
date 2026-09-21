@@ -7,6 +7,10 @@ import { CreatePolicyVersionSchema } from '@odysseus/schemas';
 
 import { SummaryGenerator } from '../afk/summary-generator';
 import { isUsablePublicKeyJwk } from '../auth/device-signature';
+import {
+  IntegrationAccessError,
+  type IntegrationAccessService,
+} from '../integrations/integration-access';
 import { verifyFirebaseIdToken } from '../auth/firebase-admin';
 import { signJwt, verifyJwt } from '../auth/jwt';
 import { hashPassword, verifyPassword } from '../auth/password';
@@ -67,6 +71,11 @@ export class HttpRouter {
   private readonly loginRateLimiter = new AuthRateLimiter(DEFAULT_LOGIN_RATE_LIMIT);
   private readonly registerRateLimiter = new AuthRateLimiter(DEFAULT_REGISTER_RATE_LIMIT);
   private readonly pairingRateLimiter = new AuthRateLimiter(DEFAULT_PAIRING_RATE_LIMIT);
+  private integrationAccess: IntegrationAccessService | undefined;
+
+  setIntegrationAccess(service: IntegrationAccessService): void {
+    this.integrationAccess = service;
+  }
 
   constructor(
     db: IDatabase,
@@ -465,6 +474,63 @@ export class HttpRouter {
           deviceId: pairing.deviceId,
           expiresAt: pairing.expiresAt.toISOString(),
         });
+      }
+
+      // --- INTEGRATIONS ---
+      // The web app can list, request and revoke. It cannot grant: approval
+      // happens only at the workstation, and the gateway enforces it.
+      if (path === '/api/v1/integrations' && method === 'GET') {
+        if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+        if (!this.integrationAccess) {
+          return this.sendJson(res, 503, { error: 'Integrations are not enabled' });
+        }
+        return this.sendJson(res, 200, this.integrationAccess.catalog());
+      }
+
+      if (
+        segments[0] === 'api' &&
+        segments[1] === 'v1' &&
+        segments[2] === 'devices' &&
+        segments[4] === 'integrations' &&
+        segments.length >= 5 &&
+        segments.length <= 7
+      ) {
+        if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+        if (!this.integrationAccess) {
+          return this.sendJson(res, 503, { error: 'Integrations are not enabled' });
+        }
+        const device = await this.db.devices.findById(segments[3] ?? '');
+        // Another user's device answers exactly like a missing one.
+        if (!device || device.userId !== authUser.id) {
+          return this.sendJson(res, 404, { error: 'Device not found' });
+        }
+        try {
+          if (segments.length === 5 && method === 'GET') {
+            return this.sendJson(res, 200, await this.integrationAccess.listForDevice(device));
+          }
+          if (segments.length === 7 && segments[6] === 'requests' && method === 'POST') {
+            const created = await this.integrationAccess.requestAccess(
+              authUser,
+              device,
+              segments[5],
+              body['scopes'],
+            );
+            return this.sendJson(res, 201, created);
+          }
+          if (segments.length === 6 && method === 'DELETE') {
+            return this.sendJson(
+              res,
+              200,
+              await this.integrationAccess.revoke(authUser, device, segments[5]),
+            );
+          }
+          return this.sendJson(res, 405, { error: 'Method not allowed' });
+        } catch (error) {
+          if (error instanceof IntegrationAccessError) {
+            return this.sendJson(res, error.status, { error: error.message });
+          }
+          throw error;
+        }
       }
 
       // --- DEVICE PAIRING & MANAGEMENT ---

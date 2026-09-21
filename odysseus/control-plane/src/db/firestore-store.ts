@@ -24,6 +24,8 @@ import type {
 
 import { normalizePairingCode } from './pairing-code';
 import type {
+  IIntegrationGrantRepository,
+  IntegrationGrantRecord,
   IDatabase,
   IUserRepository,
   IDeviceRepository,
@@ -1033,6 +1035,7 @@ export class FirestoreDatabase implements IDatabase {
   public approvals: IApprovalRepository;
   public pushSubscriptions: IPushSubscriptionRepository;
   public audit: IAuditRepository;
+  public integrationGrants: IIntegrationGrantRepository;
 
   constructor(private firestore: Firestore) {
     this.users = new FirestoreUserRepository(this.firestore);
@@ -1043,9 +1046,47 @@ export class FirestoreDatabase implements IDatabase {
     this.integrationCredentials = new FirestoreIntegrationCredentialRepository(this.firestore);
     this.organizations = new FirestoreOrganizationRepository(this.firestore);
     this.orchestration = new FirestoreOrchestrationRepository(this.firestore);
+    this.integrationGrants = new FirestoreIntegrationGrantRepository(this.firestore);
     this.events = new FirestoreEventRepository(this.firestore);
     this.approvals = new FirestoreApprovalRepository(this.firestore);
     this.pushSubscriptions = new FirestorePushSubscriptionRepository(this.firestore);
     this.audit = new FirestoreAuditRepository(this.firestore);
+  }
+}
+
+export class FirestoreIntegrationGrantRepository implements IIntegrationGrantRepository {
+  constructor(private db: Firestore) {}
+  private col = () => this.db.collection('integration_grants');
+
+  private static docId(deviceId: string, integration: string): string {
+    return `${deviceId}__${integration}`;
+  }
+
+  async upsert(record: Omit<IntegrationGrantRecord, 'updatedAt'>): Promise<IntegrationGrantRecord> {
+    const stored: IntegrationGrantRecord = { ...record, updatedAt: new Date() };
+    await this.col()
+      .doc(FirestoreIntegrationGrantRepository.docId(record.deviceId, record.integration))
+      .set(cleanUndefined(stored as unknown as Record<string, unknown>));
+    return stored;
+  }
+
+  async listByDevice(deviceId: string): Promise<IntegrationGrantRecord[]> {
+    const snap = await this.col().where('deviceId', '==', deviceId).get();
+    return snap.docs.map((doc) => {
+      const data = doc.data();
+      return { ...data, updatedAt: toDate(data['updatedAt']) } as IntegrationGrantRecord;
+    });
+  }
+
+  async find(
+    deviceId: string,
+    integration: IntegrationGrantRecord['integration'],
+  ): Promise<IntegrationGrantRecord | null> {
+    const doc = await this.col()
+      .doc(FirestoreIntegrationGrantRepository.docId(deviceId, integration))
+      .get();
+    if (!doc.exists) return null;
+    const data = doc.data()!;
+    return { ...data, updatedAt: toDate(data['updatedAt']) } as IntegrationGrantRecord;
   }
 }

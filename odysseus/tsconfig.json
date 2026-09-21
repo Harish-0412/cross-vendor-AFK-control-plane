@@ -23,6 +23,7 @@
     { "path": "./gateway/pairing" },
     { "path": "./gateway/certificate" },
     { "path": "./gateway/reconciliation" },
+    { "path": "./gateway/integrations" },
     { "path": "./gateway/core" },
     { "path": "./control-plane" }
   ]

@@ -26,7 +26,9 @@ export type TunnelMessageType =
   | 'reconciliation_response'
   | 'replay_event'
   | 'disconnect'
-  | 'error';
+  | 'error'
+  /** Gateway → Control Plane: integration grant changes and refused reads. */
+  | 'integration_update';
 
 export interface TunnelMessage {
   id: string;

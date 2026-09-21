@@ -1,0 +1,156 @@
+/**
+ * External integrations: connecting the history, usage and sessions of tools
+ * that live on the workstation (Antigravity, Codex, a ChatGPT export) or in an
+ * organisation account (OpenAI org usage).
+ *
+ * Shared by the web app, the Control Plane and the gateway so all three
+ * describe an integration identically. Only the gateway resolves real paths —
+ * the descriptions here are what the user reads before asking for access.
+ *
+ * Access is granted per device, per integration, per scope, and is only ever
+ * approved on the workstation. See docs/INTEGRATIONS_PLAN_ANTIGRAVITY_OPENAI.md.
+ */
+
+export type IntegrationId = 'antigravity' | 'codex' | 'chatgpt-export' | 'openai-org';
+
+export type IntegrationScope = 'history.read' | 'usage.read' | 'session.run';
+
+export type GrantStatus = 'pending' | 'active' | 'denied' | 'revoked' | 'expired';
+
+export interface IntegrationDefinition {
+  id: IntegrationId;
+  name: string;
+  summary: string;
+  /** Scopes this integration can offer. Anything else is refused outright. */
+  scopes: IntegrationScope[];
+  /** Plain-language description of what each scope reads. */
+  reads: Partial<Record<IntegrationScope, string>>;
+  /** What leaves the workstation, stated before the user asks for access. */
+  leavesMachine: string;
+  /** Named explicitly so the user can see they are excluded. */
+  neverRead: string[];
+}
+
+export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
+  codex: {
+    id: 'codex',
+    name: 'OpenAI Codex',
+    summary: 'Your Codex sessions, and your ChatGPT plan usage limits as Codex records them.',
+    scopes: ['history.read', 'usage.read'],
+    reads: {
+      'history.read': 'Session files in ~/.codex/sessions (rollout-*.jsonl)',
+      'usage.read': 'Token counts and plan rate limits recorded inside those same session files',
+    },
+    leavesMachine:
+      'Session titles and metadata by default; conversation content only for sessions you ' +
+      'choose to sync. All content is redacted on this machine before it is sent.',
+    neverRead: [
+      '~/.codex/auth.json (your login)',
+      '~/.codex/.sandbox-secrets',
+      'Codex databases (*.sqlite) and history.jsonl',
+    ],
+  },
+  antigravity: {
+    id: 'antigravity',
+    name: 'Google Antigravity',
+    summary: 'Your Antigravity conversations that have a saved transcript.',
+    scopes: ['history.read'],
+    reads: {
+      'history.read':
+        'Transcripts in ~/.gemini/antigravity/brain/<conversation>/.system_generated/logs',
+    },
+    leavesMachine:
+      'Conversation titles and metadata by default; content only for conversations you choose ' +
+      'to sync. All content is redacted on this machine before it is sent.',
+    neverRead: [
+      'Antigravity login and state files',
+      'Browser recordings and media',
+      'Databases and protobuf files under ~/.gemini/antigravity',
+    ],
+  },
+  'chatgpt-export': {
+    id: 'chatgpt-export',
+    name: 'ChatGPT export',
+    summary: 'Past chatgpt.com conversations, imported from the export ChatGPT lets you download.',
+    scopes: ['history.read'],
+    reads: {
+      'history.read': 'The conversations.json inside an export file you choose to import',
+    },
+    leavesMachine:
+      'Parsed, redacted conversations. The export file itself never leaves this machine.',
+    neverRead: ['Anything other than the export file you point the import at'],
+  },
+  'openai-org': {
+    id: 'openai-org',
+    name: 'OpenAI organisation',
+    summary: 'Daily API spend and token usage for your OpenAI organisation.',
+    scopes: ['usage.read'],
+    reads: {
+      'usage.read':
+        "OpenAI's organisation Usage and Costs APIs, called from this machine with an Admin key " +
+        'that is stored here',
+    },
+    leavesMachine: 'Daily totals only. The Admin key never leaves this machine.',
+    neverRead: ['Conversations or prompts — the Usage and Costs APIs do not expose them'],
+  },
+};
+
+export function isIntegrationId(value: unknown): value is IntegrationId {
+  return typeof value === 'string' && value in INTEGRATIONS;
+}
+
+export function isIntegrationScope(value: unknown): value is IntegrationScope {
+  return value === 'history.read' || value === 'usage.read' || value === 'session.run';
+}
+
+/** Default lifetime of a grant; the user is asked again after this. */
+export const GRANT_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
+/** How long a pending access request waits for approval on the workstation. */
+export const GRANT_REQUEST_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * The state of one integration on one device, as the gateway reports it.
+ * The gateway is the authority; the Control Plane keeps a copy for display.
+ */
+export interface IntegrationGrantState {
+  integration: IntegrationId;
+  status: GrantStatus;
+  scopes: IntegrationScope[];
+  requestId?: string | undefined;
+  grantId?: string | undefined;
+  /** Directories the grant covers, as resolved on the workstation. */
+  roots?: string[] | undefined;
+  grantedAt?: string | undefined;
+  expiresAt?: string | undefined;
+  /** Set when a request was denied or a read was refused. */
+  reason?: string | undefined;
+}
+
+/** Payload of the gateway → Control Plane `integration_update` tunnel message. */
+export type IntegrationUpdate =
+  | { kind: 'grant_changed'; state: IntegrationGrantState }
+  | {
+      kind: 'access_refused';
+      integration: IntegrationId;
+      scope: IntegrationScope;
+      reason: string;
+      /** Relative to the integration root when known; never an absolute path. */
+      target?: string | undefined;
+    };
+
+/** Payload of the `integration.grant_request` command. */
+export interface GrantRequestCommand {
+  requestId: string;
+  integration: IntegrationId;
+  scopes: IntegrationScope[];
+  requestedBy: { userId: string; email?: string | undefined };
+  /**
+   * Salted hash of the confirmation code shown only in the requester's browser.
+   * The approver types the code at the workstation, which proves the person
+   * approving is looking at that browser session — so a request made from a
+   * stolen web session cannot be approved by the workstation owner by mistake.
+   */
+  confirmation: { salt: string; sha256: string };
+  expiresAt: string;
+}

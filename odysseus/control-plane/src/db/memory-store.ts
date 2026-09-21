@@ -20,6 +20,8 @@ import type {
 
 import { normalizePairingCode } from './pairing-code';
 import type {
+  IIntegrationGrantRepository,
+  IntegrationGrantRecord,
   IDatabase,
   IUserRepository,
   IDeviceRepository,
@@ -662,4 +664,26 @@ export class MemoryDatabase implements IDatabase {
   public approvals = new MemoryApprovalRepository();
   public pushSubscriptions = new MemoryPushSubscriptionRepository();
   public audit = new MemoryAuditRepository();
+  public integrationGrants = new MemoryIntegrationGrantRepository();
+}
+
+export class MemoryIntegrationGrantRepository implements IIntegrationGrantRepository {
+  private readonly records = new Map<string, IntegrationGrantRecord>();
+
+  async upsert(record: Omit<IntegrationGrantRecord, 'updatedAt'>): Promise<IntegrationGrantRecord> {
+    const stored: IntegrationGrantRecord = { ...record, updatedAt: new Date() };
+    this.records.set(`${record.deviceId}:${record.integration}`, stored);
+    return stored;
+  }
+
+  async listByDevice(deviceId: string): Promise<IntegrationGrantRecord[]> {
+    return [...this.records.values()].filter((record) => record.deviceId === deviceId);
+  }
+
+  async find(
+    deviceId: string,
+    integration: IntegrationGrantRecord['integration'],
+  ): Promise<IntegrationGrantRecord | null> {
+    return this.records.get(`${deviceId}:${integration}`) ?? null;
+  }
 }

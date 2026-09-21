@@ -68,6 +68,17 @@ export interface GatewayModules {
   redactionProxy: RedactionProxy;
 }
 
+/**
+ * What the gateway needs from the integrations manager. Declared here rather
+ * than imported so gateway-core does not depend on the integrations package;
+ * `@odysseus/integrations` IntegrationManager satisfies it.
+ */
+export interface IntegrationCommandHandler {
+  receiveRequest(payload: unknown): Promise<unknown>;
+  revoke(integration: unknown, by: 'web' | 'workstation'): Promise<boolean>;
+  list(): Promise<unknown>;
+}
+
 export class GatewayImpl implements GatewayCore {
   readonly options: Required<GatewayOptions> & {
     apiServer: NonNullable<GatewayOptions['apiServer']>;
@@ -490,6 +501,17 @@ export class GatewayImpl implements GatewayCore {
     return this.deviceId;
   }
 
+  private integrationHandler: IntegrationCommandHandler | undefined;
+
+  /**
+   * Enable integration commands. Without a handler they are refused: the
+   * gateway never touches integration data unless the process that owns the
+   * device key has set up the consent-checking manager.
+   */
+  setIntegrationHandler(handler: IntegrationCommandHandler | undefined): void {
+    this.integrationHandler = handler;
+  }
+
   private async handleTunnelCommand(
     command: unknown,
   ): Promise<{ success: boolean; result?: unknown; error?: string }> {
@@ -502,6 +524,23 @@ export class GatewayImpl implements GatewayCore {
     const sessionId = typeof payload['sessionId'] === 'string' ? payload['sessionId'] : undefined;
     try {
       switch (commandType) {
+        // The Control Plane may ask for access and may revoke it. There is no
+        // command that approves: approval only happens at this machine.
+        case 'integration.grant_request':
+        case 'integration.revoke':
+        case 'integration.list': {
+          const handler = this.integrationHandler;
+          if (!handler) {
+            return { success: false, error: 'Integrations are not enabled on this gateway' };
+          }
+          if (commandType === 'integration.grant_request') {
+            return { success: true, result: await handler.receiveRequest(payload) };
+          }
+          if (commandType === 'integration.revoke') {
+            return { success: true, result: { revoked: await handler.revoke(payload['integration'], 'web') } };
+          }
+          return { success: true, result: await handler.list() };
+        }
         case 'session.start': {
           const config = payload['config'] as SessionConfig;
           return { success: true, result: await this.createSession(config) };

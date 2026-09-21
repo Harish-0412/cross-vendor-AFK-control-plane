@@ -19,7 +19,8 @@
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "gateway": "tsx scripts/start-gateway.ts",
-    "pair": "tsx scripts/pair.ts"
+    "pair": "tsx scripts/pair.ts",
+    "grants": "tsx scripts/grants.ts"
   },
   "devDependencies": {
     "@types/node": "^20.12.0",

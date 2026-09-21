@@ -10,5 +10,6 @@ export * from './types/policy';
 export * from './types/notifications';
 export * from './types/git';
 export * from './types/orchestration';
+export * from './types/integrations';
 
 export * from './ids';

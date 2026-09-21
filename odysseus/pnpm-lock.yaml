@@ -278,6 +278,16 @@ importers:
         specifier: ^1.5.0
         version: 1.6.1(@types/node@20.19.43)
 
+  gateway/integrations:
+    dependencies:
+      '@odysseus/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+    devDependencies:
+      vitest:
+        specifier: ^1.5.0
+        version: 1.6.1(@types/node@20.19.43)
+
   gateway/pairing:
     dependencies:
       '@odysseus/config':

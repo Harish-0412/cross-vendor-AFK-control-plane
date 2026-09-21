@@ -60,6 +60,8 @@ export class TunnelServer {
   private readonly socketAuth = new WeakMap<WebSocket, { pending?: PendingChallenge }>();
   private readonly authenticator: DeviceAuthenticator;
   private onEventBroadcast?: (event: StoredEvent) => void;
+  private onIntegrationUpdate?: (deviceId: string, payload: unknown) => void;
+  private onGatewayAuthenticated?: (deviceId: string) => void;
   private onApprovalCreated?: (approval: ApprovalRecord) => void;
   private onAdmissionPhaseChange?: (
     deviceId: string,
@@ -161,6 +163,16 @@ export class TunnelServer {
 
   setOnEventBroadcast(callback: (event: StoredEvent) => void): void {
     this.onEventBroadcast = callback;
+  }
+
+  /** Integration grant changes and refused reads reported by a gateway. */
+  setOnIntegrationUpdate(callback: (deviceId: string, payload: unknown) => void): void {
+    this.onIntegrationUpdate = callback;
+  }
+
+  /** Called once a gateway has completed the signed handshake. */
+  setOnGatewayAuthenticated(callback: (deviceId: string) => void): void {
+    this.onGatewayAuthenticated = callback;
   }
 
   setOnApprovalCreated(callback: (approval: ApprovalRecord) => void): void {
@@ -278,6 +290,7 @@ export class TunnelServer {
           capabilities: ['sessions', 'approvals', 'commands'],
         },
       });
+      this.onGatewayAuthenticated?.(pending.deviceId);
       return;
     }
 
@@ -460,6 +473,14 @@ export class TunnelServer {
       const authedId = getAuthDevId();
       if (!authedId) {
         socket.close(4001, 'Unauthenticated');
+        return;
+      }
+
+      // Integration grant changes and refused reads. Only ever accepted from
+      // an authenticated socket, and attributed to that socket's device —
+      // a gateway can only report on itself.
+      if (type === 'integration_update') {
+        this.onIntegrationUpdate?.(authedId, payload);
         return;
       }
 

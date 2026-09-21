@@ -35,6 +35,9 @@ import {
   type PreflightCheck,
 } from '../gateway/core/src/index';
 import { DeviceIdentityManager } from '../gateway/identity/src/device-identity';
+import { IntegrationManager, defaultPathContext } from '../gateway/integrations/src/index';
+
+import { promptForApproval, renderRequest, signerFor } from './grant-prompt';
 
 const USAGE = `
 Odysseus Gateway
@@ -149,6 +152,61 @@ async function main(): Promise<void> {
 
   // ------------------------------------------------------------------ runtime
   const { tunnelClient } = gateway.getModules();
+
+  // ------------------------------------------------------------ integrations
+  // Consent-gated access to Antigravity / Codex / ChatGPT-export / OpenAI
+  // org data. This process holds the device key, so it is the only place a
+  // grant can be verified — and the only place one can be approved.
+  const integrations = new IntegrationManager({
+    signer: signerFor(identityManager),
+    ctx: defaultPathContext(),
+    onUpdate: (update) => {
+      tunnelClient.send('integration_update', update);
+      if (update.kind === 'access_refused') {
+        deviceLog.warn('integration.access_refused', {
+          integration: update.integration,
+          scope: update.scope,
+          detail: update.reason,
+        });
+      }
+    },
+  });
+
+  // One prompt at a time: a second request waits for `pnpm grants`.
+  let prompting = false;
+  gateway.setIntegrationHandler({
+    receiveRequest: async (payload) => {
+      const received = await integrations.receiveRequest(payload);
+      const request = await integrations.store.findRequest(received.requestId);
+      if (request) {
+        deviceLog.info('integration.request', {
+          integration: request.integration,
+          requestId: request.requestId,
+        });
+        if (!prompting) {
+          prompting = true;
+          // Not awaited: the Control Plane gets its answer ("pending") now,
+          // and the owner decides in their own time.
+          void (async () => {
+            try {
+              await renderRequest(request);
+              await promptForApproval(integrations, request);
+            } catch (error) {
+              deviceLog.warn('integration.prompt_failed', { error: error as Error });
+            } finally {
+              prompting = false;
+            }
+          })();
+        }
+      }
+      return received;
+    },
+    revoke: (integration, by) => integrations.revoke(integration, by),
+    list: () => integrations.list(),
+  });
+  // Picks up approvals and revokes made with `pnpm grants` in another
+  // terminal, and expires requests nobody answered.
+  integrations.startWatching();
 
   const preflightChecks: PreflightCheck[] = [
     nodeVersionCheck(20),

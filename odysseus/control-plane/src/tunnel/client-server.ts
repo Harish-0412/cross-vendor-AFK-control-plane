@@ -157,6 +157,13 @@ export class ClientServer {
     });
   }
 
+  /** Push a message to every open socket belonging to one user. */
+  sendToUser(userId: string, message: Record<string, unknown>): void {
+    for (const client of this.registry.getClientsForUser(userId)) {
+      this.send(client.socket, message);
+    }
+  }
+
   broadcastEvent(stored: StoredEvent): void {
     // 1. Clients subscribed to the specific sessionId
     const bySession = this.registry.getClientsSubscribedToSession(stored.sessionId);

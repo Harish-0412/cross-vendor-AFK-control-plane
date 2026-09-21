@@ -36,6 +36,7 @@ const packageSources: Record<string, string> = {
   '@odysseus/attention-engine': 'packages/attention-engine/src/index.ts',
   '@odysseus/gateway-policy': 'gateway/policy/src/index.ts',
   '@odysseus/redaction': 'gateway/redaction/src/index.ts',
+  '@odysseus/integrations': 'gateway/integrations/src/index.ts',
 };
 
 export const workspaceAliases: Record<string, string> = Object.fromEntries(

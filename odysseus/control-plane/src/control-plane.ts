@@ -5,6 +5,7 @@ import { AfkOrchestrator } from './afk/afk-orchestrator';
 import { EscalationScheduler } from './afk/escalation-scheduler';
 import { PushSender } from './afk/push-sender';
 import { HttpRouter } from './api/http-router';
+import { IntegrationAccessService } from './integrations/integration-access';
 import { getFirebaseFirestore, isFirebaseAdminConfigured } from './auth/firebase-admin';
 import { loadConfig } from './config';
 import { FirestoreDatabase } from './db/firestore-store';
@@ -39,6 +40,7 @@ export class ControlPlane {
   public costGovernor: CostGovernor;
   public riskEngine: RiskEngine;
   public multiAgentOrchestrator: MultiAgentOrchestrator;
+  public integrationAccess: IntegrationAccessService;
   /**
    * True when no persistent database was configured. The production guard
    * refuses to start on this, because a container restart would erase every
@@ -180,6 +182,26 @@ export class ControlPlane {
       this.costGovernor,
       this.multiAgentOrchestrator,
     );
+
+    this.integrationAccess = new IntegrationAccessService(
+      this.db,
+      this.tunnelServer,
+      this.auditLog,
+      (userId, message) => this.clientServer.sendToUser(userId, message),
+    );
+    this.router.setIntegrationAccess(this.integrationAccess);
+    this.tunnelServer.setOnIntegrationUpdate((deviceId, payload) => {
+      void this.integrationAccess.handleGatewayUpdate(deviceId, payload).catch((error: unknown) => {
+        // eslint-disable-next-line no-console
+        console.warn('[Odysseus Control Plane] Integration update failed:', error);
+      });
+    });
+    this.tunnelServer.setOnGatewayAuthenticated((deviceId) => {
+      void this.integrationAccess.deliverPendingRevokes(deviceId).catch((error: unknown) => {
+        // eslint-disable-next-line no-console
+        console.warn('[Odysseus Control Plane] Delivering pending revokes failed:', error);
+      });
+    });
   }
 
   async start(): Promise<{ url: string; port: number }> {
