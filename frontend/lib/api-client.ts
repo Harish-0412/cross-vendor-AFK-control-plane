@@ -2,8 +2,24 @@
 // Centralized API client with silent refresh and typed HTTP methods
 
 
+/**
+ * Where REST calls go.
+ *
+ * In proxy mode (NEXT_PUBLIC_API_PROXY=true, the deployed setting) calls are
+ * same-origin and next.config.mjs rewrites /api/v1/* to the Control Plane.
+ * That is what makes the refresh-token cookie first-party: the frontend and
+ * the Control Plane live on different sites (vercel.app vs onrender.com), and
+ * a cookie set cross-site is not sent on fetch with SameSite=Lax — and on
+ * Safari is blocked outright as a third-party cookie. Without the proxy,
+ * every page reload would log the user out.
+ *
+ * WebSockets cannot go through the proxy, and do not need to: they
+ * authenticate with the access token, not a cookie. See realtime.ts.
+ */
 export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  process.env.NEXT_PUBLIC_API_PROXY === 'true'
+    ? ''
+    : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 let currentAccessToken: string | null = null;
 let refreshPromise: Promise<string | null> | null = null;
@@ -33,7 +49,12 @@ export class ApiError extends Error {
   }
 }
 
-async function requestRefreshToken(): Promise<string | null> {
+/**
+ * Exchange the refresh cookie for a fresh access token. Shared by REST
+ * (on a 401) and the realtime socket (before connecting, and on a 4001
+ * close), and de-duplicated so concurrent callers share one request.
+ */
+export async function requestRefreshToken(): Promise<string | null> {
   if (refreshPromise) {
     return refreshPromise;
   }

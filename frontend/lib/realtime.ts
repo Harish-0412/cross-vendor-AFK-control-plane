@@ -3,7 +3,7 @@
 
 import { create } from 'zustand';
 import type { EventEnvelope } from '@odysseus/protocol';
-import { getAccessToken } from './api-client';
+import { getAccessToken, requestRefreshToken } from './api-client';
 
 export type RealtimeStatus = 'connecting' | 'connected' | 'reconnecting' | 'offline';
 
@@ -55,9 +55,20 @@ class RealtimeClient {
 
     this.isIntentionallyClosed = false;
     const token = getAccessToken();
-    const url = token
-      ? `${this.wsBaseUrl}/ws/client?token=${encodeURIComponent(token)}`
-      : `${this.wsBaseUrl}/ws/client`;
+
+    // The Control Plane refuses a socket without a token (close 4001). The
+    // access token lives in memory, so after a page reload it is gone until
+    // the refresh cookie is exchanged. Connecting without one would just
+    // earn a 4001 and a reconnect loop, so fetch a token first.
+    if (!token) {
+      void requestRefreshToken().then((fresh) => {
+        if (fresh) this.connect();
+        else useRealtimeStore.getState().setStatus('offline');
+      });
+      return;
+    }
+
+    const url = `${this.wsBaseUrl}/ws/client?token=${encodeURIComponent(token)}`;
 
     useRealtimeStore.getState().setStatus(this.reconnectAttempts > 0 ? 'reconnecting' : 'connecting');
 
@@ -122,10 +133,20 @@ class RealtimeClient {
       }
     };
 
-    this.ws.onclose = () => {
+    this.ws.onclose = (event: CloseEvent) => {
       this.ws = null;
       if (!this.isIntentionallyClosed) {
         useRealtimeStore.getState().setStatus('reconnecting');
+        // 4001 means the token was rejected — almost always because the
+        // access token expired while the socket was open. Reconnecting with
+        // the same token would fail identically forever, so refresh first.
+        if (event.code === 4001) {
+          void requestRefreshToken().then((fresh) => {
+            if (fresh) this.scheduleReconnect();
+            else useRealtimeStore.getState().setStatus('offline');
+          });
+          return;
+        }
         this.scheduleReconnect();
       } else {
         useRealtimeStore.getState().setStatus('offline');

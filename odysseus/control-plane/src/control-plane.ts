@@ -61,7 +61,14 @@ export class ControlPlane {
       } else {
         // eslint-disable-next-line no-console
         console.warn(
-          '[Odysseus Control Plane] Firestore requested but could not be initialized, falling back to MemoryDatabase',
+          '[Odysseus Control Plane] Firestore requested but could not be initialized, falling back to MemoryDatabase. ' +
+            'Credentials are read from GOOGLE_APPLICATION_CREDENTIALS (a path to the service-account JSON' +
+            (process.env.GOOGLE_APPLICATION_CREDENTIALS
+              ? `; set to ${process.env.GOOGLE_APPLICATION_CREDENTIALS}, which does not exist or failed to load`
+              : '; not set') +
+            ') or from FIREBASE_PROJECT_ID + FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY' +
+            (process.env.FIREBASE_PRIVATE_KEY ? '' : ' (FIREBASE_PRIVATE_KEY not set)') +
+            '.',
         );
         this.db = new MemoryDatabase();
       }

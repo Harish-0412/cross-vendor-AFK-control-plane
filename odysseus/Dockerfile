@@ -32,8 +32,6 @@ RUN pnpm exec tsc --build
 # ----------------------------------------------------------- runtime stage
 FROM node:22-bookworm-slim AS runtime
 
-RUN corepack enable
-
 # Run as a non-root user. Nothing here needs root, and a compromised process
 # should not be able to write to its own image.
 RUN useradd --create-home --shell /bin/bash odysseus
@@ -55,10 +53,18 @@ EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||4000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-# Run through tsx rather than compiled output: the workspace packages export
-# `./src/index.ts`, so plain `node dist/server.js` would resolve sibling
-# packages back to TypeScript source and fail. tsx is a pinned dependency, not
-# an `npx` fetch, so the version is deterministic. Switching to dist would mean
-# adding a `production` export condition to every workspace package — see
-# docs/DEPLOYMENT.md.
-CMD ["pnpm", "--filter", "@odysseus/control-plane", "start"]
+# Run node directly, with tsx loaded in-process.
+#
+# Not through pnpm: corepack downloaded pnpm from npm on every container start
+# (seen in the first Render deploy log), which slowed every cold start and made
+# boot depend on the npm registry being reachable. pnpm also sat between the
+# platform's SIGTERM and the server, which is what produced "Command failed with
+# signal SIGTERM" instead of a graceful drain. As PID 1, node receives the
+# signal itself and server.ts shuts down cleanly.
+#
+# tsx rather than compiled output: the workspace packages export ./src/index.ts,
+# so plain `node dist/server.js` would resolve sibling packages back to
+# TypeScript source and fail. tsx is a pinned dependency, not an npx fetch.
+# See docs/DEPLOYMENT.md.
+WORKDIR /app/control-plane
+CMD ["node", "--import", "tsx", "src/server.ts"]
