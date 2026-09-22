@@ -55,8 +55,7 @@ temp/
 .odysseus/checkpoints/
 .odysseus/logs/
 
-# Legacy freebuff artifacts
-freebuff/
+# Local agent state
 .freebuff/
 
 # Phase 6 redaction test corpus (deliberately tracked test fixtures)
