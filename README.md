@@ -6,8 +6,8 @@ Odysseus is a vendor-neutral governance and operating layer for autonomous codin
 
 Odysseus doesn't replace your agents — it makes them interchangeable execution engines under a unified control plane that handles identity, policy, agent routing, security, observability, cost management, orchestration, governance, knowledge, and recovery.
 
-* **Live Web UI:** [https://freebuff-control-center.vercel.app](https://freebuff-control-center.vercel.app)
-* **Live Control Plane API:** [https://freebuff-control-plane.onrender.com](https://freebuff-control-plane.onrender.com)
+* **Live Web UI:** [https://odysseus-control-center.vercel.app](https://odysseus-control-center.vercel.app)
+* **Live Control Plane API:** [https://odysseus-control-plane.onrender.com](https://odysseus-control-plane.onrender.com)
 
 📄 **Full architecture, threat model, and implementation spec:** [Executive_Summary_Enhanced.docx](./docs/Executive_Summary_Enhanced.docx)
 This README covers **building and running the project**. For the full design rationale, security fixes, and diagrams, read the doc above.

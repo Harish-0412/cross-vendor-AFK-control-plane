@@ -1,8 +1,10 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState, useEffect } from 'react';
 import { gsap } from 'gsap';
-import { ArrowUpRight } from 'lucide-react';
+import { ArrowUpRight, Sun, Moon } from 'lucide-react';
+import { useTheme } from 'next-themes';
+import Link from 'next/link';
 
 const CardNav = ({
   logo,
@@ -17,6 +19,14 @@ const CardNav = ({
 }) => {
   const [isHamburgerOpen, setIsHamburgerOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const { theme, setTheme, resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const isDark = (resolvedTheme || theme) === 'dark';
   const navRef = useRef(null);
   const cardsRef = useRef([]);
   const tlRef = useRef(null);
@@ -174,13 +184,31 @@ const CardNav = ({
             )}
           </div>
 
-          <button
-            type="button"
-            className="card-nav-cta-button"
-            style={{ backgroundColor: buttonBgColor, color: buttonTextColor }}
-          >
-            Get Started
-          </button>
+          <div className="flex items-center gap-2">
+            {mounted && (
+              <button
+                type="button"
+                onClick={() => setTheme(isDark ? 'light' : 'dark')}
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-border/50 bg-card/70 text-foreground backdrop-blur-md transition-all hover:bg-accent active:scale-95 cursor-pointer"
+                title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+                aria-label="Toggle theme"
+              >
+                {isDark ? (
+                  <Sun className="h-4 w-4 text-amber-400 transition-transform duration-200 hover:rotate-45" />
+                ) : (
+                  <Moon className="h-4 w-4 text-primary transition-transform duration-200 hover:-rotate-12" />
+                )}
+              </button>
+            )}
+
+            <Link
+              href="/dashboard"
+              className="card-nav-cta-button"
+              style={{ backgroundColor: buttonBgColor, color: buttonTextColor }}
+            >
+              Get Started
+            </Link>
+          </div>
         </div>
 
         <div className="card-nav-content" aria-hidden={!isExpanded}>

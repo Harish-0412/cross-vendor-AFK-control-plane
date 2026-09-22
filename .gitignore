@@ -55,6 +55,10 @@ temp/
 .odysseus/checkpoints/
 .odysseus/logs/
 
+# Legacy freebuff artifacts
+freebuff/
+.freebuff/
+
 # Phase 6 redaction test corpus (deliberately tracked test fixtures)
 !odysseus/gateway/redaction/test-fixtures/secrets/*.pem
 !odysseus/gateway/redaction/test-fixtures/secrets/*.key

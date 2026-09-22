@@ -36,8 +36,10 @@ export function Header() {
     router.push("/login");
   };
 
+  const isDark = (resolvedTheme || theme) === "dark";
+
   const toggleTheme = () => {
-    setTheme(resolvedTheme === "dark" ? "light" : "dark");
+    setTheme(isDark ? "light" : "dark");
   };
 
   const getStatusBadge = () => {
@@ -92,20 +94,23 @@ export function Header() {
         <KillSwitch />
         {getStatusBadge()}
 
-        {mounted && (
+        {mounted ? (
           <Button
             variant="ghost"
             size="icon"
             onClick={toggleTheme}
-            className="h-8 w-8 text-muted-foreground hover:text-foreground"
-            title={resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+            aria-label="Toggle color theme"
           >
-            {resolvedTheme === "dark" ? (
-              <Sun className="h-4 w-4" />
+            {isDark ? (
+              <Sun className="h-4 w-4 text-amber-400 transition-transform duration-200 hover:rotate-45" />
             ) : (
-              <Moon className="h-4 w-4" />
+              <Moon className="h-4 w-4 text-primary transition-transform duration-200 hover:-rotate-12" />
             )}
           </Button>
+        ) : (
+          <div className="h-8 w-8" />
         )}
 
         {user && (

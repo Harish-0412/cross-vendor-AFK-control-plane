@@ -13,7 +13,6 @@ import { HowItWorks } from "@/components/sections/how-it-works"
 import { Agents } from "@/components/sections/agents"
 import { UseCases } from "@/components/sections/use-cases"
 import { Security } from "@/components/sections/security"
-import { Pricing } from "@/components/sections/pricing"
 import { Testimonials } from "@/components/sections/testimonials"
 import { Faq } from "@/components/sections/faq"
 import { CtaFooter } from "@/components/sections/cta-footer"
@@ -114,7 +113,7 @@ export default function Home() {
               bgColor: "#2F293A",
               textColor: "#fff",
               links: [
-                { label: "Pricing", href: "#pricing", ariaLabel: "Pricing" },
+                { label: "Agents", href: "#agents", ariaLabel: "Agents" },
                 { label: "Security", href: "#security", ariaLabel: "Security" }
               ]
             },
@@ -165,7 +164,6 @@ export default function Home() {
             <Agents />
             <UseCases />
             <Security />
-            <Pricing />
             <Testimonials />
             <Faq />
           </div>

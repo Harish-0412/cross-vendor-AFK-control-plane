@@ -6,7 +6,7 @@ import { Reveal } from "@/components/reveal"
 import { MagneticButton } from "@/components/magnetic-button"
 
 const columns = [
-  { title: "Product", links: ["Features", "Pricing", "Changelog", "Roadmap"] },
+  { title: "Product", links: ["Features", "Agents", "Changelog", "Roadmap"] },
   { title: "Resources", links: ["Documentation", "Blog", "API Reference", "Status"] },
   { title: "Company", links: ["About", "Blog", "Careers", "Contact"] },
   { title: "Legal", links: ["Privacy", "Terms", "Security", "DPA"] },

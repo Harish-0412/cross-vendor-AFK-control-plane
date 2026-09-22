@@ -77,7 +77,7 @@ Three cooperating pieces. None can do its job without the others. None trusts th
 
 ## 3. Services and components — what is actually built
 
-### 3.1 Local Agent Gateway (`freebuff/gateway/`)
+### 3.1 Local Agent Gateway (`odysseus/gateway/`)
 
 | Module | What it does |
 |---|---|
@@ -95,7 +95,7 @@ Three cooperating pieces. None can do its job without the others. None trusts th
 | **`adapters/mock`** | Reference adapter — a fully scripted fake agent used for testing every layer above without a real model or API key |
 | **`adapters/opencode`** | Phase 8 — real OpenCode adapter with a production-quality output parser built from live captured NDJSON fixtures |
 
-### 3.2 Cloud Control Plane (`freebuff/control-plane/`)
+### 3.2 Cloud Control Plane (`odysseus/control-plane/`)
 
 | Module | What it does |
 |---|---|
@@ -113,7 +113,7 @@ Three cooperating pieces. None can do its job without the others. None trusts th
 | **`policy/audit-log`** | Hash-chained append-only audit log with a standalone chain-verifier script |
 | **`integrations/github`** | Phase 9 GitHub OAuth (minimal scopes: `repo`, `read:org`), credential storage encrypted with AES-256-GCM |
 
-### 3.3 Shared packages (`freebuff/packages/`)
+### 3.3 Shared packages (`odysseus/packages/`)
 
 | Package | What it does |
 |---|---|
@@ -300,7 +300,7 @@ Adding a new agent requires writing one adapter that wraps that vendor's CLI and
 
 ### Normalization
 
-Whatever a real agent prints — a JSON stream, log lines, a completion callback — the adapter translates it into the fixed `EventType` union from `@freebuff/protocol`: `session.started`, `session.output`, `session.tool_call`, `session.tool_result`, `session.file_changed`, `session.approval_required`, `session.completed`, `session.failed`, and so on.
+Whatever a real agent prints — a JSON stream, log lines, a completion callback — the adapter translates it into the fixed `EventType` union from `@odysseus/protocol`: `session.started`, `session.output`, `session.tool_call`, `session.tool_result`, `session.file_changed`, `session.approval_required`, `session.completed`, `session.failed`, and so on.
 
 This is why the same policy engine, the same live session view, and the same audit log work identically for every adapter — none of them ever see the vendor's native format.
 
