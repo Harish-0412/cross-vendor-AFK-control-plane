@@ -40,6 +40,10 @@ interface PairingSessionResponse {
   status: "code_verified";
 }
 
+type PairingSessionWire = Partial<
+  Record<keyof PairingSessionResponse, unknown>
+>;
+
 interface ConfirmedDevice {
   id: string;
   friendlyName: string;
@@ -50,6 +54,71 @@ interface ConfirmedDevice {
 
 interface DeviceListItem extends ConfirmedDevice {
   systemInfo?: { hostname?: string } | null;
+}
+
+function stringField(value: unknown, fallback = ""): string {
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+/**
+ * Pairing records created by older gateways can omit display-only fields.
+ * Normalize the network response before it reaches React state so rendering
+ * never calls string or array methods on an undefined legacy value.
+ */
+function normalizePairing(data: PairingSessionWire): PairingSessionResponse {
+  const pairingId = stringField(data.pairingId);
+  const deviceId = stringField(data.deviceId);
+  if (!pairingId || !deviceId) {
+    throw new Error(
+      "The Control Plane returned an incomplete pairing response.",
+    );
+  }
+
+  const platform = stringField(data.platform, "unknown");
+  return {
+    pairingId,
+    deviceId,
+    gatewayId: stringField(data.gatewayId, `gw_${deviceId}`),
+    deviceName: stringField(
+      data.deviceName,
+      `Workstation ${deviceId.slice(-6)}`,
+    ),
+    platform:
+      platform === "windows" || platform === "linux" || platform === "darwin"
+        ? platform
+        : "unknown",
+    fingerprintHex: stringField(
+      data.fingerprintHex,
+      "Not provided by legacy gateway",
+    ),
+    fingerprintWords: Array.isArray(data.fingerprintWords)
+      ? data.fingerprintWords.filter(
+          (word): word is string => typeof word === "string" && word.length > 0,
+        )
+      : [],
+    expiresAt: stringField(
+      data.expiresAt,
+      new Date(Date.now() + 5 * 60_000).toISOString(),
+    ),
+    status: "code_verified",
+  };
+}
+
+function normalizeConfirmedDevice(
+  value: Partial<ConfirmedDevice> | null | undefined,
+  pairing: PairingSessionResponse,
+  requestedName: string,
+): ConfirmedDevice {
+  return {
+    id: stringField(value?.id, pairing.deviceId),
+    friendlyName: stringField(
+      value?.friendlyName,
+      requestedName || pairing.deviceName || "Workstation",
+    ),
+    platform: stringField(value?.platform, pairing.platform),
+    status: stringField(value?.status, "trusted"),
+    online: value?.online === true,
+  };
 }
 
 const STEPS = [
@@ -144,16 +213,17 @@ export default function PairDevicePage() {
     setBusy(true);
     setError(null);
     try {
-      const data = await apiClient.post<PairingSessionResponse>(
+      const wire = await apiClient.post<PairingSessionWire>(
         "/api/v1/devices/pair",
         {
           code: cleanCode,
         },
       );
+      const data = normalizePairing(wire);
       setPairing(data);
-      setFriendlyName(data?.deviceName || "Workstation");
+      setFriendlyName(data.deviceName);
       setStep(2);
-      toast.success(`Code verified — ${data?.deviceName || "Workstation"} responded`);
+      toast.success(`Code verified — ${data.deviceName} responded`);
     } catch (problem) {
       const message =
         problem instanceof ApiError
@@ -171,17 +241,24 @@ export default function PairDevicePage() {
     setBusy(true);
     setError(null);
     try {
+      const requestedName =
+        (friendlyName || "").trim() || pairing.deviceName || "Workstation";
       const response = await apiClient.post<{
         status: string;
-        device: ConfirmedDevice;
+        device?: Partial<ConfirmedDevice>;
       }>("/api/v1/devices/confirm", {
         pairingId: pairing.pairingId,
         confirmed: true,
-        friendlyName: (friendlyName || "").trim() || pairing.deviceName || "Workstation",
+        friendlyName: requestedName,
       });
-      setConnectedDevice(response.device);
+      const device = normalizeConfirmedDevice(
+        response?.device,
+        pairing,
+        requestedName,
+      );
+      setConnectedDevice(device);
       setStep(3);
-      toast.success(`${response.device.friendlyName} is now trusted`);
+      toast.success(`${device.friendlyName} is now trusted`);
     } catch (problem) {
       const message =
         problem instanceof ApiError
@@ -477,7 +554,9 @@ export default function PairDevicePage() {
                   size="lg"
                   onClick={() => void confirmPairing()}
                   disabled={
-                    busy || secondsRemaining === 0 || !(friendlyName || "").trim()
+                    busy ||
+                    secondsRemaining === 0 ||
+                    !(friendlyName || "").trim()
                   }
                   className="h-12 rounded-xl bg-blue-600 text-white hover:bg-blue-700"
                 >

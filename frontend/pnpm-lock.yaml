@@ -95,9 +95,6 @@ importers:
       '@radix-ui/react-tooltip':
         specifier: 1.1.6
         version: 1.1.6(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
-      '@vercel/analytics':
-        specifier: 1.3.1
-        version: 1.3.1(next@15.5.25(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(react@19.2.0)
       amazon-cognito-identity-js:
         specifier: ^6.3.20
         version: 6.3.20
@@ -176,9 +173,6 @@ importers:
       tailwindcss-animate:
         specifier: ^1.0.7
         version: 1.0.7(tailwindcss@4.3.3)
-      three:
-        specifier: ^0.185.1
-        version: 0.185.1
       vaul:
         specifier: ^0.9.9
         version: 0.9.9(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -1565,17 +1559,6 @@ packages:
   '@types/react@19.2.18':
     resolution: {integrity: sha512-AnzbBERsrLKtk2XSfTbYRLjQPdy116Sty4q+T+Bp3IC4l6jNBvreVPAHmpq9qhXQM7CXZPjLVmGMw9sy+hxQ3w==}
 
-  '@vercel/analytics@1.3.1':
-    resolution: {integrity: sha512-xhSlYgAuJ6Q4WQGkzYTLmXwhYl39sWjoMA3nHxfkvG+WdBT25c563a7QhwwKivEOZtPJXifYHR1m2ihoisbWyA==}
-    peerDependencies:
-      next: '>= 13'
-      react: ^18 || ^19
-    peerDependenciesMeta:
-      next:
-        optional: true
-      react:
-        optional: true
-
   amazon-cognito-identity-js@6.3.20:
     resolution: {integrity: sha512-akaaLpDqz4i0m2XG4+x+XcHAlboRt3rydVrSiEFCKvaGZSmZdvnYW4SXqm2OGeVdZK0R1nIXjp8yEpID3rHC5Q==}
 
@@ -2119,9 +2102,6 @@ packages:
     engines: {node: '>=10'}
     hasBin: true
 
-  server-only@0.0.1:
-    resolution: {integrity: sha512-qepMx2JxAa5jjfzxG79yPPq+8BuFToHd1hm7kI+Z4zAq1ftQiP7HcxMhDDItrbtwVeLg/cY2JnKnrcFkmiswNA==}
-
   shaders@2.1.1:
     resolution: {integrity: sha512-UowkDUSlR7v8t4ltXJm281/357XkWXAOSHzxsi/IPDFUxxvC4GiZHlADiPmgrDpY+tBgkEh9Z/6XvYOlQ4RUrQ==}
 
@@ -2174,9 +2154,6 @@ packages:
   tapable@2.3.3:
     resolution: {integrity: sha512-uxc/zpqFg6x7C8vOE7lh6Lbda8eEL9zmVm/PLeTPBRhh1xCgdWaQ+J1CUieGpIfm2HdtsUpRv+HshiasBMcc6A==}
     engines: {node: '>=6'}
-
-  three@0.185.1:
-    resolution: {integrity: sha512-5aojFCXKwnjBRZvUnt3WFfEcvUJgkN5LlijRFN95hMy8WVkG4I0QNcJE+OuWvuJ0bOdStrbfXn0pkd6/QyiAlg==}
 
   tiny-invariant@1.3.3:
     resolution: {integrity: sha512-+FbBPE1o9QAYvviau/qC5SE3caw21q3xkvWKBtja5vgqOWIHHJ3ioaq1VPfn/Szqctz2bU/oYeKd9/z5BL+PVg==}
@@ -3665,13 +3642,6 @@ snapshots:
     dependencies:
       csstype: 3.2.3
 
-  '@vercel/analytics@1.3.1(next@15.5.25(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(react@19.2.0)':
-    dependencies:
-      server-only: 0.0.1
-    optionalDependencies:
-      next: 15.5.25(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
-      react: 19.2.0
-
   amazon-cognito-identity-js@6.3.20:
     dependencies:
       '@aws-crypto/sha256-js': 1.2.2
@@ -4187,8 +4157,6 @@ snapshots:
   semver@7.8.5:
     optional: true
 
-  server-only@0.0.1: {}
-
   shaders@2.1.1: {}
 
   sharp@0.34.5:
@@ -4254,8 +4222,6 @@ snapshots:
   tailwindcss@4.3.3: {}
 
   tapable@2.3.3: {}
-
-  three@0.185.1: {}
 
   tiny-invariant@1.3.3: {}
 

@@ -6,7 +6,7 @@ Odysseus is a vendor-neutral governance and operating layer for autonomous codin
 
 Odysseus doesn't replace your agents — it makes them interchangeable execution engines under a unified control plane that handles identity, policy, agent routing, security, observability, cost management, orchestration, governance, knowledge, and recovery.
 
-- **Live Web UI:** [https://odysseus-control-center.vercel.app](https://odysseus-control-center.vercel.app)
+- **Live Web UI:** [https://cross-vendor-afk-control-plane.vercel.app](https://cross-vendor-afk-control-plane.vercel.app)
 - **Live Control Plane API:** [https://odysseus-control-plane.onrender.com](https://odysseus-control-plane.onrender.com)
 
 📄 **Full architecture, threat model, and implementation spec:** [Executive_Summary_Enhanced.docx](./docs/Executive_Summary_Enhanced.docx)
@@ -16,6 +16,7 @@ This README covers **building and running the project**. For the full design rat
 
 ## Table of Contents
 
+- [Odysseus Gateway Package](#odysseus-gateway-package)
 - [Strategic Positioning](#strategic-positioning)
 - [System Overview](#system-overview)
 - [Repository Layout](#repository-layout)
@@ -30,6 +31,22 @@ This README covers **building and running the project**. For the full design rat
 - [Security Requirements for Any Build](#security-requirements-for-any-build)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
+
+---
+
+## Odysseus Gateway Package
+
+Install the lightweight gateway on any Windows, macOS, or Linux computer with
+Node.js 20 or newer. Release assets work without a GitHub token:
+
+```shell
+npm install --global https://github.com/Harish-0412/cross-vendor-AFK-control-plane/releases/download/gateway-v0.1.0/harish-0412-odysseus-gateway-0.1.0.tgz
+odysseus pair
+```
+
+The same version is published as `@harish-0412/odysseus-gateway` in GitHub
+Packages. See the [gateway package guide](./odysseus/README.md) for authenticated
+registry installation, pairing, and startup commands.
 
 ---
 

@@ -1,53 +1,51 @@
-"use client"
+"use client";
 
-import { useEffect, useRef, useState } from "react"
-import { Shader, ChromaFlow, Swirl } from "shaders/react"
-import { CustomCursor } from "@/components/custom-cursor"
-import { GrainOverlay } from "@/components/grain-overlay"
-import CardNav from "@/components/CardNav"
-import { Hero } from "@/components/sections/hero"
-import { Problem } from "@/components/sections/problem"
-import { Solution } from "@/components/sections/solution"
-import { Features } from "@/components/sections/features"
-import { HowItWorks } from "@/components/sections/how-it-works"
-import { Agents } from "@/components/sections/agents"
-import { UseCases } from "@/components/sections/use-cases"
-import { Security } from "@/components/sections/security"
-import { Testimonials } from "@/components/sections/testimonials"
-import { Faq } from "@/components/sections/faq"
-import { CtaFooter } from "@/components/sections/cta-footer"
-
-import PixelSnow from "@/components/PixelSnow"
+import { useEffect, useRef, useState } from "react";
+import { Shader, ChromaFlow, Swirl } from "shaders/react";
+import { CustomCursor } from "@/components/custom-cursor";
+import { GrainOverlay } from "@/components/grain-overlay";
+import CardNav from "@/components/CardNav";
+import { Hero } from "@/components/sections/hero";
+import { Problem } from "@/components/sections/problem";
+import { Solution } from "@/components/sections/solution";
+import { Features } from "@/components/sections/features";
+import { HowItWorks } from "@/components/sections/how-it-works";
+import { Agents } from "@/components/sections/agents";
+import { UseCases } from "@/components/sections/use-cases";
+import { Security } from "@/components/sections/security";
+import { Testimonials } from "@/components/sections/testimonials";
+import { Faq } from "@/components/sections/faq";
+import { CtaFooter } from "@/components/sections/cta-footer";
 
 export default function Home() {
-  const [isLoaded, setIsLoaded] = useState(false)
-  const shaderContainerRef = useRef<HTMLDivElement>(null)
+  const [isLoaded, setIsLoaded] = useState(false);
+  const shaderContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const checkShaderReady = () => {
       if (shaderContainerRef.current) {
-        const canvas = shaderContainerRef.current.querySelector("canvas")
+        const canvas = shaderContainerRef.current.querySelector("canvas");
         if (canvas && canvas.width > 0 && canvas.height > 0) {
-          setIsLoaded(true)
-          return true
+          setIsLoaded(true);
+          return true;
         }
       }
-      return false
-    }
+      return false;
+    };
 
-    if (checkShaderReady()) return
+    if (checkShaderReady()) return;
 
     const intervalId = setInterval(() => {
-      if (checkShaderReady()) clearInterval(intervalId)
-    }, 100)
+      if (checkShaderReady()) clearInterval(intervalId);
+    }, 100);
 
-    const fallbackTimer = setTimeout(() => setIsLoaded(true), 1500)
+    const fallbackTimer = setTimeout(() => setIsLoaded(true), 1500);
 
     return () => {
-      clearInterval(intervalId)
-      clearTimeout(fallbackTimer)
-    }
-  }, [])
+      clearInterval(intervalId);
+      clearTimeout(fallbackTimer);
+    };
+  }, []);
 
   return (
     <main className="relative w-full bg-background">
@@ -105,8 +103,12 @@ export default function Home() {
               textColor: "#fff",
               links: [
                 { label: "Features", href: "#features", ariaLabel: "Features" },
-                { label: "How It Works", href: "#how-it-works", ariaLabel: "How It Works" }
-              ]
+                {
+                  label: "How It Works",
+                  href: "#how-it-works",
+                  ariaLabel: "How It Works",
+                },
+              ],
             },
             {
               label: "Projects",
@@ -114,8 +116,8 @@ export default function Home() {
               textColor: "#fff",
               links: [
                 { label: "Agents", href: "#agents", ariaLabel: "Agents" },
-                { label: "Security", href: "#security", ariaLabel: "Security" }
-              ]
+                { label: "Security", href: "#security", ariaLabel: "Security" },
+              ],
             },
             {
               label: "Contact",
@@ -124,9 +126,9 @@ export default function Home() {
               links: [
                 { label: "FAQ", href: "#faq", ariaLabel: "FAQ" },
                 { label: "Docs", href: "#", ariaLabel: "Docs" },
-                { label: "GitHub", href: "#", ariaLabel: "GitHub" }
-              ]
-            }
+                { label: "GitHub", href: "#", ariaLabel: "GitHub" },
+              ],
+            },
           ]}
           baseColor="transparent"
           menuColor="var(--foreground)"
@@ -144,18 +146,14 @@ export default function Home() {
       {/* Content scrolls over a solid background */}
       <div className="relative z-10">
         <div className="bg-background relative">
-          <div className="absolute inset-0 z-0 pointer-events-none opacity-50">
-            <PixelSnow 
-              color="#ffffff"
-              flakeSize={0.01}
-              minFlakeSize={1.25}
-              pixelResolution={200}
-              speed={1.25}
-              density={0.3}
-              direction={125}
-              brightness={1}
-            />
-          </div>
+          <div
+            className="absolute inset-0 z-0 pointer-events-none opacity-30"
+            style={{
+              backgroundImage:
+                "radial-gradient(circle at center, rgba(255,255,255,.38) 0 1px, transparent 1.5px)",
+              backgroundSize: "28px 28px",
+            }}
+          />
           <div className="relative z-10">
             <Problem />
             <Solution />
@@ -175,5 +173,5 @@ export default function Home() {
         </div>
       </div>
     </main>
-  )
+  );
 }

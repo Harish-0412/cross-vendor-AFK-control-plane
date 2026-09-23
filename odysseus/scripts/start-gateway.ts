@@ -44,10 +44,14 @@ import { isIntegrationId } from '../packages/protocol/src/index';
 
 import { promptForApproval, renderRequest, signerFor } from './grant-prompt';
 
+const CLI_COMMAND = process.env['ODYSSEUS_CLI_COMMAND']
+  ? `${process.env['ODYSSEUS_CLI_COMMAND']} gateway`
+  : 'pnpm gateway';
+
 const USAGE = `
 Odysseus Gateway
 
-Usage: pnpm gateway [options]
+Usage: ${CLI_COMMAND} [options]
 
 Options:
   --control-plane-url <url>   Control Plane tunnel endpoint (ws:// or wss://)
@@ -403,11 +407,18 @@ async function registerAvailableAdapters(
   log: ReturnType<typeof createLogger>,
   options: { allowedAdapters?: string[] | undefined; explicit?: Array<{ path: string }> },
 ): Promise<{ fatal?: string }> {
-  const workspaceRoot = join(dirname(fileURLToPath(import.meta.url)), '..', 'gateway', 'adapters');
+  const moduleDirectory = dirname(fileURLToPath(import.meta.url));
+  // Source runs from scripts/, while the published package runs from
+  // dist-package/. Both roots are harmless to scan when absent and let the
+  // same composition code serve local development and the bundled download.
+  const adapterRoots = [
+    join(moduleDirectory, 'adapters'),
+    join(moduleDirectory, '..', 'gateway', 'adapters'),
+  ];
 
   const discovery = await discoverAdapters({
     ...(options.explicit ? { explicit: options.explicit } : {}),
-    workspaceRoots: [workspaceRoot],
+    workspaceRoots: adapterRoots,
     ...(options.allowedAdapters ? { allowedAdapters: options.allowedAdapters } : {}),
     logger: log,
   });

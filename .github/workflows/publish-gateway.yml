@@ -1,0 +1,80 @@
+name: Publish Gateway Package
+
+on:
+  push:
+    tags:
+      - "gateway-v*"
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  publish:
+    name: Test, publish, and attach gateway
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: odysseus/pnpm-lock.yaml
+          registry-url: https://npm.pkg.github.com
+          scope: "@harish-0412"
+
+      - name: Install
+        working-directory: odysseus
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify version matches tag
+        working-directory: odysseus
+        shell: bash
+        run: |
+          expected="${GITHUB_REF_NAME#gateway-v}"
+          actual="$(node -p "require('./package.json').version")"
+          test "$actual" = "$expected" || {
+            echo "Tag version $expected does not match package version $actual" >&2
+            exit 1
+          }
+
+      - name: Build and test
+        working-directory: odysseus
+        run: |
+          pnpm build
+          pnpm test
+
+      - name: Smoke-test packed CLI
+        working-directory: odysseus
+        shell: bash
+        run: |
+          npm pack --silent >/dev/null
+          version="${GITHUB_REF_NAME#gateway-v}"
+          package="harish-0412-odysseus-gateway-${version}.tgz"
+          test -f "$package"
+          prefix="$(mktemp -d)"
+          npm install --global --prefix "$prefix" "./$package"
+          "$prefix/bin/odysseus" --version
+          "$prefix/bin/odysseus" gateway --help
+          for adapter in "$prefix/lib/node_modules/@harish-0412/odysseus-gateway/dist-package/adapters"/*/index.mjs; do
+            node -e 'import(process.argv[1])' "file://$adapter"
+          done
+
+      - name: Publish to GitHub Packages
+        working-directory: odysseus
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attach package to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: odysseus/harish-0412-odysseus-gateway-*.tgz

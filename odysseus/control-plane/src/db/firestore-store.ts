@@ -665,26 +665,30 @@ export class FirestoreApprovalRepository implements IApprovalRepository {
   }
 
   async listByUser(userId: string, status?: string): Promise<ApprovalRecord[]> {
-    let query: FirebaseFirestore.Query = this.col().where('userId', '==', userId);
-    if (status) {
-      query = query.where('status', '==', status);
-    }
+    // Filtering by user + status and ordering by requestedAt requires a
+    // deployment-specific composite Firestore index. A missing index turned
+    // the dashboard's GET /api/v1/approvals into an HTTP 500. Keep the remote
+    // query on the single indexed ownership field, then apply the small
+    // bounded status/sort operation in memory. The route is capped at 500
+    // records, so this remains predictable while working on every deployment.
+    const snap = await this.col().where('userId', '==', userId).limit(500).get();
 
-    const snap = await query.orderBy('requestedAt', 'desc').limit(500).get();
-
-    return snap.docs.map((doc) => {
-      const d = docData(doc);
-      return {
-        ...d,
-        id: doc.id,
-        requestedAt: toDate(d['requestedAt']),
-        decidedAt: d['decidedAt'] ? toDate(d['decidedAt']) : undefined,
-        reminderSentAt: d['reminderSentAt'] ? toDate(d['reminderSentAt']) : undefined,
-        fallbackTriggeredAt: d['fallbackTriggeredAt']
-          ? toDate(d['fallbackTriggeredAt'])
-          : undefined,
-      } as unknown as ApprovalRecord;
-    });
+    return snap.docs
+      .map((doc) => {
+        const d = docData(doc);
+        return {
+          ...d,
+          id: doc.id,
+          requestedAt: toDate(d['requestedAt']),
+          decidedAt: d['decidedAt'] ? toDate(d['decidedAt']) : undefined,
+          reminderSentAt: d['reminderSentAt'] ? toDate(d['reminderSentAt']) : undefined,
+          fallbackTriggeredAt: d['fallbackTriggeredAt']
+            ? toDate(d['fallbackTriggeredAt'])
+            : undefined,
+        } as unknown as ApprovalRecord;
+      })
+      .filter((approval) => !status || approval.status === status)
+      .sort((a, b) => b.requestedAt.getTime() - a.requestedAt.getTime());
   }
 
   async listPending(userId: string): Promise<ApprovalRecord[]> {
@@ -1113,11 +1117,16 @@ export class FirestoreExternalConversationRepository implements IExternalConvers
   private chunks = () => this.db.collection('external_conversation_items');
 
   private fromDoc(data: Record<string, unknown>): ExternalConversationRecord {
-    return { ...data, updatedRecordAt: toDate(data['updatedRecordAt']) } as ExternalConversationRecord;
+    return {
+      ...data,
+      updatedRecordAt: toDate(data['updatedRecordAt']),
+    } as ExternalConversationRecord;
   }
 
   async upsert(record: ExternalConversationRecord): Promise<void> {
-    await this.col().doc(record.id).set(cleanUndefined(record as unknown as Record<string, unknown>));
+    await this.col()
+      .doc(record.id)
+      .set(cleanUndefined(record as unknown as Record<string, unknown>));
   }
 
   async find(id: string): Promise<ExternalConversationRecord | null> {
@@ -1127,7 +1136,10 @@ export class FirestoreExternalConversationRepository implements IExternalConvers
 
   async listByUser(
     userId: string,
-    filter: { integration?: ExternalConversationRecord['integration'] | undefined; deviceId?: string | undefined } = {},
+    filter: {
+      integration?: ExternalConversationRecord['integration'] | undefined;
+      deviceId?: string | undefined;
+    } = {},
   ): Promise<ExternalConversationRecord[]> {
     let query = this.col().where('userId', '==', userId);
     if (filter.integration) query = query.where('integration', '==', filter.integration);
@@ -1147,7 +1159,11 @@ export class FirestoreExternalConversationRepository implements IExternalConvers
     return snap.docs.map((doc) => this.fromDoc(doc.data()));
   }
 
-  async writeItems(id: string, part: number, items: import('@odysseus/protocol').HistoryItem[]): Promise<void> {
+  async writeItems(
+    id: string,
+    part: number,
+    items: import('@odysseus/protocol').HistoryItem[],
+  ): Promise<void> {
     // Part 0 starts a fresh copy: drop any chunks left from an earlier sync.
     if (part === 0) await this.deleteChunks(id);
     const batch = this.db.batch();
@@ -1156,9 +1172,9 @@ export class FirestoreExternalConversationRepository implements IExternalConvers
       batch.set(this.chunks().doc(`${id}__${String(index).padStart(6, '0')}`), {
         conversationId: id,
         index,
-        items: items.slice(start, start + ITEMS_PER_CHUNK).map((item) =>
-          cleanUndefined(item as unknown as Record<string, unknown>),
-        ),
+        items: items
+          .slice(start, start + ITEMS_PER_CHUNK)
+          .map((item) => cleanUndefined(item as unknown as Record<string, unknown>)),
       });
     }
     await batch.commit();
@@ -1167,7 +1183,9 @@ export class FirestoreExternalConversationRepository implements IExternalConvers
   async readItems(id: string): Promise<import('@odysseus/protocol').HistoryItem[]> {
     const snap = await this.chunks().where('conversationId', '==', id).get();
     return snap.docs
-      .map((doc) => doc.data() as { index: number; items: import('@odysseus/protocol').HistoryItem[] })
+      .map(
+        (doc) => doc.data() as { index: number; items: import('@odysseus/protocol').HistoryItem[] },
+      )
       .sort((a, b) => a.index - b.index)
       .flatMap((chunk) => chunk.items);
   }

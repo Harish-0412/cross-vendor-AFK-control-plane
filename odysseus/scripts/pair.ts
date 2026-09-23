@@ -35,14 +35,15 @@ const CONTROL_PLANE_URL = (process.env['CONTROL_PLANE_URL'] ?? 'http://localhost
 );
 const rawWebUrl = process.env['ODYSSEUS_WEB_URL']?.trim();
 const isRemoteControlPlane =
-  CONTROL_PLANE_URL && !CONTROL_PLANE_URL.includes('localhost') && !CONTROL_PLANE_URL.includes('127.0.0.1');
+  CONTROL_PLANE_URL &&
+  !CONTROL_PLANE_URL.includes('localhost') &&
+  !CONTROL_PLANE_URL.includes('127.0.0.1');
 
 const WEB_URL = (
-  rawWebUrl && rawWebUrl !== 'https://cross-vendor-afk-control-plane.vercel.app'
-    ? rawWebUrl
-    : isRemoteControlPlane
-      ? 'https://odysseus-control-center.vercel.app'
-      : (rawWebUrl ?? 'http://localhost:3000')
+  rawWebUrl ??
+  (isRemoteControlPlane
+    ? 'https://cross-vendor-afk-control-plane.vercel.app'
+    : 'http://localhost:3000')
 ).replace(/\/+$/, '');
 const POLL_INTERVAL_MS = 2000;
 /** How long to keep retrying while a sleeping host starts up. */
@@ -101,15 +102,18 @@ async function registerPairing(
 
 function nextStepCommand(): string[] {
   const tunnelUrl = CONTROL_PLANE_URL.replace(/^http/, 'ws') + '/ws/tunnel';
+  const gatewayCommand = process.env['ODYSSEUS_CLI_COMMAND']
+    ? `${process.env['ODYSSEUS_CLI_COMMAND']} gateway`
+    : 'pnpm gateway';
   if (process.platform === 'win32') {
     return [
       paint(palette.amber, `$env:ODYSSEUS_CONTROL_PLANE_URL = "${tunnelUrl}"`),
-      paint(palette.amber, 'pnpm gateway --project-root "C:\\path\\to\\your\\project"'),
+      paint(palette.amber, `${gatewayCommand} --project-root "C:\\path\\to\\your\\project"`),
     ];
   }
   return [
     paint(palette.amber, `ODYSSEUS_CONTROL_PLANE_URL=${tunnelUrl} \\`),
-    paint(palette.amber, '  pnpm gateway --project-root /path/to/your/project'),
+    paint(palette.amber, `  ${gatewayCommand} --project-root /path/to/your/project`),
   ];
 }
 
