@@ -61,3 +61,5 @@ temp/
 # Phase 6 redaction test corpus (deliberately tracked test fixtures)
 !odysseus/gateway/redaction/test-fixtures/secrets/*.pem
 !odysseus/gateway/redaction/test-fixtures/secrets/*.key
+.vercel
+.env*

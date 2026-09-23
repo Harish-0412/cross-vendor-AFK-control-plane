@@ -7,6 +7,7 @@ export function middleware(request: NextRequest) {
   // Exclude public paths and static assets
   if (
     pathname === '/' ||
+    pathname === '/health' ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api') ||
     pathname.includes('.')
