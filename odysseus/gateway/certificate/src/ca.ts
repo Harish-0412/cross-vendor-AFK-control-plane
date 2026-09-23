@@ -31,9 +31,17 @@ function derSeq(data: Buffer): Buffer {
 function derSet(data: Buffer): Buffer {
   return derWrap(0x31, data);
 }
-function derInt(buf: Buffer): Buffer {
-  if (buf[0]! >= 0x80) return derWrap(0x02, Buffer.concat([Buffer.from([0x00]), buf]));
-  return derWrap(0x02, buf);
+/** Encode a non-negative INTEGER using DER's required minimal representation. */
+export function encodePositiveDerInteger(buf: Buffer): Buffer {
+  let offset = 0;
+  // A random serial can begin with one or more zero octets. DER forbids that
+  // redundant padding unless the next byte's sign bit requires it. OpenSSL 3
+  // rejects the non-minimal form as ERR_OSSL_ASN1_ILLEGAL_PADDING, which made
+  // certificate issuance fail nondeterministically whenever a serial began 00.
+  while (offset < buf.length - 1 && buf[offset] === 0) offset += 1;
+  const value = buf.length === 0 ? Buffer.from([0]) : buf.subarray(offset);
+  const positive = value[0]! >= 0x80 ? Buffer.concat([Buffer.from([0]), value]) : value;
+  return derWrap(0x02, positive);
 }
 function derBool(val: boolean): Buffer {
   return Buffer.from([0x01, 0x01, val ? 0xff : 0x00]);
@@ -191,7 +199,7 @@ function derExtensions(isCA: boolean): Buffer | null {
   // Basic Constraints (2.5.29.19). cA defaults to FALSE, so an end-entity
   // certificate encodes an empty SEQUENCE rather than an explicit FALSE.
   const bcValue = isCA
-    ? derSeq(Buffer.concat([derBool(true), derInt(Buffer.from([0x01]))]))
+    ? derSeq(Buffer.concat([derBool(true), encodePositiveDerInteger(Buffer.from([0x01]))]))
     : derSeq(Buffer.alloc(0));
   exts.push(derExtension('2.5.29.19', bcValue, true));
 
@@ -364,7 +372,7 @@ function buildAndSignTbs(
   const tbs = derSeq(
     Buffer.concat([
       derExplicit(0, Buffer.from([0x02, 0x01, 0x02])), // version v3
-      derInt(serialBuf),
+      encodePositiveDerInteger(serialBuf),
       sigAlgDer,
       derName(parseDnString(issuerStr)),
       derSeq(Buffer.concat([derUtcTime(notBefore), derUtcTime(notAfter)])),

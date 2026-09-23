@@ -7,7 +7,18 @@ import {
   createCertificateAuthority,
   DEFAULT_ROOT_CA_CONFIG,
   DEFAULT_INTERMEDIATE_CA_CONFIG,
+  encodePositiveDerInteger,
 } from '../ca';
+
+describe('DER integer encoding', () => {
+  it('removes redundant serial padding but preserves a required positive sign octet', () => {
+    expect([...encodePositiveDerInteger(Buffer.from([0x00, 0x7f]))]).toEqual([0x02, 0x01, 0x7f]);
+    expect([...encodePositiveDerInteger(Buffer.from([0x00, 0x80]))]).toEqual([
+      0x02, 0x02, 0x00, 0x80,
+    ]);
+    expect([...encodePositiveDerInteger(Buffer.alloc(0))]).toEqual([0x02, 0x01, 0x00]);
+  });
+});
 
 /**
  * Verifies the hand-rolled DER encoder against Node's native X.509
