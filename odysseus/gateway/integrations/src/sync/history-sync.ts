@@ -340,7 +340,10 @@ export class HistorySync {
           (line) => line.line,
         );
     const parsed = imported
-      ? { items: imported, truncated: false }
+      ? {
+          items: imported.slice(0, HISTORY_LIMITS.itemsPerConversation),
+          truncated: imported.length > HISTORY_LIMITS.itemsPerConversation,
+        }
       : integration === 'codex'
         ? codexItems(raw)
         : integration === 'claude'

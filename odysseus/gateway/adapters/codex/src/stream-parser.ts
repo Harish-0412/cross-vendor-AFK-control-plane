@@ -34,7 +34,16 @@ export class CodexStreamParser {
       return { envelopes: [this.event('session.status_changed', { state: 'running' })] };
     if (type === 'turn.completed')
       return {
-        envelopes: [this.event('session.completed', { usage: value['usage'] })],
+        // A Codex exec process ends after one turn, but its thread remains
+        // resumable. Keep the Odysseus session active so the phone can steer
+        // the next turn through `codex exec resume`.
+        envelopes: [
+          this.event('session.status_changed', {
+            state: 'running',
+            phase: 'idle',
+            usage: value['usage'],
+          }),
+        ],
         terminal: true,
       };
     if (type === 'turn.failed' || type === 'error') {
@@ -47,6 +56,15 @@ export class CodexStreamParser {
     const item = value['item'] as Record<string, unknown> | undefined;
     if ((type === 'item.started' || type === 'item.completed' || type === 'item.updated') && item) {
       const itemType = String(item['type'] ?? '');
+      if (itemType === 'error')
+        return {
+          envelopes: [
+            this.event('session.output', {
+              stream: 'stderr',
+              content: string(item['message']) ?? 'Codex reported a non-fatal item error',
+            }),
+          ],
+        };
       if (itemType === 'agent_message')
         return {
           envelopes: [

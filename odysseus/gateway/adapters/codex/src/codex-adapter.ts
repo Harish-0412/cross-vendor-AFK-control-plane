@@ -72,12 +72,16 @@ export class CodexAdapter implements AgentAdapter {
     return { success: true, installedVersion: found.version, path: found.path };
   }
   async validateEnvironment(): Promise<AgentValidationResult> {
-    const found = await this.processes.detect();
+    const validation = await this.processes.validate();
+    if (validation.version) this.detectedVersion = validation.version;
     return {
-      valid: Boolean(found),
-      errors: found ? [] : ['Codex CLI was not found on PATH'],
-      warnings: [],
-      checks: { binary_present: Boolean(found) },
+      valid: validation.valid,
+      errors: validation.errors,
+      warnings: validation.warnings,
+      checks: {
+        binary_present: validation.version !== undefined,
+        credentials_present: validation.valid,
+      },
     };
   }
   async startSession(config: SessionConfig): Promise<string> {
@@ -132,7 +136,7 @@ export class CodexAdapter implements AgentAdapter {
           parsed.envelopes.forEach((event) => record.stream.publish(event));
           if (parsed.terminal) {
             terminal = true;
-            record.state = parsed.error ? 'failed' : 'completed';
+            record.state = parsed.error ? 'failed' : 'running';
             record.session.state = record.state;
           } else if (record.state === 'initializing') {
             record.state = 'running';
@@ -161,12 +165,13 @@ export class CodexAdapter implements AgentAdapter {
         payload: { error, exitCode: code },
       } as never);
     }
-    record.session.endTime = new Date();
+    if (record.state === 'failed') record.session.endTime = new Date();
   }
   async sendMessage(id: string, message: string): Promise<void> {
     const record = this.require(id);
     if (record.turn) await record.turn.catch(() => undefined);
-    if (!record.threadId) throw new Error('Codex did not report a resumable thread id');
+    if (record.state === 'failed' || record.state === 'cancelled')
+      throw new Error(`Session ${id} is ${record.state}; cannot send a message`);
     record.state = 'running';
     record.session.state = 'running';
     record.turn = this.runTurn(record, message);
@@ -193,12 +198,22 @@ export class CodexAdapter implements AgentAdapter {
     if (record.current) await this.processes.stop(record.current.child, force);
     record.state = 'cancelled';
     record.session.state = 'cancelled';
+    record.session.endTime = new Date();
     record.session.error = {
       code: 'CODEX_ABORTED',
       message: reason,
       fatal: false,
       retryable: true,
     };
+    record.stream.publish({
+      eventId: `evt_${Date.now()}_cancel`,
+      eventType: 'session.cancelled',
+      eventVersion: 1,
+      sessionId: id,
+      sequence: Number.MAX_SAFE_INTEGER - 1,
+      occurredAt: new Date(),
+      payload: { reason, force },
+    } as never);
   }
   async collectDiff(id: string) {
     return safeGitDiff(this.require(id).root);

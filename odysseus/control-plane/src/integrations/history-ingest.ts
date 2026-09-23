@@ -129,6 +129,10 @@ function validSnapshot(value: unknown): ProviderUsageSnapshot | null {
     if (!periodStart || !periodEnd || typeof org['totalCost'] !== 'number') return null;
     const money = (value: unknown) =>
       typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.min(value, 1e12) : 0;
+    const largeCount = (value: unknown) =>
+      typeof value === 'number' && Number.isFinite(value) && value >= 0
+        ? Math.min(Math.floor(value), 1e15)
+        : 0;
     const rows = (value: unknown, limit: number) =>
       (Array.isArray(value) ? value : [])
         .slice(0, limit)
@@ -164,15 +168,15 @@ function validSnapshot(value: unknown): ProviderUsageSnapshot | null {
           name: shortString(item['name'], 160) ?? 'other',
           amount: money(item['amount']),
         })),
-        inputTokens: count(org['inputTokens']),
-        cachedInputTokens: count(org['cachedInputTokens']),
-        outputTokens: count(org['outputTokens']),
-        requests: count(org['requests']),
+        inputTokens: largeCount(org['inputTokens']),
+        cachedInputTokens: largeCount(org['cachedInputTokens']),
+        outputTokens: largeCount(org['outputTokens']),
+        requests: largeCount(org['requests']),
         byModel: rows(org['byModel'], 200).map((item) => ({
           model: shortString(item['model'], 100) ?? 'unknown',
-          inputTokens: count(item['inputTokens']),
-          outputTokens: count(item['outputTokens']),
-          requests: count(item['requests']),
+          inputTokens: largeCount(item['inputTokens']),
+          outputTokens: largeCount(item['outputTokens']),
+          requests: largeCount(item['requests']),
         })),
       },
     };

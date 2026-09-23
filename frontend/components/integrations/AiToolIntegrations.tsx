@@ -235,7 +235,9 @@ export function AiToolIntegrations() {
     try {
       await aiIntegrations.syncNow(deviceId, item.id);
       toast.success(
-        `Syncing ${item.name}. New conversations will appear in History shortly.`,
+        item.id === "openai-org"
+          ? "Refreshing provider-reported OpenAI spend and token usage."
+          : `Syncing ${item.name}. New conversations will appear in History shortly.`,
       );
     } catch (error) {
       toast.error(errorMessage(error, "Could not start a sync"));

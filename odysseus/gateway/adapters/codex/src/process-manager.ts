@@ -8,6 +8,7 @@ export interface CodexRun {
 }
 export interface CodexProcessController {
   detect(): Promise<{ path: string; version: string } | null>;
+  validate(): Promise<{ valid: boolean; version?: string; errors: string[]; warnings: string[] }>;
   run(options: {
     prompt: string;
     projectRoot: string;
@@ -34,6 +35,35 @@ export class CodexProcessManager implements CodexProcessController {
       return { path: this.binary, version: result.stdout.trim().split(/\s+/).at(-1) ?? 'unknown' };
     } catch {
       return null;
+    }
+  }
+
+  async validate(): Promise<{
+    valid: boolean;
+    version?: string;
+    errors: string[];
+    warnings: string[];
+  }> {
+    const detected = await this.detect();
+    if (!detected)
+      return { valid: false, errors: ['Codex CLI was not found on PATH'], warnings: [] };
+    try {
+      const login = await this.capture(['login', 'status']);
+      if (login.code !== 0)
+        return {
+          valid: false,
+          version: detected.version,
+          errors: ['Codex is installed but not signed in. Run: codex login'],
+          warnings: [],
+        };
+      return { valid: true, version: detected.version, errors: [], warnings: [] };
+    } catch {
+      return {
+        valid: false,
+        version: detected.version,
+        errors: ['Could not verify Codex login status'],
+        warnings: [],
+      };
     }
   }
 

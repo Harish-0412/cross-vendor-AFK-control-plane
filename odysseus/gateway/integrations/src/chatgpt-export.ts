@@ -75,6 +75,7 @@ export class ChatGptExportStore {
     await mkdir(this.root, { recursive: true, mode: 0o700 });
     let imported = 0;
     let skipped = 0;
+    const seen = new Set<string>();
     for (const value of raw) {
       const parsed = parseConversation(value);
       if (!parsed) {
@@ -82,7 +83,12 @@ export class ChatGptExportStore {
         continue;
       }
       await writeJsonFileAtomic(this.file(parsed.summary.externalId), parsed);
+      seen.add(`${parsed.summary.externalId}.json`.toLowerCase());
       imported += 1;
+    }
+    for (const name of await readdir(this.root)) {
+      if (/^[0-9a-f-]{36}\.json$/i.test(name) && !seen.has(name.toLowerCase()))
+        await rm(join(this.root, name), { force: true });
     }
     return { imported, skipped };
   }
