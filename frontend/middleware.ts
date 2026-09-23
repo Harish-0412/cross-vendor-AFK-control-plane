@@ -1,7 +1,20 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
+const LEGACY_HOST = 'odysseus-control-center.vercel.app';
+const CANONICAL_HOST = 'cross-vendor-afk-control-plane.vercel.app';
+
 export function middleware(request: NextRequest) {
+  // Keep one browser origin in production. The Control Plane authenticates
+  // WebSocket upgrades by Origin, so serving the same build on an old alias
+  // can otherwise leave the REST UI working while the live socket gets a 403.
+  if (request.headers.get('host')?.split(':', 1)[0] === LEGACY_HOST) {
+    const canonicalUrl = request.nextUrl.clone();
+    canonicalUrl.protocol = 'https:';
+    canonicalUrl.host = CANONICAL_HOST;
+    return NextResponse.redirect(canonicalUrl, 308);
+  }
+
   const { pathname } = request.nextUrl;
 
   // Exclude public paths and static assets
