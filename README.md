@@ -6,12 +6,11 @@ Odysseus is a vendor-neutral governance and operating layer for autonomous codin
 
 Odysseus doesn't replace your agents — it makes them interchangeable execution engines under a unified control plane that handles identity, policy, agent routing, security, observability, cost management, orchestration, governance, knowledge, and recovery.
 
-* **Live Web UI:** [https://odysseus-control-center.vercel.app](https://odysseus-control-center.vercel.app)
-* **Live Control Plane API:** [https://odysseus-control-plane.onrender.com](https://odysseus-control-plane.onrender.com)
+- **Live Web UI:** [https://cross-vendor-afk-control-plane.vercel.app](https://cross-vendor-afk-control-plane.vercel.app)
+- **Live Control Plane API:** [https://odysseus-control-plane.onrender.com](https://odysseus-control-plane.onrender.com)
 
 📄 **Full architecture, threat model, and implementation spec:** [Executive_Summary_Enhanced.docx](./docs/Executive_Summary_Enhanced.docx)
 This README covers **building and running the project**. For the full design rationale, security fixes, and diagrams, read the doc above.
-
 
 ---
 
@@ -100,23 +99,23 @@ Odysseus competes on **"any agent with your governance."**
 
 ### Recommended Services
 
-| Service | Value | Differentiation |
-|---|---|---|
-| **Agent Router** | Very High | Automatically route tasks to the best agent based on complexity, security sensitivity, budget, and historical success rates |
-| **Multi-Agent Orchestrator** | Very High | Coordinate specialized agents (Planner → Coder → Tester → Reviewer) with confidence aggregation and final gates |
-| **Risk Engine** | Very High | Score every action by risk level (0.01 for `git status`, 0.89 for `rm -rf`, 0.97 for prod deploy) |
-| **Agent Firewall** | Very High | Control network destinations per session, block data exfiltration, enforce egress policies |
-| **Cost/Token Governor** | Very High | Budget enforcement per task, agent, project, and organization; cost anomaly detection |
-| **Agent Reputation System** | High | Track success rates, failure modes, and cost efficiency per agent/provider across tasks |
-| **Universal Agent Memory** | High | Shared knowledge layer so agents learn from each other's work | 
-| **Automated Verification Service** | Very High | Post-task verification: run tests, check coverage, validate against requirements |
-| **Policy-as-Code** | Very High | Declarative policies in YAML/Rego that define allowed actions, risk thresholds, and routing rules |
-| **Agent Marketplace/Registry** | High | Discoverable, version-pinned agents with capability declarations and compatibility metadata |
-| **Task Scheduler** | High | Cron-like and event-driven task scheduling with agent assignment and policy inheritance |
-| **Incident/Recovery Service** | High | Checkpoint-based recovery, session resumability, rollback on failed verifications |
-| **Compliance Evidence Engine** | High | Auto-generate audit evidence packages for SOC2, ISO27001, and internal audits |
-| **Cross-Agent Benchmarking** | Very High | Compare agent performance on standardized tasks for capacity planning |
-| **Human Approval Intelligence** | High | Smart approval routing, escalation policies, and approval fatigue reduction |
+| Service                            | Value     | Differentiation                                                                                                             |
+| ---------------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **Agent Router**                   | Very High | Automatically route tasks to the best agent based on complexity, security sensitivity, budget, and historical success rates |
+| **Multi-Agent Orchestrator**       | Very High | Coordinate specialized agents (Planner → Coder → Tester → Reviewer) with confidence aggregation and final gates             |
+| **Risk Engine**                    | Very High | Score every action by risk level (0.01 for `git status`, 0.89 for `rm -rf`, 0.97 for prod deploy)                           |
+| **Agent Firewall**                 | Very High | Control network destinations per session, block data exfiltration, enforce egress policies                                  |
+| **Cost/Token Governor**            | Very High | Budget enforcement per task, agent, project, and organization; cost anomaly detection                                       |
+| **Agent Reputation System**        | High      | Track success rates, failure modes, and cost efficiency per agent/provider across tasks                                     |
+| **Universal Agent Memory**         | High      | Shared knowledge layer so agents learn from each other's work                                                               |
+| **Automated Verification Service** | Very High | Post-task verification: run tests, check coverage, validate against requirements                                            |
+| **Policy-as-Code**                 | Very High | Declarative policies in YAML/Rego that define allowed actions, risk thresholds, and routing rules                           |
+| **Agent Marketplace/Registry**     | High      | Discoverable, version-pinned agents with capability declarations and compatibility metadata                                 |
+| **Task Scheduler**                 | High      | Cron-like and event-driven task scheduling with agent assignment and policy inheritance                                     |
+| **Incident/Recovery Service**      | High      | Checkpoint-based recovery, session resumability, rollback on failed verifications                                           |
+| **Compliance Evidence Engine**     | High      | Auto-generate audit evidence packages for SOC2, ISO27001, and internal audits                                               |
+| **Cross-Agent Benchmarking**       | Very High | Compare agent performance on standardized tasks for capacity planning                                                       |
+| **Human Approval Intelligence**    | High      | Smart approval routing, escalation policies, and approval fatigue reduction                                                 |
 
 ---
 
@@ -124,11 +123,11 @@ Odysseus competes on **"any agent with your governance."**
 
 Three deployable zones, built and versioned independently:
 
-| Component | Language/Runtime (suggested) | Runs where |
-|---|---|---|
-| **Agent Gateway** | Node.js or Go binary | Developer's local machine |
-| **Control Plane** | Node.js/TypeScript or Go services + Postgres + Redis | Cloud (Docker/Kubernetes) |
-| **Orchestration & Governance Services** | Node.js/TypeScript or Go services | Cloud (Docker/Kubernetes) |
+| Component                               | Language/Runtime (suggested)                         | Runs where                |
+| --------------------------------------- | ---------------------------------------------------- | ------------------------- |
+| **Agent Gateway**                       | Node.js or Go binary                                 | Developer's local machine |
+| **Control Plane**                       | Node.js/TypeScript or Go services + Postgres + Redis | Cloud (Docker/Kubernetes) |
+| **Orchestration & Governance Services** | Node.js/TypeScript or Go services                    | Cloud (Docker/Kubernetes) |
 
 ```
 Mobile/Web App  <--WSS-->  Control Plane  <--E2E encrypted tunnel-->  Agent Gateway  -->  Sandboxed Agent Process
@@ -226,13 +225,13 @@ pnpm start           # runs the compiled Gateway
 
 Key build flags:
 
-| Flag | Purpose |
-|---|---|
-| `--control-plane <url>` | WebSocket URL of the Control Plane to tunnel to |
-| `--sandbox-runtime docker\|podman` | Which container runtime isolates agent processes |
-| `--adapters <list>` | Comma-separated adapters to load (`codex,claude-code,opencode`) |
-| `--pair <code>` | One-time pairing code from the Control Plane UI |
-| `--dev-unsafe-no-sandbox` | **Local dev only.** Skips sandboxing. Never use on a machine with real repos/secrets. |
+| Flag                               | Purpose                                                                               |
+| ---------------------------------- | ------------------------------------------------------------------------------------- |
+| `--control-plane <url>`            | WebSocket URL of the Control Plane to tunnel to                                       |
+| `--sandbox-runtime docker\|podman` | Which container runtime isolates agent processes                                      |
+| `--adapters <list>`                | Comma-separated adapters to load (`codex,claude-code,opencode`)                       |
+| `--pair <code>`                    | One-time pairing code from the Control Plane UI                                       |
+| `--dev-unsafe-no-sandbox`          | **Local dev only.** Skips sandboxing. Never use on a machine with real repos/secrets. |
 
 The Gateway must **not** open inbound ports — it only makes outbound connections. If your build adds a listener, that's a regression against the spec (§9.2), not a feature.
 
@@ -270,6 +269,7 @@ pnpm --filter api-gateway db:migrate
 Create `control-plane/.env` and `gateway/.env` from the provided `.env.example` files. Minimum required to boot locally:
 
 **`control-plane/.env`**
+
 ```
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/afk_dev
 REDIS_URL=redis://localhost:6379
@@ -280,6 +280,7 @@ AUDIT_HASH_CHAIN_SECRET=...
 ```
 
 **`gateway/.env`**
+
 ```
 CONTROL_PLANE_URL=ws://localhost:4000
 GATEWAY_DEVICE_KEY_PATH=~/.afk/device.key   # auto-generated on first run if absent
@@ -327,8 +328,9 @@ pnpm test:e2e
 ```
 
 CI must pass, at minimum:
+
 - Unit tests for every adapter and every Control Plane service
-- **Permission/gate tests** — verifying the deny-override list (protected-branch force-push, credential export, infra-apply) cannot be bypassed by *any* trust profile
+- **Permission/gate tests** — verifying the deny-override list (protected-branch force-push, credential export, infra-apply) cannot be bypassed by _any_ trust profile
 - Sandbox-escape regression tests
 - Failover tests for the Reconnecting → Degraded → reconciliation path
 
@@ -364,12 +366,12 @@ These are non-negotiable regardless of which pieces you're building (see full sp
 
 ## Troubleshooting
 
-| Symptom | Likely cause |
-|---|---|
-| Gateway won't start without `--dev-unsafe-no-sandbox` | Docker/Podman isn't running or isn't reachable — sandboxing is mandatory by design |
-| Pairing hangs at "waiting for fingerprint confirmation" | Check that the code printed in the Gateway terminal matches the web UI exactly before confirming |
-| Approval requests never fire | `policy-engine` isn't wired into the session-execution path, or the protected-action matcher config is missing |
-| Audit log query fails after a manual DB edit | Expected — the hash chain is intentionally tamper-evident; restore from the last good chain segment |
+| Symptom                                                 | Likely cause                                                                                                   |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Gateway won't start without `--dev-unsafe-no-sandbox`   | Docker/Podman isn't running or isn't reachable — sandboxing is mandatory by design                             |
+| Pairing hangs at "waiting for fingerprint confirmation" | Check that the code printed in the Gateway terminal matches the web UI exactly before confirming               |
+| Approval requests never fire                            | `policy-engine` isn't wired into the session-execution path, or the protected-action matcher config is missing |
+| Audit log query fails after a manual DB edit            | Expected — the hash chain is intentionally tamper-evident; restore from the last good chain segment            |
 
 ---
 
