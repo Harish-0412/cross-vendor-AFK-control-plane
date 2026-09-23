@@ -4,7 +4,8 @@
     "Type-aware linting needs a program that contains every file ESLint visits,",
     "including test files. The per-package build configs deliberately exclude",
     "tests, and the root tsconfig.json is a solution file with `files: []`, so",
-    "neither can serve that purpose."
+    "neither can serve that purpose.",
+    "Every workspace package must appear in paths. A missing one resolves to the error type, which turns real code into a wall of false no-unsafe-* errors."
   ],
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
@@ -13,30 +14,89 @@
     "declarationMap": false,
     "noEmit": true,
     "paths": {
-      "@odysseus/protocol": ["./packages/protocol/src/index.ts"],
-      "@odysseus/schemas": ["./packages/schemas/src/index.ts"],
-      "@odysseus/config": ["./packages/config/src/index.ts"],
-      "@odysseus/mock-adapter": ["./gateway/adapters/mock/src/index.ts"],
-      "@odysseus/checkpoint": ["./gateway/checkpoint/src/index.ts"],
-      "@odysseus/health": ["./gateway/health/src/index.ts"],
-      "@odysseus/sandbox": ["./gateway/sandbox/src/index.ts"],
-      "@odysseus/tunnel": ["./gateway/tunnel/src/index.ts"],
-      "@odysseus/identity": ["./gateway/identity/src/index.ts"],
-      "@odysseus/pairing": ["./gateway/pairing/src/index.ts"],
-      "@odysseus/certificate": ["./gateway/certificate/src/index.ts"],
-      "@odysseus/reconciliation": ["./gateway/reconciliation/src/index.ts"],
-      "@odysseus/gateway-core": ["./gateway/core/src/index.ts"],
-      "@odysseus/control-plane": ["./control-plane/src/index.ts"]
+      "@odysseus/antigravity-adapter": [
+        "./gateway/adapters/antigravity/src/index.ts"
+      ],
+      "@odysseus/attention-engine": [
+        "./packages/attention-engine/src/index.ts"
+      ],
+      "@odysseus/certificate": [
+        "./gateway/certificate/src/index.ts"
+      ],
+      "@odysseus/checkpoint": [
+        "./gateway/checkpoint/src/index.ts"
+      ],
+      "@odysseus/claude-adapter": [
+        "./gateway/adapters/claude/src/index.ts"
+      ],
+      "@odysseus/codex-adapter": [
+        "./gateway/adapters/codex/src/index.ts"
+      ],
+      "@odysseus/config": [
+        "./packages/config/src/index.ts"
+      ],
+      "@odysseus/control-plane": [
+        "./control-plane/src/index.ts"
+      ],
+      "@odysseus/gateway-core": [
+        "./gateway/core/src/index.ts"
+      ],
+      "@odysseus/gateway-policy": [
+        "./gateway/policy/src/index.ts"
+      ],
+      "@odysseus/health": [
+        "./gateway/health/src/index.ts"
+      ],
+      "@odysseus/identity": [
+        "./gateway/identity/src/index.ts"
+      ],
+      "@odysseus/integrations": [
+        "./gateway/integrations/src/index.ts"
+      ],
+      "@odysseus/mock-adapter": [
+        "./gateway/adapters/mock/src/index.ts"
+      ],
+      "@odysseus/opencode-adapter": [
+        "./gateway/adapters/opencode/src/index.ts"
+      ],
+      "@odysseus/pairing": [
+        "./gateway/pairing/src/index.ts"
+      ],
+      "@odysseus/policy-engine": [
+        "./packages/policy-engine/src/index.ts"
+      ],
+      "@odysseus/protocol": [
+        "./packages/protocol/src/index.ts"
+      ],
+      "@odysseus/reconciliation": [
+        "./gateway/reconciliation/src/index.ts"
+      ],
+      "@odysseus/redaction": [
+        "./gateway/redaction/src/index.ts"
+      ],
+      "@odysseus/sandbox": [
+        "./gateway/sandbox/src/index.ts"
+      ],
+      "@odysseus/schemas": [
+        "./packages/schemas/src/index.ts"
+      ],
+      "@odysseus/tunnel": [
+        "./gateway/tunnel/src/index.ts"
+      ]
     }
   },
   "include": [
-    "packages/*/src/**/*.ts",
+    "control-plane/src/**/*.ts",
+    "control-plane/tests/**/*.ts",
     "gateway/*/src/**/*.ts",
     "gateway/*/tests/**/*.ts",
     "gateway/adapters/*/src/**/*.ts",
     "gateway/adapters/*/tests/**/*.ts",
-    "control-plane/src/**/*.ts",
-    "control-plane/tests/**/*.ts"
+    "packages/*/src/**/*.ts",
+    "packages/*/tests/**/*.ts"
   ],
-  "exclude": ["node_modules", "dist"]
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }

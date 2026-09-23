@@ -206,9 +206,17 @@ export class GatewayRuntime {
       if (result.status === 'pass') continue;
       const line = `${result.name}: ${result.message}`;
       if (result.status === 'fail') {
-        this.log.error('preflight.failed', { check: result.name, detail: line, remedy: result.remedy });
+        this.log.error('preflight.failed', {
+          check: result.name,
+          detail: line,
+          remedy: result.remedy,
+        });
       } else {
-        this.log.warn('preflight.warning', { check: result.name, detail: line, remedy: result.remedy });
+        this.log.warn('preflight.warning', {
+          check: result.name,
+          detail: line,
+          remedy: result.remedy,
+        });
       }
     }
   }
@@ -239,11 +247,7 @@ export class GatewayRuntime {
     });
 
     // Non-retryable classes escalate on the first occurrence.
-    if (
-      failureClass === 'auth_fatal' ||
-      failureClass === 'protocol' ||
-      failureClass === 'config'
-    ) {
+    if (failureClass === 'auth_fatal' || failureClass === 'protocol' || failureClass === 'config') {
       void this.fatal(failureClass, message ?? `${failureClass} failure`);
       return;
     }

@@ -14,9 +14,9 @@
  * Each connection carries a distinct `connectionId` so the Control Plane keeps
  * them side by side rather than treating each new one as a replacement.
  */
+import type { EventEnvelope } from '@odysseus/protocol';
 import type { TunnelClient, TunnelEvent } from '@odysseus/tunnel';
 import { createTunnelClient } from '@odysseus/tunnel';
-import type { EventEnvelope } from '@odysseus/protocol';
 
 import type { Logger } from './logger';
 import { createNullLogger } from './logger';

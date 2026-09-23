@@ -1,4 +1,14 @@
-import type { BudgetLimit, OrchestrationRun, RoutingDecision } from '@odysseus/protocol';
+import type {
+  BudgetLimit,
+  ExternalConversationSummary,
+  GrantStatus,
+  HistoryItem,
+  IntegrationId,
+  IntegrationScope,
+  OrchestrationRun,
+  ProviderUsageSnapshot,
+  RoutingDecision,
+} from '@odysseus/protocol';
 
 import type {
   User,
@@ -212,9 +222,9 @@ export interface IDatabase {
 export interface IntegrationGrantRecord {
   deviceId: string;
   userId: string;
-  integration: import('@odysseus/protocol').IntegrationId;
-  status: import('@odysseus/protocol').GrantStatus;
-  scopes: import('@odysseus/protocol').IntegrationScope[];
+  integration: IntegrationId;
+  status: GrantStatus;
+  scopes: IntegrationScope[];
   requestId?: string | undefined;
   grantId?: string | undefined;
   roots?: string[] | undefined;
@@ -227,18 +237,17 @@ export interface IntegrationGrantRecord {
 export interface IIntegrationGrantRepository {
   upsert(record: Omit<IntegrationGrantRecord, 'updatedAt'>): Promise<IntegrationGrantRecord>;
   listByDevice(deviceId: string): Promise<IntegrationGrantRecord[]>;
-  find(
-    deviceId: string,
-    integration: import('@odysseus/protocol').IntegrationId,
-  ): Promise<IntegrationGrantRecord | null>;
+  find(deviceId: string, integration: IntegrationId): Promise<IntegrationGrantRecord | null>;
 }
 
 /** A past conversation imported from an external tool (Codex, Antigravity, …). */
-export interface ExternalConversationRecord
-  extends Omit<import('@odysseus/protocol').ExternalConversationSummary, 'integration'> {
+export interface ExternalConversationRecord extends Omit<
+  ExternalConversationSummary,
+  'integration'
+> {
   /** `${integration}_${deviceId}_${externalId}` */
   id: string;
-  integration: import('@odysseus/protocol').IntegrationId;
+  integration: IntegrationId;
   deviceId: string;
   userId: string;
   contentSynced: boolean;
@@ -256,15 +265,18 @@ export interface IExternalConversationRepository {
   find(id: string): Promise<ExternalConversationRecord | null>;
   listByUser(
     userId: string,
-    filter?: { integration?: import('@odysseus/protocol').IntegrationId | undefined; deviceId?: string | undefined },
+    filter?: {
+      integration?: IntegrationId | undefined;
+      deviceId?: string | undefined;
+    },
   ): Promise<ExternalConversationRecord[]>;
   listByDeviceIntegration(
     deviceId: string,
-    integration: import('@odysseus/protocol').IntegrationId,
+    integration: IntegrationId,
   ): Promise<ExternalConversationRecord[]>;
   /** Replace (part 0) or extend (later parts) a conversation's synced content. */
-  writeItems(id: string, part: number, items: import('@odysseus/protocol').HistoryItem[]): Promise<void>;
-  readItems(id: string): Promise<import('@odysseus/protocol').HistoryItem[]>;
+  writeItems(id: string, part: number, items: HistoryItem[]): Promise<void>;
+  readItems(id: string): Promise<HistoryItem[]>;
   /** Remove conversations and their content. */
   delete(ids: string[]): Promise<void>;
 }
@@ -272,13 +284,13 @@ export interface IExternalConversationRepository {
 export interface ProviderUsageRecord {
   deviceId: string;
   userId: string;
-  integration: import('@odysseus/protocol').IntegrationId;
-  snapshot: import('@odysseus/protocol').ProviderUsageSnapshot;
+  integration: IntegrationId;
+  snapshot: ProviderUsageSnapshot;
   receivedAt: Date;
 }
 
 export interface IProviderUsageRepository {
   upsert(record: ProviderUsageRecord): Promise<void>;
   listByUser(userId: string): Promise<ProviderUsageRecord[]>;
-  delete(deviceId: string, integration: import('@odysseus/protocol').IntegrationId): Promise<void>;
+  delete(deviceId: string, integration: IntegrationId): Promise<void>;
 }

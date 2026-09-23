@@ -143,7 +143,10 @@ export function validateManifest(raw: unknown, manifestPath: string): ManifestVa
  * Only the major version is compared: the contract is the interface shape, and
  * that is what a major bump represents.
  */
-export function isProtocolCompatible(declared: string, current = ODYSSEUS_ADAPTER_PROTOCOL): boolean {
+export function isProtocolCompatible(
+  declared: string,
+  current = ODYSSEUS_ADAPTER_PROTOCOL,
+): boolean {
   const majors = declared
     .split('||')
     .map((part) => part.trim())
@@ -418,7 +421,10 @@ export async function withTimeout<T>(
     return await Promise.race([
       operation(),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+        timer = setTimeout(
+          () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
+          timeoutMs,
+        );
         if (typeof timer.unref === 'function') timer.unref();
       }),
     ]);

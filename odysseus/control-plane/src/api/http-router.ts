@@ -13,10 +13,6 @@ import { CreatePolicyVersionSchema } from '@odysseus/schemas';
 
 import { SummaryGenerator } from '../afk/summary-generator';
 import { isUsablePublicKeyJwk } from '../auth/device-signature';
-import {
-  IntegrationAccessError,
-  type IntegrationAccessService,
-} from '../integrations/integration-access';
 import { verifyFirebaseIdToken } from '../auth/firebase-admin';
 import { signJwt, verifyJwt } from '../auth/jwt';
 import { hashPassword, verifyPassword } from '../auth/password';
@@ -26,12 +22,16 @@ import {
   DEFAULT_PAIRING_RATE_LIMIT,
   DEFAULT_REGISTER_RATE_LIMIT,
 } from '../auth/rate-limiter';
+import { isAllowedOrigin } from '../config';
 import { normalizePairingCode } from '../db/pairing-code';
 import type { IDatabase } from '../db/types';
-import { isAllowedOrigin } from '../config';
 import { GitHubClient } from '../integrations/github/github-client';
 import { GitHubOAuth } from '../integrations/github/oauth';
 import { EncryptedTokenStore } from '../integrations/github/token-store';
+import {
+  IntegrationAccessError,
+  type IntegrationAccessService,
+} from '../integrations/integration-access';
 import { type AgentRouter } from '../orchestration/agent-router';
 import { type CostGovernor } from '../orchestration/cost-governor';
 import { type MultiAgentOrchestrator } from '../orchestration/multi-agent-orchestrator';
@@ -430,6 +430,9 @@ export class HttpRouter {
         const reportedName =
           typeof body['deviceName'] === 'string'
             ? body['deviceName']
+                // Removing control characters is the intent here: left in, they
+                // would corrupt the audit log and the device list in the UI.
+                // eslint-disable-next-line no-control-regex
                 .replace(/[\u0000-\u001f\u007f]/g, '')
                 .trim()
                 .slice(0, 120)
@@ -674,6 +677,9 @@ export class HttpRouter {
         const friendlyName =
           typeof body['friendlyName'] === 'string'
             ? body['friendlyName']
+                // Removing control characters is the intent here: left in, they
+                // would corrupt the audit log and the device list in the UI.
+                // eslint-disable-next-line no-control-regex
                 .replace(/[\u0000-\u001f\u007f]/g, '')
                 .trim()
                 .slice(0, 120)

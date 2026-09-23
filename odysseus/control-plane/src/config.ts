@@ -48,7 +48,10 @@ export function loadConfig(overrides: Partial<ControlPlaneConfig> = {}): Control
   };
 }
 
-export function isAllowedOrigin(origin: string | undefined, configuredOrigins: string[] = []): boolean {
+export function isAllowedOrigin(
+  origin: string | undefined,
+  configuredOrigins: string[] = [],
+): boolean {
   if (!origin) return false;
 
   const normalizedOrigin = origin.trim().replace(/\/+$/, '');
@@ -77,8 +80,10 @@ export function isAllowedOrigin(origin: string | undefined, configuredOrigins: s
     const url = new URL(normalizedOrigin);
     if (
       url.protocol === 'https:' &&
-      ((url.hostname.startsWith('odysseus-control-center-') && url.hostname.endsWith('.vercel.app')) ||
-        (url.hostname.startsWith('cross-vendor-afk-control-plane-') && url.hostname.endsWith('.vercel.app')))
+      ((url.hostname.startsWith('odysseus-control-center-') &&
+        url.hostname.endsWith('.vercel.app')) ||
+        (url.hostname.startsWith('cross-vendor-afk-control-plane-') &&
+          url.hostname.endsWith('.vercel.app')))
     ) {
       return true;
     }

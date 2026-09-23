@@ -23,8 +23,8 @@ import {
   type IntegrationUpdate,
 } from '@odysseus/protocol';
 
-import { MAX_CONFIRMATION_ATTEMPTS, confirmationMatches } from './confirmation';
 import { readJsonFile, writeJsonFileAtomic } from './atomic-file';
+import { MAX_CONFIRMATION_ATTEMPTS, confirmationMatches } from './confirmation';
 import { GrantGuard } from './grant-guard';
 import { GrantStore, type DeviceSigner, type PendingRequest } from './grant-store';
 import {

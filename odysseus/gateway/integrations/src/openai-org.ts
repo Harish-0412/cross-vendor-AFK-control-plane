@@ -63,7 +63,7 @@ export class OpenAiOrgClient {
       for (const [name, value] of Object.entries(params))
         for (const item of Array.isArray(value) ? value : [value]) query.append(name, item);
       if (page) query.set('page', page);
-      const response = await this.fetcher(`${url}?${query}`, {
+      const response = await this.fetcher(`${url}?${query.toString()}`, {
         headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
       });
       if (!response.ok) {

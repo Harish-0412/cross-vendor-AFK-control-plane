@@ -1,6 +1,11 @@
 import crypto, { randomUUID } from 'node:crypto';
 
-import type { BudgetLimit, OrchestrationRun, RoutingDecision } from '@odysseus/protocol';
+import type {
+  BudgetLimit,
+  HistoryItem,
+  OrchestrationRun,
+  RoutingDecision,
+} from '@odysseus/protocol';
 
 import type {
   User,
@@ -696,7 +701,7 @@ export class MemoryIntegrationGrantRepository implements IIntegrationGrantReposi
 
 export class MemoryExternalConversationRepository implements IExternalConversationRepository {
   private readonly records = new Map<string, ExternalConversationRecord>();
-  private readonly items = new Map<string, import('@odysseus/protocol').HistoryItem[]>();
+  private readonly items = new Map<string, HistoryItem[]>();
 
   async upsert(record: ExternalConversationRecord): Promise<void> {
     this.records.set(record.id, { ...record });
@@ -708,7 +713,10 @@ export class MemoryExternalConversationRepository implements IExternalConversati
 
   async listByUser(
     userId: string,
-    filter: { integration?: ExternalConversationRecord['integration'] | undefined; deviceId?: string | undefined } = {},
+    filter: {
+      integration?: ExternalConversationRecord['integration'] | undefined;
+      deviceId?: string | undefined;
+    } = {},
   ): Promise<ExternalConversationRecord[]> {
     return [...this.records.values()].filter(
       (record) =>
@@ -727,12 +735,12 @@ export class MemoryExternalConversationRepository implements IExternalConversati
     );
   }
 
-  async writeItems(id: string, part: number, items: import('@odysseus/protocol').HistoryItem[]): Promise<void> {
+  async writeItems(id: string, part: number, items: HistoryItem[]): Promise<void> {
     const existing = part === 0 ? [] : (this.items.get(id) ?? []);
     this.items.set(id, [...existing, ...items]);
   }
 
-  async readItems(id: string): Promise<import('@odysseus/protocol').HistoryItem[]> {
+  async readItems(id: string): Promise<HistoryItem[]> {
     return this.items.get(id) ?? [];
   }
 

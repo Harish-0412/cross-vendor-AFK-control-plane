@@ -56,16 +56,12 @@ jobs:
       - name: Gateway source startup smoke test
         run: pnpm gateway -- --help
 
-      # Reporting-only, deliberately.
-      #
-      # There are 16 pre-existing no-unsafe-* errors in policy-engine-service.ts
-      # and connection-registry.ts that predate this workflow. Gating on them
-      # would make main red on arrival and the first reaction would be to delete
-      # the step. Surfacing them keeps the debt visible until it is paid; flip
-      # continue-on-error off once it is.
+      # Blocking. The debt this step used to tolerate is paid: the workspace
+      # lints clean. It is gated because a reporting-only lint step is a step
+      # nobody reads — and because lint was silently broken for every package
+      # once the workspace became ESM, which a non-blocking step hid completely.
       - name: Lint
-        run: pnpm lint
-        continue-on-error: true
+        run: pnpm -r lint
 
       - name: Test
         run: pnpm test

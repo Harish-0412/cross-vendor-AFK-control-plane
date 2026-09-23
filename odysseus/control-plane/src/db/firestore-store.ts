@@ -3,7 +3,12 @@
 
 import crypto, { randomUUID } from 'node:crypto';
 
-import type { BudgetLimit, OrchestrationRun, RoutingDecision } from '@odysseus/protocol';
+import type {
+  BudgetLimit,
+  HistoryItem,
+  OrchestrationRun,
+  RoutingDecision,
+} from '@odysseus/protocol';
 import type { Firestore } from 'firebase-admin/firestore';
 
 import type {
@@ -1159,11 +1164,7 @@ export class FirestoreExternalConversationRepository implements IExternalConvers
     return snap.docs.map((doc) => this.fromDoc(doc.data()));
   }
 
-  async writeItems(
-    id: string,
-    part: number,
-    items: import('@odysseus/protocol').HistoryItem[],
-  ): Promise<void> {
+  async writeItems(id: string, part: number, items: HistoryItem[]): Promise<void> {
     // Part 0 starts a fresh copy: drop any chunks left from an earlier sync.
     if (part === 0) await this.deleteChunks(id);
     const batch = this.db.batch();
@@ -1180,12 +1181,10 @@ export class FirestoreExternalConversationRepository implements IExternalConvers
     await batch.commit();
   }
 
-  async readItems(id: string): Promise<import('@odysseus/protocol').HistoryItem[]> {
+  async readItems(id: string): Promise<HistoryItem[]> {
     const snap = await this.chunks().where('conversationId', '==', id).get();
     return snap.docs
-      .map(
-        (doc) => doc.data() as { index: number; items: import('@odysseus/protocol').HistoryItem[] },
-      )
+      .map((doc) => doc.data() as { index: number; items: HistoryItem[] })
       .sort((a, b) => a.index - b.index)
       .flatMap((chunk) => chunk.items);
   }

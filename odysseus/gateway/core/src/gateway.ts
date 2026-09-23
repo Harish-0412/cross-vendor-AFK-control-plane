@@ -45,11 +45,6 @@ import { type EventBus, createEventBus } from './event-bus';
 import { collectDiff, commit, createBranch, getStatus, push } from './git/git-operations';
 import { runProjectTests } from './git/test-runner';
 import { type ProjectManager, createProjectManager } from './project-manager';
-import {
-  type SessionRegistry,
-  createSessionRegistry,
-  type SessionRecord,
-} from './session-registry';
 import { type AdmissionPhase, ADMISSION_POLICY, SessionAdmissionError } from './runtime/admission';
 import {
   AdapterCircuit,
@@ -58,6 +53,11 @@ import {
   findCapabilityViolations,
   requirementsForSession,
 } from './runtime/capabilities';
+import {
+  type SessionRegistry,
+  createSessionRegistry,
+  type SessionRecord,
+} from './session-registry';
 
 export type { GatewayOptions } from '@odysseus/protocol';
 
@@ -82,7 +82,7 @@ export interface IntegrationCommandHandler {
   /** Send one conversation's content, identified by id only. */
   syncContent?(payload: unknown): Promise<unknown>;
   /** Pause/resume local reads when the signed-in website leaves/returns. */
-  setClientPresence?(active: boolean, clients: number): Promise<unknown> | unknown;
+  setClientPresence?(active: boolean, clients: number): Promise<void> | void;
   /** Local signed-grant check before a remote session can spawn a CLI. */
   authorizeSession?(adapterId: string): Promise<void>;
 }
@@ -561,6 +561,9 @@ export class GatewayImpl implements GatewayCore {
         case 'integration.sync':
         case 'integration.sync_content': {
           const handler = this.integrationHandler;
+          // Picked by name and invoked below with .call(handler, …), so the
+          // receiver is never lost — which is what the rule guards against.
+          // eslint-disable-next-line @typescript-eslint/unbound-method
           const run = commandType === 'integration.sync' ? handler?.sync : handler?.syncContent;
           if (!handler || !run) {
             return { success: false, error: 'Integrations are not enabled on this gateway' };

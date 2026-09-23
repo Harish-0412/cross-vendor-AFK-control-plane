@@ -1,7 +1,9 @@
 import { mkdir, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
-import { unzipSync } from 'fflate';
+
 import type { ExternalConversationSummary, HistoryItem } from '@odysseus/protocol';
+import { unzipSync } from 'fflate';
+
 import { readJsonFile, writeJsonFileAtomic } from './atomic-file';
 import type { IntegrationManager } from './integration-manager';
 import type { PathContext } from './paths';

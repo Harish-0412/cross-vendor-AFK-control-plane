@@ -1,8 +1,9 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import type { PathContext } from './paths';
+
 import { readJsonFile, writeJsonFileAtomic } from './atomic-file';
+import type { PathContext } from './paths';
 
 interface EncryptedCredential {
   version: 1;

@@ -54,7 +54,8 @@ export class ConnectionRegistry {
   // --- Gateway Methods ---
   registerGateway(conn: GatewayConnection): void {
     const key = conn.connectionId ?? 'default';
-    const existing = this.gatewayConnections.get(conn.deviceId) ?? new Map();
+    const existing =
+      this.gatewayConnections.get(conn.deviceId) ?? new Map<string, GatewayConnection>();
 
     // Same slot, different socket: the old one is genuinely stale. A gateway
     // that wants concurrent connections gives each a distinct connectionId, so

@@ -7,8 +7,8 @@
  * with a remedy attached. Each check returns its own remedy line so the
  * operator does not have to guess.
  */
-import { access, stat } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
+import { access, stat } from 'node:fs/promises';
 
 import type { Logger } from './logger';
 

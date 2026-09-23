@@ -23,7 +23,10 @@ import {
   type ProviderUsageSnapshot,
 } from '@odysseus/protocol';
 
+import { ChatGptExportStore } from '../chatgpt-export';
+import { LocalCredentialStore } from '../credential-store';
 import type { IntegrationManager } from '../integration-manager';
+import { OpenAiOrgClient } from '../openai-org';
 import { displayPath, type PathContext } from '../paths';
 import { listAllowedFiles, readGrantedLines, type ListedFile } from '../safe-files';
 
@@ -31,9 +34,6 @@ import { antigravityItems, summariseAntigravity } from './antigravity';
 import { claudeItems, summariseClaude } from './claude';
 import { codexItems, codexUsage, summariseCodex } from './codex';
 import { UUID_PATTERN } from './text';
-import { ChatGptExportStore } from '../chatgpt-export';
-import { LocalCredentialStore } from '../credential-store';
-import { OpenAiOrgClient } from '../openai-org';
 
 /** Integrations whose history lives in files this module can read. */
 export const FILE_HISTORY_INTEGRATIONS: IntegrationId[] = [
