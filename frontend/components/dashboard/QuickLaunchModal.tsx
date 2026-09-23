@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Play, Loader2, Plus, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,10 @@ interface DeviceOption {
   friendlyName: string;
   online: boolean;
   platform: string;
+  availableAgents?: Array<{
+    id: string;
+    capabilities?: Record<string, string>;
+  }>;
 }
 
 interface QuickLaunchModalProps {
@@ -21,17 +25,49 @@ interface QuickLaunchModalProps {
   onSessionLaunched?: () => void;
 }
 
-export function QuickLaunchModal({ devices, onSessionLaunched }: QuickLaunchModalProps) {
+interface AgentOption {
+  id: string;
+  name?: string;
+  capabilities?: Record<string, string>;
+}
+
+export function QuickLaunchModal({
+  devices,
+  onSessionLaunched,
+}: QuickLaunchModalProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [deviceId, setDeviceId] = useState("");
-  const [agentId, setAgentId] = useState("claude-code");
+  const [agentId, setAgentId] = useState("");
+  const [agents, setAgents] = useState<AgentOption[]>([]);
+  const [loadingAgents, setLoadingAgents] = useState(false);
   const [projectRoot, setProjectRoot] = useState("");
   const [prompt, setPrompt] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const onlineDevices = devices.filter((d) => d.online);
+  const selectedDevice = devices.find((device) => device.id === deviceId);
+
+  useEffect(() => {
+    if (!deviceId) {
+      setAgents([]);
+      return;
+    }
+    setLoadingAgents(true);
+    apiClient
+      .get<AgentOption[]>(`/api/v1/devices/${deviceId}/agents`)
+      .then((available) => {
+        setAgents(available);
+        setAgentId((current) =>
+          available.some((agent) => agent.id === current)
+            ? current
+            : (available[0]?.id ?? ""),
+        );
+      })
+      .catch(() => setAgents(selectedDevice?.availableAgents ?? []))
+      .finally(() => setLoadingAgents(false));
+  }, [deviceId, selectedDevice?.availableAgents]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,6 +77,10 @@ export function QuickLaunchModal({ devices, onSessionLaunched }: QuickLaunchModa
     }
     if (!projectRoot.trim()) {
       setError("Project root directory is required");
+      return;
+    }
+    if (!agentId) {
+      setError("Choose an installed agent on this device");
       return;
     }
 
@@ -60,7 +100,8 @@ export function QuickLaunchModal({ devices, onSessionLaunched }: QuickLaunchModa
       if (onSessionLaunched) onSessionLaunched();
       router.push(`/sessions/${session.id}`);
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : "Failed to launch session";
+      const msg =
+        err instanceof ApiError ? err.message : "Failed to launch session";
       setError(msg);
       toast.error(msg);
     } finally {
@@ -83,8 +124,12 @@ export function QuickLaunchModal({ devices, onSessionLaunched }: QuickLaunchModa
                   <Play className="h-4 w-4 fill-primary" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-foreground">Launch Agent Session</h3>
-                  <p className="text-xs text-muted-foreground">Start an autonomous agent task on a connected device</p>
+                  <h3 className="text-lg font-bold text-foreground">
+                    Launch Agent Session
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    Start an autonomous agent task on a connected device
+                  </p>
                 </div>
               </div>
               <button
@@ -104,26 +149,35 @@ export function QuickLaunchModal({ devices, onSessionLaunched }: QuickLaunchModa
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="device-select" className="text-xs font-semibold">
+                <Label
+                  htmlFor="device-select"
+                  className="text-xs font-semibold"
+                >
                   Target Machine
                 </Label>
                 <select
                   id="device-select"
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   value={deviceId}
-                  onChange={(e) => setDeviceId(e.target.value)}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setDeviceId(next);
+                    setAgentId("");
+                  }}
                   required
                 >
                   <option value="">-- Select a connected device --</option>
                   {devices.map((d) => (
                     <option key={d.id} value={d.id} disabled={!d.online}>
-                      {d.friendlyName} ({d.platform}) - {d.online ? "ONLINE" : "OFFLINE"}
+                      {d.friendlyName} ({d.platform}) -{" "}
+                      {d.online ? "ONLINE" : "OFFLINE"}
                     </option>
                   ))}
                 </select>
                 {onlineDevices.length === 0 && (
                   <p className="text-[11px] text-amber-500">
-                    No online devices available. Ensure your gateway is running and connected.
+                    No online devices available. Ensure your gateway is running
+                    and connected.
                   </p>
                 )}
               </div>
@@ -138,11 +192,31 @@ export function QuickLaunchModal({ devices, onSessionLaunched }: QuickLaunchModa
                   value={agentId}
                   onChange={(e) => setAgentId(e.target.value)}
                 >
-                  <option value="claude-code">Claude Code (Anthropic CLI)</option>
-                  <option value="gemini-cli">Gemini CLI (Google AI)</option>
-                  <option value="codestral">Codestral (Mistral)</option>
-                  <option value="mock">Mock Agent (Simulated / Testing)</option>
+                  <option value="">
+                    {loadingAgents
+                      ? "Loading installed agents…"
+                      : "-- Select an installed agent --"}
+                  </option>
+                  {agents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name ??
+                        (agent.id === "codex"
+                          ? "OpenAI Codex"
+                          : agent.id === "claude-code"
+                            ? "Claude Code"
+                            : agent.id === "antigravity"
+                              ? "Antigravity"
+                              : agent.id === "opencode"
+                                ? "OpenCode"
+                                : agent.id)}
+                    </option>
+                  ))}
                 </select>
+                {selectedDevice && agents.length === 0 && (
+                  <p className="text-[11px] text-amber-500">
+                    The gateway has not advertised an installed agent yet.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-1.5">
@@ -160,7 +234,10 @@ export function QuickLaunchModal({ devices, onSessionLaunched }: QuickLaunchModa
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="initial-prompt" className="text-xs font-semibold">
+                <Label
+                  htmlFor="initial-prompt"
+                  className="text-xs font-semibold"
+                >
                   Initial Task Prompt (Optional)
                 </Label>
                 <textarea
@@ -183,10 +260,15 @@ export function QuickLaunchModal({ devices, onSessionLaunched }: QuickLaunchModa
                 >
                   Cancel
                 </Button>
-                <Button type="submit" size="sm" disabled={submitting || !deviceId}>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={submitting || !deviceId || !agentId}
+                >
                   {submitting ? (
                     <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Starting...
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />{" "}
+                      Starting...
                     </>
                   ) : (
                     "Launch Agent"

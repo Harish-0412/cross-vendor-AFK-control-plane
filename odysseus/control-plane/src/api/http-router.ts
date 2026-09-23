@@ -2,7 +2,13 @@ import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { basename, resolve } from 'node:path';
 
-import type { Capability, SessionConfig, TaskKind, TrustProfile } from '@odysseus/protocol';
+import type {
+  AgentCapabilities,
+  Capability,
+  SessionConfig,
+  TaskKind,
+  TrustProfile,
+} from '@odysseus/protocol';
 import { CreatePolicyVersionSchema } from '@odysseus/schemas';
 
 import { SummaryGenerator } from '../afk/summary-generator';
@@ -22,6 +28,7 @@ import {
 } from '../auth/rate-limiter';
 import { normalizePairingCode } from '../db/pairing-code';
 import type { IDatabase } from '../db/types';
+import { isAllowedOrigin } from '../config';
 import { GitHubClient } from '../integrations/github/github-client';
 import { GitHubOAuth } from '../integrations/github/oauth';
 import { EncryptedTokenStore } from '../integrations/github/token-store';
@@ -779,12 +786,58 @@ export class HttpRouter {
               lastSeenAt: d.lastSeenAt?.toISOString() ?? null,
               activeSessionCount,
               resourceUsage: d.resourceUsage ?? null,
+              availableAgents: d.availableAgents ?? [],
               defaultTrustProfile: d.defaultTrustProfile,
               createdAt: d.createdAt.toISOString(),
             };
           }),
         );
         return this.sendJson(res, 200, mapped);
+      }
+
+      if (
+        segments.length === 5 &&
+        segments[0] === 'api' &&
+        segments[1] === 'v1' &&
+        segments[2] === 'devices' &&
+        segments[4] === 'agents' &&
+        method === 'GET'
+      ) {
+        if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+        const deviceId = segments[3]!;
+        const device = await this.db.devices.findById(deviceId);
+        if (!device || device.userId !== authUser.id)
+          return this.sendJson(res, 404, { error: 'Device not found' });
+
+        let availableAgents = device.availableAgents ?? [];
+        if (this.registry.isDeviceOnline(deviceId)) {
+          const inventory = await this.tunnelServer
+            .sendCommandToDevice(deviceId, 'system.inventory', {}, 5_000)
+            .catch(() => ({ delivered: false, acknowledged: false, payload: undefined }));
+          const outer = inventory.payload as { result?: { agents?: unknown[] } } | undefined;
+          if (Array.isArray(outer?.result?.agents)) {
+            availableAgents = outer.result.agents.flatMap((value) => {
+              const agent = value as {
+                installed?: unknown;
+                health?: { status?: unknown };
+                metadata?: { id?: unknown; capabilities?: unknown };
+              };
+              return agent.installed === true &&
+                agent.health?.status !== 'unhealthy' &&
+                typeof agent.metadata?.id === 'string'
+                ? [
+                    {
+                      id: agent.metadata.id,
+                      capabilities: (agent.metadata.capabilities ??
+                        {}) as Partial<AgentCapabilities>,
+                    },
+                  ]
+                : [];
+            });
+            await this.db.devices.update(deviceId, { availableAgents });
+          }
+        }
+        return this.sendJson(res, 200, availableAgents);
       }
 
       if (
@@ -2639,11 +2692,7 @@ export class HttpRouter {
     const allowedOrigins = this.config.corsOrigins;
     const allowAll = allowedOrigins.includes('*');
 
-    const isExplicitlyAllowed =
-      Boolean(origin) &&
-      (allowedOrigins.includes(origin!) ||
-        (allowedOrigins.some((o) => o.includes('localhost') || o.includes('127.0.0.1')) &&
-          /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/.test(origin!)));
+    const isExplicitlyAllowed = isAllowedOrigin(origin, allowedOrigins);
 
     if (isExplicitlyAllowed && origin) {
       res.setHeader('Access-Control-Allow-Origin', origin);

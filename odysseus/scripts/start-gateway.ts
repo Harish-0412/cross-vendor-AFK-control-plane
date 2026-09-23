@@ -196,6 +196,11 @@ async function main(): Promise<void> {
       history?.setBrowserPresence(false);
       deviceLog.info('web_clients.terminate_requested', { requestId: request.id });
     },
+    onLocalIntegrationSync: (integration) => {
+      void history?.syncAll(integration).catch((error) => {
+        deviceLog.warn('integration.local_sync_failed', { integration, error: error as Error });
+      });
+    },
   });
 
   // One prompt at a time: a second request waits for `pnpm grants`.
@@ -246,6 +251,18 @@ async function main(): Promise<void> {
       history?.setBrowserPresence(active);
       deviceLog.info(active ? 'web_clients.connected' : 'web_clients.disconnected', { clients });
       return { active, clients, localReadsPaused: !active };
+    },
+    authorizeSession: async (adapterId) => {
+      if (adapterId !== 'codex') return;
+      const grant = await integrations.store.findActive('codex');
+      if (!grant?.scopes.includes('session.run')) {
+        throw new Error(
+          'Codex session access is not granted on this workstation. Connect OpenAI Codex with “Run sessions” access first.',
+        );
+      }
+      if (!history?.isBrowserPresent()) {
+        throw new Error('No active Odysseus web client; remote Codex session launch is paused');
+      }
     },
   });
 

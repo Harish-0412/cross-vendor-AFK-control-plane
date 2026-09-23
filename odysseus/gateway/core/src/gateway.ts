@@ -83,6 +83,8 @@ export interface IntegrationCommandHandler {
   syncContent?(payload: unknown): Promise<unknown>;
   /** Pause/resume local reads when the signed-in website leaves/returns. */
   setClientPresence?(active: boolean, clients: number): Promise<unknown> | unknown;
+  /** Local signed-grant check before a remote session can spawn a CLI. */
+  authorizeSession?(adapterId: string): Promise<void>;
 }
 
 export class GatewayImpl implements GatewayCore {
@@ -833,6 +835,8 @@ export class GatewayImpl implements GatewayCore {
           .join(', ')}`,
       );
     }
+
+    await this.integrationHandler?.authorizeSession?.(config.adapter);
 
     // An adapter whose CLI is broken is not retried on every session. The open
     // circuit also makes it report unhealthy, which drops it out of fleet

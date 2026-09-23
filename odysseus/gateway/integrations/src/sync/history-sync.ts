@@ -31,9 +31,17 @@ import { antigravityItems, summariseAntigravity } from './antigravity';
 import { claudeItems, summariseClaude } from './claude';
 import { codexItems, codexUsage, summariseCodex } from './codex';
 import { UUID_PATTERN } from './text';
+import { ChatGptExportStore } from '../chatgpt-export';
+import { LocalCredentialStore } from '../credential-store';
+import { OpenAiOrgClient } from '../openai-org';
 
 /** Integrations whose history lives in files this module can read. */
-export const FILE_HISTORY_INTEGRATIONS: IntegrationId[] = ['codex', 'antigravity', 'claude'];
+export const FILE_HISTORY_INTEGRATIONS: IntegrationId[] = [
+  'codex',
+  'antigravity',
+  'claude',
+  'chatgpt-export',
+];
 
 export interface HistorySyncOptions {
   manager: IntegrationManager;
@@ -56,9 +64,15 @@ export class HistorySync {
   private readonly running = new Set<string>();
   private autoTimer: NodeJS.Timeout | undefined;
   private browserPresent: boolean;
+  private readonly chatgpt: ChatGptExportStore;
+  private readonly credentials: LocalCredentialStore;
+  private readonly openai: OpenAiOrgClient;
 
   constructor(private readonly options: HistorySyncOptions) {
     this.browserPresent = options.requireBrowserPresence !== true;
+    this.chatgpt = new ChatGptExportStore(options.ctx);
+    this.credentials = new LocalCredentialStore(options.ctx);
+    this.openai = new OpenAiOrgClient();
   }
 
   private get guard() {
@@ -94,7 +108,9 @@ export class HistorySync {
           ? await this.scanAntigravity()
           : integration === 'claude'
             ? await this.scanClaude()
-            : [];
+            : integration === 'chatgpt-export'
+              ? await this.scanChatGpt()
+              : [];
 
     const scanId = `scan_${randomUUID().replace(/-/g, '')}`;
     const size = HISTORY_LIMITS.summariesPerMessage;
@@ -117,6 +133,15 @@ export class HistorySync {
       });
     }
     return summaries.length;
+  }
+
+  private async scanChatGpt(): Promise<ExternalConversationSummary[]> {
+    if (!(await this.hasScope('chatgpt-export', 'history.read')))
+      throw new Error('ChatGPT export history access is not granted');
+    const summaries = await this.chatgpt.summaries();
+    for (const summary of summaries)
+      this.index.set(`chatgpt-export:${summary.externalId}`, summary.externalId);
+    return summaries;
   }
 
   private async scanCodex(): Promise<ExternalConversationSummary[]> {
@@ -308,14 +333,20 @@ export class HistorySync {
     }
     if (!path) throw new Error('No readable transcript for that conversation');
 
-    const { lines } = await readGrantedLines(this.guard, integration, 'history.read', path);
-    const raw = lines.map((line) => line.line);
-    const { items, truncated } =
-      integration === 'codex'
+    const imported = integration === 'chatgpt-export' ? await this.chatgpt.content(path) : null;
+    const raw = imported
+      ? []
+      : (await readGrantedLines(this.guard, integration, 'history.read', path)).lines.map(
+          (line) => line.line,
+        );
+    const parsed = imported
+      ? { items: imported, truncated: false }
+      : integration === 'codex'
         ? codexItems(raw)
         : integration === 'claude'
           ? claudeItems(raw)
           : antigravityItems(raw);
+    const { items, truncated } = parsed;
 
     const size = HISTORY_LIMITS.itemsPerMessage;
     const parts = Math.max(1, Math.ceil(items.length / size));
@@ -338,6 +369,16 @@ export class HistorySync {
   /** The latest plan limits Codex recorded. Nothing is sent when none exist. */
   async refreshUsage(integration: IntegrationId): Promise<ProviderUsageSnapshot | null> {
     this.assertBrowserPresent();
+    if (integration === 'openai-org') {
+      const key = await this.credentials.load('openai-org');
+      if (!key)
+        throw new Error(
+          'OpenAI Admin key is not configured locally. Run: pnpm openai-org configure',
+        );
+      const snapshot = await this.openai.snapshot(key);
+      this.options.emit({ kind: 'usage_snapshot', integration, snapshot });
+      return snapshot;
+    }
     if (integration !== 'codex') return null;
     const files = await listAllowedFiles(this.guard, 'codex', 'usage.read');
     // Limits are cumulative state: the newest files hold the latest figures.
@@ -382,7 +423,11 @@ export class HistorySync {
   async syncAllActive(): Promise<void> {
     if (!this.browserPresent) return;
     for (const state of await this.options.manager.list().catch(() => [])) {
-      if (state.status !== 'active' || !FILE_HISTORY_INTEGRATIONS.includes(state.integration))
+      if (state.status !== 'active') continue;
+      if (
+        !FILE_HISTORY_INTEGRATIONS.includes(state.integration) &&
+        state.integration !== 'openai-org'
+      )
         continue;
       if (!state.scopes.includes('history.read') && !state.scopes.includes('usage.read')) continue;
       await this.syncAll(state.integration).catch(() => undefined);
@@ -414,6 +459,8 @@ export class HistorySync {
         this.index.delete(key);
       }
     }
+    if (integration === 'chatgpt-export') void this.chatgpt.purge();
+    if (integration === 'openai-org') void this.credentials.remove('openai-org');
   }
 
   private async hasScope(

@@ -66,10 +66,9 @@ describe('integration consent', () => {
   });
 
   it('refuses a request for a scope the integration does not offer', async () => {
-    // Codex offers history and usage, not running sessions (yet).
-    await expect(manager.receiveRequest(makeRequest('codex', ['session.run']))).rejects.toThrow(
-      /not offered/,
-    );
+    await expect(
+      manager.receiveRequest(makeRequest('antigravity', ['usage.read'])),
+    ).rejects.toThrow(/not offered/);
   });
 
   it('refuses an unknown integration', async () => {

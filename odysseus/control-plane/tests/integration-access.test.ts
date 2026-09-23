@@ -191,7 +191,7 @@ describe('integration access', () => {
   it('rejects unknown integrations and scopes an integration does not offer', async () => {
     const unknown = await api('POST', `/api/v1/devices/${identity.deviceId}/integrations/everything/requests`, ownerToken, { scopes: ['history.read'] });
     expect(unknown.status).toBe(404);
-    const scope = await api('POST', requestPath(), ownerToken, { scopes: ['session.run'] });
+    const scope = await api('POST', requestPath(), ownerToken, { scopes: ['unsupported.scope'] });
     expect(scope.status).toBe(400);
   });
 

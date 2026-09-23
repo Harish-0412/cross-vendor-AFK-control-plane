@@ -37,6 +37,11 @@ export function connectionControlFile(ctx: PathContext): string {
   return join(ctx.odysseusHome, 'connection-control.json');
 }
 
+/** Local-only nudge written after an import or credential update. */
+export function integrationControlFile(ctx: PathContext): string {
+  return join(ctx.odysseusHome, 'integration-control.json');
+}
+
 /**
  * The directories each integration may read. Anything outside these, and
  * anything inside them that does not match the integration's allowlist, is

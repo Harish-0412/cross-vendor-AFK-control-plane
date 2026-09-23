@@ -16,9 +16,14 @@ export const DEFAULT_CONTROL_PLANE_CONFIG: ControlPlaneConfig = {
   refreshTokenExpiresInSec: parseInt(process.env.REFRESH_TOKEN_EXPIRES_IN_SEC || '604800', 10), // 7 days
   corsOrigins: process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',')
-        .map((s) => s.trim())
+        .map((s) => s.trim().replace(/\/+$/, ''))
         .filter(Boolean)
-    : ['http://localhost:3000', 'http://127.0.0.1:3000'],
+    : [
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+        'https://odysseus-control-center.vercel.app',
+        'https://cross-vendor-afk-control-plane.vercel.app',
+      ],
   pairingCodeTtlSec: parseInt(process.env.PAIRING_CODE_TTL_SEC || '300', 10), // 5 mins
   heartbeatTimeoutMs: parseInt(process.env.HEARTBEAT_TIMEOUT_MS || '60000', 10), // 60s
   ...(process.env.GITHUB_CLIENT_ID ? { githubClientId: process.env.GITHUB_CLIENT_ID } : {}),
@@ -41,4 +46,45 @@ export function loadConfig(overrides: Partial<ControlPlaneConfig> = {}): Control
     ...DEFAULT_CONTROL_PLANE_CONFIG,
     ...overrides,
   };
+}
+
+export function isAllowedOrigin(origin: string | undefined, configuredOrigins: string[] = []): boolean {
+  if (!origin) return false;
+
+  const normalizedOrigin = origin.trim().replace(/\/+$/, '');
+  const allowed = configuredOrigins.map((o) => o.trim().replace(/\/+$/, ''));
+
+  if (allowed.includes(normalizedOrigin)) return true;
+
+  // Local development loopback
+  if (
+    allowed.some((o) => o.includes('localhost') || o.includes('127.0.0.1')) &&
+    /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/.test(normalizedOrigin)
+  ) {
+    return true;
+  }
+
+  // Odysseus production and preview frontend domains
+  const knownOrigins = [
+    'https://odysseus-control-center.vercel.app',
+    'https://cross-vendor-afk-control-plane.vercel.app',
+  ];
+  if (knownOrigins.includes(normalizedOrigin)) {
+    return true;
+  }
+
+  try {
+    const url = new URL(normalizedOrigin);
+    if (
+      url.protocol === 'https:' &&
+      ((url.hostname.startsWith('odysseus-control-center-') && url.hostname.endsWith('.vercel.app')) ||
+        (url.hostname.startsWith('cross-vendor-afk-control-plane-') && url.hostname.endsWith('.vercel.app')))
+    ) {
+      return true;
+    }
+  } catch {
+    // ignore invalid URLs
+  }
+
+  return false;
 }

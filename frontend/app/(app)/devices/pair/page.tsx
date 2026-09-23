@@ -151,9 +151,9 @@ export default function PairDevicePage() {
         },
       );
       setPairing(data);
-      setFriendlyName(data.deviceName);
+      setFriendlyName(data?.deviceName || "Workstation");
       setStep(2);
-      toast.success(`Code verified — ${data.deviceName} responded`);
+      toast.success(`Code verified — ${data?.deviceName || "Workstation"} responded`);
     } catch (problem) {
       const message =
         problem instanceof ApiError
@@ -177,7 +177,7 @@ export default function PairDevicePage() {
       }>("/api/v1/devices/confirm", {
         pairingId: pairing.pairingId,
         confirmed: true,
-        friendlyName: friendlyName.trim() || pairing.deviceName,
+        friendlyName: (friendlyName || "").trim() || pairing.deviceName || "Workstation",
       });
       setConnectedDevice(response.device);
       setStep(3);
@@ -448,7 +448,7 @@ export default function PairDevicePage() {
                 <Label htmlFor="device-name">Name shown in Odysseus</Label>
                 <Input
                   id="device-name"
-                  value={friendlyName}
+                  value={friendlyName || ""}
                   onChange={(event) =>
                     setFriendlyName(event.target.value.slice(0, 120))
                   }
@@ -457,7 +457,7 @@ export default function PairDevicePage() {
                 <p className="text-xs text-muted-foreground">
                   We received{" "}
                   <strong className="font-medium text-foreground">
-                    {pairing.deviceName}
+                    {pairing.deviceName || "Workstation"}
                   </strong>{" "}
                   from the computer. You can keep it or choose a clearer label.
                 </p>
@@ -477,7 +477,7 @@ export default function PairDevicePage() {
                   size="lg"
                   onClick={() => void confirmPairing()}
                   disabled={
-                    busy || secondsRemaining === 0 || !friendlyName.trim()
+                    busy || secondsRemaining === 0 || !(friendlyName || "").trim()
                   }
                   className="h-12 rounded-xl bg-blue-600 text-white hover:bg-blue-700"
                 >
@@ -514,7 +514,7 @@ export default function PairDevicePage() {
                 Connection approved
               </p>
               <h2 className="mt-2 text-3xl font-semibold tracking-tight">
-                {connectedDevice.friendlyName} is paired
+                {connectedDevice.friendlyName || "Workstation"} is paired
               </h2>
               <p className="mt-3 max-w-md text-sm leading-6 text-muted-foreground">
                 The verified device identity is now saved to your account. Start
@@ -529,7 +529,7 @@ export default function PairDevicePage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-semibold">
-                      {connectedDevice.friendlyName}
+                      {connectedDevice.friendlyName || "Workstation"}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {platformLabel(connectedDevice.platform)} ·{" "}

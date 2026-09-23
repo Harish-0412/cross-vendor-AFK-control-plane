@@ -42,6 +42,10 @@ export interface DeviceOption {
   fingerprintShort?: string | null;
   fingerprintWords?: string[];
   lastSeenAt?: string | null;
+  availableAgents?: Array<{
+    id: string;
+    capabilities?: Record<string, string>;
+  }>;
 }
 
 export interface DeviceIntegration extends IntegrationDefinition {
@@ -64,11 +68,13 @@ export interface ProviderUsageEntry {
   receivedAt: string;
 }
 
-/** Integrations whose data can be read today. The others are planned, not built. */
+/** Integrations implemented by the workstation gateway. */
 export const AVAILABLE_INTEGRATIONS: IntegrationId[] = [
   "codex",
   "antigravity",
   "claude",
+  "chatgpt-export",
+  "openai-org",
 ];
 
 export const aiIntegrations = {

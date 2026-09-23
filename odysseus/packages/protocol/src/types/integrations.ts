@@ -36,14 +36,16 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
     id: 'codex',
     name: 'OpenAI Codex',
     summary: 'Your Codex sessions, and your ChatGPT plan usage limits as Codex records them.',
-    scopes: ['history.read', 'usage.read'],
+    scopes: ['history.read', 'usage.read', 'session.run'],
     reads: {
       'history.read': 'Session files in ~/.codex/sessions (rollout-*.jsonl)',
       'usage.read': 'Token counts and plan rate limits recorded inside those same session files',
+      'session.run': 'Start and continue Codex CLI sessions inside a project you select',
     },
     leavesMachine:
       'Session titles and metadata by default; conversation content only for sessions you ' +
-      'choose to sync. All content is redacted on this machine before it is sent.',
+      'choose to sync. Session prompts are delivered only while the website is connected. ' +
+      'All content is redacted on this machine before it is sent.',
     neverRead: [
       '~/.codex/auth.json (your login)',
       '~/.codex/.sandbox-secrets',
@@ -262,6 +264,23 @@ export interface ProviderUsageSnapshot {
   planType?: string | undefined;
   windows?: UsageWindow[] | undefined;
   credits?: { hasCredits: boolean; unlimited: boolean; balance?: string | undefined } | undefined;
+  /** Present only for the organization Usage/Costs APIs. Values are provider-reported, never estimated. */
+  organization?: OpenAiOrgUsage | undefined;
+}
+
+export interface OpenAiOrgUsage {
+  periodStart: string;
+  periodEnd: string;
+  currency: string;
+  totalCost: number;
+  daily: Array<{ startTime: string; endTime: string; amount: number; currency: string }>;
+  byProject: Array<{ id: string; amount: number }>;
+  byLineItem: Array<{ name: string; amount: number }>;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  requests: number;
+  byModel: Array<{ model: string; inputTokens: number; outputTokens: number; requests: number }>;
 }
 
 /** Everything a gateway may report about an integration, carried by `integration_update`. */

@@ -8,7 +8,7 @@ import { HttpRouter } from './api/http-router';
 import { HistoryIngest } from './integrations/history-ingest';
 import { IntegrationAccessService } from './integrations/integration-access';
 import { getFirebaseFirestore, isFirebaseAdminConfigured } from './auth/firebase-admin';
-import { loadConfig } from './config';
+import { loadConfig, isAllowedOrigin } from './config';
 import { FirestoreDatabase } from './db/firestore-store';
 import { MemoryDatabase } from './db/memory-store';
 import type { IDatabase } from './db/types';
@@ -360,10 +360,8 @@ export class ControlPlane {
    */
   isAllowedWebSocketOrigin(origin: string | undefined): boolean {
     if (!origin) return true;
-
-    const allowed = this.config.corsOrigins;
-    if (allowed.includes('*')) return true;
-    return allowed.includes(origin);
+    if (this.config.corsOrigins.includes('*')) return true;
+    return isAllowedOrigin(origin, this.config.corsOrigins);
   }
   getWsTunnelUrl(): string {
     const host = this.config.host === '0.0.0.0' ? 'localhost' : this.config.host;

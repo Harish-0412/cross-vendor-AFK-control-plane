@@ -5,7 +5,7 @@ conversations, live sessions, and remaining usage. Every connection needs your
 explicit, revocable permission, and that permission is **enforced on your
 workstation**, where the data lives, so the web app alone cannot bypass it.
 
-**Status:** P0–P3 are implemented and tested: permissions, Codex history and usage, Antigravity history, and the web screens to connect, browse and see limits. P4–P7 remain.
+**Status:** P0–P6 are implemented and tested. P4 adds phone-launched, resumable Codex CLI sessions; P5 adds local ChatGPT export import; P6 adds encrypted local Admin-key storage and provider-reported OpenAI organization spend/usage. P7 remains blocked on Antigravity's unverified live-session interface.
 
 **Decisions (confirmed):** sync titles and metadata by default, with content per
 conversation; delete synced history on revoke; approve in the running gateway
@@ -375,9 +375,9 @@ permission checks**.
 | **P1 — Codex history + usage** ✅ | Rollout parser, plan-limit reader, subscription billing | Done: 55 real sessions import (54 titled, 106.7M tokens); limits read exactly as Codex recorded them, and shown as reset rather than current once their window has passed |
 | **P2 — Antigravity history** ✅ | Full-transcript parser, conversations without transcripts listed | Done: the 1 real transcript imports untruncated with tool calls, results, errors and checkpoints; the other 4 are listed as having no transcript. Live mirror of an open IDE session is covered by the 5-minute resync, not a file watcher |
 | **P3 — Frontend** ✅ | Integrations (connect/approve/sync/revoke), History list and conversation view, plan-limit cards | Done: builds and typechecks; end-to-end API tests cover connect → history → content → usage → revoke. Not yet clicked through in a signed-in browser |
-| **P4 — Codex live sessions** | Codex adapter checked against the installed CLI | A session started from the phone runs Codex on the PC |
-| **P5 — ChatGPT export import** | Local import command, tree parser | A sample export imports with branches in the right order |
-| **P6 — OpenAI org spend** | Admin key held on the gateway, usage/costs polling | Spend matches OpenAI's own Costs page |
+| **P4 — Codex live sessions** ✅ | `codex exec --json` adapter, `codex exec resume` steering, sandboxed process control, real agent discovery, local `session.run` grant enforcement | Installed CLI `0.149.1` verified with a real read-only start and resumed turn; parser/process and full gateway suites pass. The adapter never uses the bypass-sandbox flag and honestly declares mid-turn approval interception unsupported |
+| **P5 — ChatGPT export import** ✅ | `pnpm import chatgpt <export.zip>`, ZIP limits, active-branch tree parser, local redaction and sanitized per-conversation storage | Fixture proves branch order, local secret redaction, metadata-first sync and on-demand content. Revocation purges the local sanitized import and the Control Plane copy |
+| **P6 — OpenAI org spend** ✅ | `pnpm openai-org configure`, hidden local prompt, AES-256-GCM credential vault, paginated Costs and completions Usage polling | Tests prove encryption at rest, pagination and exact aggregation. The UI labels totals as provider-reported and never invents a balance or price estimate |
 | **P7 — Antigravity live sessions** | Adapter rewritten against the real `agentapi` interface | **Blocked** until that interface is verified |
 
 **Not being built, and why:** Assistants thread sync (the API has been shut

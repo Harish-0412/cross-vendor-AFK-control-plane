@@ -26,7 +26,8 @@
   },
   "dependencies": {
     "@odysseus/protocol": "workspace:*",
-    "@odysseus/redaction": "workspace:*"
+    "@odysseus/redaction": "workspace:*",
+    "fflate": "^0.8.2"
   },
   "devDependencies": {
     "vitest": "^1.5.0"

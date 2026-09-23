@@ -1,0 +1,10 @@
+{
+  "id": "codex",
+  "name": "OpenAI Codex",
+  "entry": "./src/index.ts",
+  "export": "CodexAdapter",
+  "protocolVersion": "1",
+  "platforms": ["linux", "darwin", "win32"],
+  "description": "OpenAI Codex CLI driven through codex exec --json",
+  "detect": { "command": "codex", "versionFlag": "--version", "timeoutMs": 5000 }
+}

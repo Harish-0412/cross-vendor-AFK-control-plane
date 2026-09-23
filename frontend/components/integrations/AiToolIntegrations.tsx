@@ -77,6 +77,8 @@ const ICON: Partial<Record<IntegrationId, typeof Bot>> = {
   codex: Bot,
   antigravity: Sparkles,
   claude: BrainCircuit,
+  "chatgpt-export": History,
+  "openai-org": KeyRound,
 };
 
 interface PendingConnect {
@@ -171,7 +173,7 @@ export function AiToolIntegrations() {
       const state = list.find((item) => item.id === pending.integration)?.state;
       if (state?.status === "active") {
         toast.success(
-          `${pending.name} connected. Importing your conversations…`,
+          `${pending.name} connected to ${device?.friendlyName ?? "this workstation"}.`,
         );
         setPending(null);
       } else if (state?.status === "denied" || state?.status === "expired") {
@@ -183,7 +185,7 @@ export function AiToolIntegrations() {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [pending, deviceId]);
+  }, [pending, deviceId, device?.friendlyName]);
 
   const toggleScope = (
     integration: string,
@@ -471,6 +473,22 @@ export function AiToolIntegrations() {
                           be asked again.
                         </p>
                       )}
+                      {item.id === "chatgpt-export" && (
+                        <p className="rounded-md bg-muted/50 p-2.5 text-xs text-muted-foreground">
+                          Import locally on this PC:{" "}
+                          <code className="text-foreground">
+                            pnpm import chatgpt &lt;export.zip&gt;
+                          </code>
+                        </p>
+                      )}
+                      {item.id === "openai-org" && (
+                        <p className="rounded-md bg-muted/50 p-2.5 text-xs text-muted-foreground">
+                          Store the Admin key at a hidden PC prompt:{" "}
+                          <code className="text-foreground">
+                            pnpm openai-org configure
+                          </code>
+                        </p>
+                      )}
                     </>
                   ) : available ? (
                     <>
@@ -531,12 +549,25 @@ export function AiToolIntegrations() {
                   <CardFooter className="flex flex-wrap gap-2">
                     {active ? (
                       <>
-                        <Button asChild size="sm" variant="default">
-                          <Link href={`/history?integration=${item.id}`}>
-                            <History className="mr-1.5 h-3.5 w-3.5" /> View
-                            history
-                          </Link>
-                        </Button>
+                        {item.state.scopes.includes("history.read") && (
+                          <Button asChild size="sm" variant="default">
+                            <Link href={`/history?integration=${item.id}`}>
+                              <History className="mr-1.5 h-3.5 w-3.5" /> View
+                              history
+                            </Link>
+                          </Button>
+                        )}
+                        {item.id === "openai-org" && (
+                          <Button asChild size="sm" variant="default">
+                            <Link href="/budgets">View spend</Link>
+                          </Button>
+                        )}
+                        {item.id === "codex" &&
+                          item.state.scopes.includes("session.run") && (
+                            <Button asChild size="sm" variant="outline">
+                              <Link href="/sessions">Run Codex</Link>
+                            </Button>
+                          )}
                         <Button
                           size="sm"
                           variant="outline"

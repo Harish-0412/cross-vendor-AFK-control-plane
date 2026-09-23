@@ -27,7 +27,13 @@ import { MAX_CONFIRMATION_ATTEMPTS, confirmationMatches } from './confirmation';
 import { readJsonFile, writeJsonFileAtomic } from './atomic-file';
 import { GrantGuard } from './grant-guard';
 import { GrantStore, type DeviceSigner, type PendingRequest } from './grant-store';
-import { connectionControlFile, displayPath, integrationRoots, type PathContext } from './paths';
+import {
+  connectionControlFile,
+  displayPath,
+  integrationControlFile,
+  integrationRoots,
+  type PathContext,
+} from './paths';
 
 export interface IntegrationManagerOptions {
   signer: DeviceSigner;
@@ -36,6 +42,7 @@ export interface IntegrationManagerOptions {
   onUpdate?: (update: IntegrationUpdate) => void;
   /** Running gateway callback for a terminate request written by the local CLI. */
   onLocalWebDisconnect?: (request: { id: string; requestedAt: string }) => void;
+  onLocalIntegrationSync?: (integration: IntegrationId) => void;
   now?: () => number;
 }
 
@@ -52,12 +59,15 @@ export class IntegrationManager {
   private lastSnapshot = '';
   private lastWebDisconnectRequestId = '';
   private webControlInitialised = false;
+  private lastIntegrationControlRequestId = '';
+  private integrationControlInitialised = false;
 
   constructor(options: IntegrationManagerOptions) {
     this.ctx = options.ctx;
     this.now = options.now ?? Date.now;
     this.onUpdate = options.onUpdate ?? (() => undefined);
     this.onLocalWebDisconnect = options.onLocalWebDisconnect ?? (() => undefined);
+    this.onLocalIntegrationSync = options.onLocalIntegrationSync ?? (() => undefined);
     this.store = new GrantStore(options.ctx, options.signer);
     this.guard = new GrantGuard(
       this.store,
@@ -69,6 +79,7 @@ export class IntegrationManager {
 
   private readonly signerDeviceId: string;
   private readonly onLocalWebDisconnect: (request: { id: string; requestedAt: string }) => void;
+  private readonly onLocalIntegrationSync: (integration: IntegrationId) => void;
 
   // ------------------------------------------------------- remote: request
 
@@ -355,6 +366,15 @@ export class IntegrationManager {
     return id;
   }
 
+  async requestLocalSync(integration: IntegrationId): Promise<string> {
+    const id = `sync_${randomUUID().replace(/-/g, '')}`;
+    await writeJsonFileAtomic(integrationControlFile(this.ctx), {
+      version: 1,
+      request: { id, integration, requestedAt: new Date(this.now()).toISOString() },
+    });
+    return id;
+  }
+
   // ---------------------------------------------------------- lifecycle
 
   /** Expire stale requests. Grants expire on their own at verification time. */
@@ -378,6 +398,7 @@ export class IntegrationManager {
       try {
         await this.sweep();
         await this.checkLocalWebControl();
+        await this.checkLocalIntegrationControl();
         const snapshot = JSON.stringify(await this.list());
         if (this.lastSnapshot && snapshot !== this.lastSnapshot) {
           const previous = JSON.parse(this.lastSnapshot) as IntegrationGrantState[];
@@ -434,5 +455,23 @@ export class IntegrationManager {
     if (!id || id === this.lastWebDisconnectRequestId || !requestedAt) return;
     this.lastWebDisconnectRequestId = id;
     this.onLocalWebDisconnect({ id, requestedAt });
+  }
+
+  private async checkLocalIntegrationControl(): Promise<void> {
+    const file = await readJsonFile<{ request?: { id?: unknown; integration?: unknown } }>(
+      integrationControlFile(this.ctx),
+      {},
+    );
+    const request = file.request;
+    const id = typeof request?.id === 'string' ? request.id : '';
+    const integration = request?.integration;
+    if (!this.integrationControlInitialised) {
+      this.integrationControlInitialised = true;
+      this.lastIntegrationControlRequestId = id;
+      return;
+    }
+    if (!id || id === this.lastIntegrationControlRequestId || !isIntegrationId(integration)) return;
+    this.lastIntegrationControlRequestId = id;
+    this.onLocalIntegrationSync(integration);
   }
 }

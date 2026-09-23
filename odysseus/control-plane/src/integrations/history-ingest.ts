@@ -119,6 +119,64 @@ function validItem(value: unknown): HistoryItem | null {
 function validSnapshot(value: unknown): ProviderUsageSnapshot | null {
   if (!value || typeof value !== 'object') return null;
   const s = value as Record<string, unknown>;
+  if (s['provider'] === 'openai-org' && s['source'] === 'openai-costs-api') {
+    const observedAt = isoOrNull(s['observedAt']);
+    const raw = s['organization'];
+    if (!observedAt || !raw || typeof raw !== 'object') return null;
+    const org = raw as Record<string, unknown>;
+    const periodStart = isoOrNull(org['periodStart']);
+    const periodEnd = isoOrNull(org['periodEnd']);
+    if (!periodStart || !periodEnd || typeof org['totalCost'] !== 'number') return null;
+    const money = (value: unknown) =>
+      typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.min(value, 1e12) : 0;
+    const rows = (value: unknown, limit: number) =>
+      (Array.isArray(value) ? value : [])
+        .slice(0, limit)
+        .filter((item) => item && typeof item === 'object') as Record<string, unknown>[];
+    return {
+      provider: 'openai-org',
+      source: 'openai-costs-api',
+      observedAt,
+      organization: {
+        periodStart,
+        periodEnd,
+        currency: shortString(org['currency'], 12) ?? 'usd',
+        totalCost: money(org['totalCost']),
+        daily: rows(org['daily'], 62).flatMap((item) => {
+          const startTime = isoOrNull(item['startTime']);
+          const endTime = isoOrNull(item['endTime']);
+          return startTime && endTime
+            ? [
+                {
+                  startTime,
+                  endTime,
+                  amount: money(item['amount']),
+                  currency: shortString(item['currency'], 12) ?? 'usd',
+                },
+              ]
+            : [];
+        }),
+        byProject: rows(org['byProject'], 200).map((item) => ({
+          id: shortString(item['id'], 160) ?? 'unattributed',
+          amount: money(item['amount']),
+        })),
+        byLineItem: rows(org['byLineItem'], 200).map((item) => ({
+          name: shortString(item['name'], 160) ?? 'other',
+          amount: money(item['amount']),
+        })),
+        inputTokens: count(org['inputTokens']),
+        cachedInputTokens: count(org['cachedInputTokens']),
+        outputTokens: count(org['outputTokens']),
+        requests: count(org['requests']),
+        byModel: rows(org['byModel'], 200).map((item) => ({
+          model: shortString(item['model'], 100) ?? 'unknown',
+          inputTokens: count(item['inputTokens']),
+          outputTokens: count(item['outputTokens']),
+          requests: count(item['requests']),
+        })),
+      },
+    };
+  }
   if (s['provider'] !== 'codex' || s['source'] !== 'codex-rate-limits') return null;
   const observedAt = isoOrNull(s['observedAt']);
   if (!observedAt) return null;
