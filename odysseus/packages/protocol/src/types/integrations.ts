@@ -55,15 +55,17 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
   antigravity: {
     id: 'antigravity',
     name: 'Google Antigravity',
-    summary: 'Your Antigravity conversations that have a saved transcript.',
-    scopes: ['history.read'],
+    summary: 'Your saved Antigravity conversations and live, phone-steerable CLI sessions.',
+    scopes: ['history.read', 'session.run'],
     reads: {
       'history.read':
         'Transcripts in ~/.gemini/antigravity/brain/<conversation>/.system_generated/logs',
+      'session.run': 'Start and steer the signed-in Antigravity CLI inside a project you select',
     },
     leavesMachine:
       'Conversation titles and metadata by default; content only for conversations you choose ' +
-      'to sync. All content is redacted on this machine before it is sent.',
+      'to sync. Live prompts are delivered only while the website is connected. All content ' +
+      'is redacted on this machine before it is sent.',
     neverRead: [
       'Antigravity login and state files',
       'Browser recordings and media',

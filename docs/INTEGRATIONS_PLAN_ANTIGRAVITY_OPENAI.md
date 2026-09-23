@@ -5,7 +5,7 @@ conversations, live sessions, and remaining usage. Every connection needs your
 explicit, revocable permission, and that permission is **enforced on your
 workstation**, where the data lives, so the web app alone cannot bypass it.
 
-**Status:** P0–P6 are implemented and tested. P4 adds phone-launched, resumable Codex CLI sessions; P5 adds local ChatGPT export import; P6 adds encrypted local Admin-key storage and provider-reported OpenAI organization spend/usage. P7 remains blocked on Antigravity's unverified live-session interface.
+**Status:** P0–P7 are implemented and tested. P4 adds phone-launched, resumable Codex CLI sessions; P5 adds local ChatGPT export import; P6 adds encrypted local Admin-key storage and provider-reported OpenAI organization spend/usage; P7 adds consent-gated, sandboxed, multi-turn Antigravity sessions over the verified `agy` stream-json interface.
 
 **Decisions (confirmed):** sync titles and metadata by default, with content per
 conversation; delete synced history on revoke; approve in the running gateway
@@ -32,7 +32,7 @@ invented numbers.
 | 2 | Read `transcript.jsonl` | That file **truncates**: 24 records list `content` in `truncated_fields`. `transcript_full.jsonl` beside it has no truncation. | Schema scan (key names only, no content read) |
 | 3 | Map `USER_INPUT` → prompt, everything else → output | Records are `USER_INPUT`, `PLANNER_RESPONSE` (with `thinking` and `tool_calls`), `GENERIC` (with `tool_calls`), `SYSTEM_MESSAGE`, `ERROR_MESSAGE`. Collapsing them to "output" discards all 69 tool calls and the error. | Schema scan |
 | 4 | Emit `session.prompt` | No such event type exists. User turns are `session.message` with `role: "user"`. | `packages/protocol/src/types/events.ts` |
-| 5 | Antigravity runs as `agy --input-format stream-json` | **No `agy` binary is installed here.** Antigravity's launcher runs `language_server.exe agentapi`. The existing adapter's protocol assumption is unverified. The adapter manifest also detects `antigravity` while the adapter runs `agy`, so the two disagree. | `where agy`; `~/.gemini/antigravity/bin/agentapi.bat`; manifest vs adapter |
+| 5 | Antigravity runs as `agy --input-format stream-json` | **Verified with installed `agy` 1.1.27.** A live sandboxed turn emitted `init`, `step_update`, and `result`; the same open process accepted a second NDJSON user message and completed a second turn. The manifest and runtime now both detect `agy`. | `agy --version`; `agy --help`; authenticated read-only two-turn smoke test |
 | 6 | Get Antigravity remaining quota from the Cloud Quotas API | The Cloud Quotas API reports quota **limits** for *your own* Google Cloud project, not remaining usage. Antigravity on a personal Google account does not draw on your project's quota at all. The reference's fallback `?? 1_000_000` **invents a number** when the real one is unknown. | [Cloud Quotas API overview](https://cloud.google.com/docs/quotas/api-overview) |
 | 7 | Sync ChatGPT history with `GET /v1/threads/{id}/messages` | **The Assistants API was shut down on 26 August 2026.** Threads are gone and there was no automatic migration. The request would fail immediately. | [OpenAI deprecations](https://developers.openai.com/api/docs/deprecations); [announcement](https://community.openai.com/t/assistants-api-beta-deprecation-august-26-2026-sunset/1354666) |
 | 8 | Remaining balance from `GET /v1/dashboard/billing/subscription` | Undocumented. It requires a **browser session key**, not an API key, and returns errors to server-side callers. There is no supported API for a remaining credit balance. | [community thread](https://community.openai.com/t/billing-usage-api-requires-session-key-backend-requests-failing/1367484) |
@@ -247,12 +247,24 @@ Imported sessions are marked `origin: 'antigravity'`, `readOnly: true`, with ids
 
 ### 4.2 Live sessions (run Antigravity from Odysseus)
 
-**Blocked until verified.** The adapter assumes an `agy` command speaking
-`stream-json`. What's actually installed is `language_server.exe agentapi`,
-with an unknown protocol. The first step is to test it: run `agentapi` with
-`--help`, record its real interface, and rewrite the adapter against that.
-Until then the adapter reports **session.run unsupported**, and the manifest's
-detection is fixed so it looks for the binary the adapter actually runs.
+**Implemented against the verified `agy` 1.1.27 interface.** The gateway starts
+one process with `--input-format stream-json --output-format stream-json`,
+keeps its stdin open, and queues each phone prompt as an NDJSON `user` record.
+A successful `result` ends a turn but leaves the Odysseus session active, so a
+second prompt continues the same Antigravity conversation. The real
+`conversation_id` is retained as a partial-recovery checkpoint.
+
+Every launch requires an active, workstation-approved Antigravity grant with
+`session.run` and a currently connected Odysseus web client. The CLI's own
+`--sandbox` is always enabled, slash-command expansion is disabled, and the
+dangerous permission-bypass flag is never used. `strict` sessions use plan
+mode; normal sessions use accept-edits inside the sandbox.
+
+Antigravity 1.1.27 does **not** expose a documented external callback that lets
+Odysseus answer an in-flight request-review prompt. The adapter therefore
+continues to declare `approvalInterception: 'unsupported'`; Gateway Core
+rejects `approvalMode: 'ask'` before spawning it. This is an explicit safety
+boundary, not a hidden approximation.
 
 ### 4.3 Usage and quota
 
@@ -378,7 +390,7 @@ permission checks**.
 | **P4 — Codex live sessions** ✅ | `codex exec --json` adapter, `codex exec resume` steering, sandboxed process control, real agent discovery, local `session.run` grant enforcement | Installed CLI `0.149.1` verified with a real read-only start and resumed turn; parser/process and full gateway suites pass. The adapter never uses the bypass-sandbox flag and honestly declares mid-turn approval interception unsupported |
 | **P5 — ChatGPT export import** ✅ | `pnpm import chatgpt <export.zip>`, ZIP limits, active-branch tree parser, local redaction and sanitized per-conversation storage | Fixture proves branch order, local secret redaction, metadata-first sync and on-demand content. Revocation purges the local sanitized import and the Control Plane copy |
 | **P6 — OpenAI org spend** ✅ | `pnpm openai-org configure`, hidden local prompt, AES-256-GCM credential vault, paginated Costs and completions Usage polling | Tests prove encryption at rest, pagination and exact aggregation. The UI labels totals as provider-reported and never invents a balance or price estimate |
-| **P7 — Antigravity live sessions** | Adapter rewritten against the real `agentapi` interface | **Blocked** until that interface is verified |
+| **P7 — Antigravity live sessions** ✅ | Verified `agy` 1.1.27 stream-json adapter, persistent two-turn steering, sandboxed argv, real discovery, local `session.run` grant enforcement | Live authenticated start and second turn pass; fixture, parser, argv, queue/lifecycle and full workspace tests pass. The adapter never enables the permission bypass and honestly declares external approval interception unsupported |
 
 **Not being built, and why:** Assistants thread sync (the API has been shut
 down); live access to consumer ChatGPT (no API exists); an Antigravity quota

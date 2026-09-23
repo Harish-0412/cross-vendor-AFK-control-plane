@@ -5,6 +5,6 @@
   "export": "AntigravityAdapter",
   "protocolVersion": "1",
   "platforms": ["linux", "darwin", "win32"],
-  "description": "Local-first agent with a built-in sandbox and daemon mode",
-  "detect": { "command": "antigravity", "versionFlag": "--version", "timeoutMs": 3000 }
+  "description": "Persistent stream-json sessions through the Google Antigravity CLI",
+  "detect": { "command": "agy", "versionFlag": "--version", "timeoutMs": 5000 }
 }

@@ -564,10 +564,13 @@ export function AiToolIntegrations() {
                             <Link href="/budgets">View spend</Link>
                           </Button>
                         )}
-                        {item.id === "codex" &&
+                        {(item.id === "codex" ||
+                          item.id === "antigravity") &&
                           item.state.scopes.includes("session.run") && (
                             <Button asChild size="sm" variant="outline">
-                              <Link href="/sessions">Run Codex</Link>
+                              <Link href="/sessions">
+                                Run {item.id === "codex" ? "Codex" : "Antigravity"}
+                              </Link>
                             </Button>
                           )}
                         <Button

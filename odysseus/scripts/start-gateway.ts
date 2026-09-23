@@ -253,15 +253,23 @@ async function main(): Promise<void> {
       return { active, clients, localReadsPaused: !active };
     },
     authorizeSession: async (adapterId) => {
-      if (adapterId !== 'codex') return;
-      const grant = await integrations.store.findActive('codex');
+      const integration =
+        adapterId === 'codex' ? 'codex' : adapterId === 'antigravity' ? 'antigravity' : undefined;
+      if (!integration) return;
+      const grant = await integrations.store.findActive(integration);
       if (!grant?.scopes.includes('session.run')) {
         throw new Error(
-          'Codex session access is not granted on this workstation. Connect OpenAI Codex with “Run sessions” access first.',
+          `${integration === 'codex' ? 'Codex' : 'Antigravity'} session access is not granted on this workstation. Connect ${
+            integration === 'codex' ? 'OpenAI Codex' : 'Google Antigravity'
+          } with “Run sessions” access first.`,
         );
       }
       if (!history?.isBrowserPresent()) {
-        throw new Error('No active Odysseus web client; remote Codex session launch is paused');
+        throw new Error(
+          `No active Odysseus web client; remote ${
+            integration === 'codex' ? 'Codex' : 'Antigravity'
+          } session launch is paused`,
+        );
       }
     },
   });
