@@ -1,6 +1,7 @@
 {
   "name": "@odysseus/gateway-policy",
   "version": "0.1.0",
+  "type": "module",
   "description": "Gateway-side policy cache and local advisory evaluation — READ-ONLY, never authorizes",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

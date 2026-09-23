@@ -2,6 +2,7 @@
   "name": "@odysseus/redaction",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Redaction pipeline for Odysseus Gateway - detects and masks sensitive data in agent interactions",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

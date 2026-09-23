@@ -2,6 +2,7 @@
   "name": "@odysseus/mock-adapter",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Mock Agent Adapter for testing Odysseus AFK Control Plane",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

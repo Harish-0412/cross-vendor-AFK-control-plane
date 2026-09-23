@@ -2,6 +2,7 @@
   "name": "@odysseus/sandbox",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Sandbox Manager for Odysseus AFK Control Plane - multi-platform process isolation",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

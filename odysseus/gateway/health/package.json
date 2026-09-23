@@ -2,6 +2,7 @@
   "name": "@odysseus/health",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Health Module for Odysseus Gateway - heartbeat, resource monitoring, component health checks",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

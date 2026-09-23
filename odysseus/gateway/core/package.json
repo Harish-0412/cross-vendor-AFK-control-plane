@@ -2,6 +2,7 @@
   "name": "@odysseus/gateway-core",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Gateway Core - Central orchestrator for Odysseus AFK Control Plane",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

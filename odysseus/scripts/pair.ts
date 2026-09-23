@@ -6,7 +6,9 @@
  * fingerprint words, and approves. The public key is what the tunnel handshake
  * later verifies signatures against, so it is sent here, at pairing time.
  */
+import { execFile } from 'node:child_process';
 import { hostname, platform as osPlatform } from 'node:os';
+import { promisify } from 'node:util';
 
 import { DeviceIdentityManager } from '../gateway/identity/src/device-identity';
 import { PairingManager } from '../gateway/pairing/src/pairing-manager';
@@ -48,6 +50,7 @@ const WEB_URL = (
 const POLL_INTERVAL_MS = 2000;
 /** How long to keep retrying while a sleeping host starts up. */
 const WAKE_BUDGET_MS = 100_000;
+const execFileAsync = promisify(execFile);
 
 class PairingError extends Error {}
 
@@ -100,7 +103,22 @@ async function registerPairing(
   throw new PairingError(`Could not reach ${CONTROL_PLANE_URL} (${lastProblem})`);
 }
 
-function nextStepCommand(): string[] {
+async function suggestedProjectRoot(): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync('git', ['rev-parse', '--show-toplevel'], {
+      cwd: process.cwd(),
+      windowsHide: true,
+      timeout: 3_000,
+    });
+    if (stdout.trim()) return stdout.trim();
+  } catch {
+    // Pairing also works outside a Git checkout; the current directory is the
+    // most useful safe suggestion in that case.
+  }
+  return process.cwd();
+}
+
+function nextStepCommand(projectRoot: string): string[] {
   const tunnelUrl = CONTROL_PLANE_URL.replace(/^http/, 'ws') + '/ws/tunnel';
   const gatewayCommand = process.env['ODYSSEUS_CLI_COMMAND']
     ? `${process.env['ODYSSEUS_CLI_COMMAND']} gateway`
@@ -108,12 +126,12 @@ function nextStepCommand(): string[] {
   if (process.platform === 'win32') {
     return [
       paint(palette.amber, `$env:ODYSSEUS_CONTROL_PLANE_URL = "${tunnelUrl}"`),
-      paint(palette.amber, `${gatewayCommand} --project-root "C:\\path\\to\\your\\project"`),
+      paint(palette.amber, `${gatewayCommand} --project-root "${projectRoot}"`),
     ];
   }
   return [
     paint(palette.amber, `ODYSSEUS_CONTROL_PLANE_URL=${tunnelUrl} \\`),
-    paint(palette.amber, `  ${gatewayCommand} --project-root /path/to/your/project`),
+    paint(palette.amber, `  ${gatewayCommand} --project-root "${projectRoot}"`),
   ];
 }
 
@@ -242,6 +260,7 @@ async function main(): Promise<void> {
       if (tick) clearInterval(tick);
       tick = undefined;
       status.done(`  ${paint(palette.green, '✓')}  ${bold('Paired')}`);
+      const projectRoot = await suggestedProjectRoot();
       write();
       card(
         'THIS MACHINE IS TRUSTED',
@@ -251,7 +270,7 @@ async function main(): Promise<void> {
           '',
           dim('Next — start the gateway so your phone can reach this machine:'),
           '',
-          ...nextStepCommand(),
+          ...nextStepCommand(projectRoot),
         ],
         palette.green,
       );

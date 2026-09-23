@@ -49,6 +49,13 @@ jobs:
       - name: Typecheck
         run: pnpm exec tsc --build
 
+      # Imports the real source composition root. Unit tests use Vitest path
+      # aliases and the release package is bundled, so neither catches a
+      # workspace ESM/CJS export mismatch that prevents the local gateway from
+      # starting at all.
+      - name: Gateway source startup smoke test
+        run: pnpm gateway -- --help
+
       # Reporting-only, deliberately.
       #
       # There are 16 pre-existing no-unsafe-* errors in policy-engine-service.ts
