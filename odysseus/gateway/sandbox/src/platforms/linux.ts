@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
+import * as path from 'node:path';
 import { promisify } from 'node:util';
 
 import type { SandboxCapabilities, SandboxConfig } from '@odysseus/protocol';
@@ -9,6 +10,11 @@ import { PlatformSandboxBase } from '../platform-base';
 import { getProfile, resolveProfilePaths, getHomeDir } from '../profiles';
 
 const execFileAsync = promisify(execFile);
+
+interface DockerInvocation {
+  binary: string;
+  args: string[];
+}
 
 export class LinuxSandbox extends PlatformSandboxBase {
   static readonly capabilities: SandboxCapabilities = {
@@ -38,9 +44,10 @@ export class LinuxSandbox extends PlatformSandboxBase {
     const profile = getProfile(this.config.profile);
     const resolved = resolveProfilePaths(profile, this.config.projectRoot, getHomeDir());
 
-    const useDocker = await this.haveDocker();
-    if (useDocker) {
-      await this.startDockerContainer(resolved, profile);
+    const dockerInvocation = this.resolveDockerInvocation();
+    const useDocker = dockerInvocation !== null && (await this.haveDocker());
+    if (useDocker && dockerInvocation) {
+      await this.startDockerContainer(resolved, profile, dockerInvocation);
     } else {
       await this.startLightweight(resolved, profile);
     }
@@ -89,16 +96,59 @@ export class LinuxSandbox extends PlatformSandboxBase {
 
   private async haveDocker(): Promise<boolean> {
     try {
-      const r = await execFileAsync('docker', ['--version'], { timeout: 1000 });
-      return /^Docker version/i.test(r.stdout.trim());
+      // `docker --version` only proves that the client executable exists. CI
+      // images and developer machines can have the CLI without a running
+      // daemon, which made every sandboxed command exit with Docker's code
+      // 125. Ask the daemon directly before selecting this runtime.
+      const result = await execFileAsync('docker', ['info', '--format', '{{.ServerVersion}}'], {
+        timeout: 2000,
+      });
+      return result.stdout.trim().length > 0;
     } catch {
       return false;
     }
   }
 
+  /**
+   * Convert host paths that are meaningful inside the project bind mount to
+   * their `/workspace` equivalents. An executable installed elsewhere on the
+   * host cannot be invoked from the generic container image, so in that case
+   * the caller must use the lightweight runtime instead of claiming Docker
+   * isolation while launching a process that can never start.
+   */
+  private resolveDockerInvocation(): DockerInvocation | null {
+    const projectRoot = path.resolve(this.config.projectRoot);
+    const toWorkspacePath = (value: string): string | null => {
+      if (!path.isAbsolute(value)) return value;
+
+      const relative = path.relative(projectRoot, path.resolve(value));
+      if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+        return null;
+      }
+
+      if (relative === '') return '/workspace';
+      return path.posix.join('/workspace', ...relative.split(path.sep));
+    };
+
+    let binary = this.config.agentBinary;
+    if (path.resolve(binary) === path.resolve(process.execPath)) {
+      // The official Node sandbox image has Node on PATH, while the host's
+      // absolute tool-cache path does not exist inside that image.
+      binary = 'node';
+    } else if (path.isAbsolute(binary)) {
+      const mappedBinary = toWorkspacePath(binary);
+      if (mappedBinary === null) return null;
+      binary = mappedBinary;
+    }
+
+    const args = this.config.agentArgs.map((argument) => toWorkspacePath(argument) ?? argument);
+    return { binary, args };
+  }
+
   private async startDockerContainer(
     resolved: ReturnType<typeof resolveProfilePaths>,
     _profile: ReturnType<typeof getProfile>,
+    invocation: DockerInvocation,
   ): Promise<void> {
     const cpuQuota = (this.config.resourceLimits.cpuPercent ?? 100) * 1000;
     const memory = `${this.config.resourceLimits.memoryMb ?? 2048}m`;
@@ -127,8 +177,8 @@ export class LinuxSandbox extends PlatformSandboxBase {
       'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
       ...this.buildEnvFlags(this.config.env),
       'node:20-slim',
-      this.config.agentBinary,
-      ...this.config.agentArgs,
+      invocation.binary,
+      ...invocation.args,
     ];
 
     this.recordIsolation({
