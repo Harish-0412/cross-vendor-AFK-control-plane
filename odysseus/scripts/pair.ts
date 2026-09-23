@@ -33,7 +33,17 @@ const CONTROL_PLANE_URL = (process.env['CONTROL_PLANE_URL'] ?? 'http://localhost
   /\/+$/,
   '',
 );
-const WEB_URL = (process.env['ODYSSEUS_WEB_URL'] ?? 'http://localhost:3000').replace(/\/+$/, '');
+const rawWebUrl = process.env['ODYSSEUS_WEB_URL']?.trim();
+const isRemoteControlPlane =
+  CONTROL_PLANE_URL && !CONTROL_PLANE_URL.includes('localhost') && !CONTROL_PLANE_URL.includes('127.0.0.1');
+
+const WEB_URL = (
+  rawWebUrl && rawWebUrl !== 'https://cross-vendor-afk-control-plane.vercel.app'
+    ? rawWebUrl
+    : isRemoteControlPlane
+      ? 'https://odysseus-control-center.vercel.app'
+      : (rawWebUrl ?? 'http://localhost:3000')
+).replace(/\/+$/, '');
 const POLL_INTERVAL_MS = 2000;
 /** How long to keep retrying while a sleeping host starts up. */
 const WAKE_BUDGET_MS = 100_000;
