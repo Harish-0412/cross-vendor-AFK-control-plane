@@ -113,6 +113,7 @@ export function AiToolIntegrations() {
   const [pending, setPending] = useState<PendingConnect | null>(null);
   const [revoking, setRevoking] = useState<DeviceIntegration | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [deviceLoadError, setDeviceLoadError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const device = devices?.find((candidate) => candidate.id === deviceId);
@@ -124,6 +125,7 @@ export function AiToolIntegrations() {
         .devices()
         .then((list) => {
           if (cancelled) return;
+          setDeviceLoadError(null);
           setDevices(list);
           setDeviceId((current) => {
             if (current && list.some((candidate) => candidate.id === current))
@@ -133,7 +135,13 @@ export function AiToolIntegrations() {
             );
           });
         })
-        .catch(() => !cancelled && setDevices([]));
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          setDevices([]);
+          setDeviceLoadError(
+            errorMessage(error, "The device registry could not be reached."),
+          );
+        });
     void refresh();
     const timer = setInterval(() => void refresh(), 10_000);
     return () => {
@@ -273,6 +281,29 @@ export function AiToolIntegrations() {
       <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" /> Loading your devices…
       </div>
+    );
+  }
+
+  if (deviceLoadError) {
+    return (
+      <Card className="border-destructive/30 bg-destructive/[0.04]">
+        <CardHeader>
+          <CardTitle className="text-base">Could not load workstations</CardTitle>
+          <CardDescription>
+            Your pairing has not been removed. The website could not read the
+            device registry: {deviceLoadError}
+          </CardDescription>
+        </CardHeader>
+        <CardFooter>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.location.reload()}
+          >
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Retry
+          </Button>
+        </CardFooter>
+      </Card>
     );
   }
 

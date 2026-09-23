@@ -58,6 +58,7 @@ export default function DevicesPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const runDeviceAction = async (
     device: DeviceRecord,
@@ -99,8 +100,13 @@ export default function DevicesPage() {
     try {
       const data = await apiClient.get<DeviceRecord[]>("/api/v1/devices");
       setDevices(data || []);
-    } catch {
-      /* ignore */
+      setLoadError(null);
+    } catch (error) {
+      setLoadError(
+        error instanceof Error
+          ? error.message
+          : "The device registry could not be reached.",
+      );
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -187,7 +193,35 @@ export default function DevicesPage() {
         </div>
       </motion.div>
 
-      {devices.length === 0 && !loading && (
+      {loadError && !loading && (
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-destructive/30 bg-destructive/[0.04] p-10 text-center shadow-sm">
+          <OctagonAlert className="mb-3 h-9 w-9 text-destructive" />
+          <h3 className="text-base font-semibold text-foreground">
+            Could not load connected machines
+          </h3>
+          <p className="mt-1 max-w-lg text-sm text-muted-foreground">
+            Your pairing has not been removed. The website could not read the
+            device registry: {loadError}
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-4 gap-1.5"
+            onClick={() => {
+              setRefreshing(true);
+              void fetchDevices();
+            }}
+            disabled={refreshing}
+          >
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
+            />
+            Try again
+          </Button>
+        </div>
+      )}
+
+      {devices.length === 0 && !loading && !loadError && (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card p-12 text-center shadow-sm">
           <Monitor className="h-10 w-10 text-muted-foreground mb-3" />
           <h3 className="text-base font-semibold text-foreground">
