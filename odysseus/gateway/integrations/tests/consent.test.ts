@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { IntegrationUpdate } from '@odysseus/protocol';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { grantSigningPayload, type StoredGrant } from '../src/grant-store';
 import { IntegrationManager } from '../src/integration-manager';
@@ -24,9 +24,24 @@ describe('integration consent', () => {
   beforeEach(() => {
     home = createHome();
     // Give Codex a sessions folder so a grant has something to cover.
-    writeFile(join(home.home, '.codex', 'sessions', '2026', '09', '21', 'rollout-2026-09-21T10-00-00-aaaa.jsonl'), '{}\n');
+    writeFile(
+      join(
+        home.home,
+        '.codex',
+        'sessions',
+        '2026',
+        '09',
+        '21',
+        'rollout-2026-09-21T10-00-00-aaaa.jsonl',
+      ),
+      '{}\n',
+    );
     updates = [];
-    manager = new IntegrationManager({ signer, ctx: home, onUpdate: (update) => updates.push(update) });
+    manager = new IntegrationManager({
+      signer,
+      ctx: home,
+      onUpdate: (update) => updates.push(update),
+    });
   });
 
   afterEach(() => home.cleanup());
@@ -45,12 +60,16 @@ describe('integration consent', () => {
     await manager.receiveRequest(makeRequest());
     const access = await manager.guard.authorize('codex', 'history.read');
     expect(access.allowed).toBe(false);
-    expect(updates.some((u) => u.kind === 'grant_changed' && u.state.status === 'pending')).toBe(true);
+    expect(updates.some((u) => u.kind === 'grant_changed' && u.state.status === 'pending')).toBe(
+      true,
+    );
   });
 
   it('refuses a request for a scope the integration does not offer', async () => {
     // Codex offers history and usage, not running sessions (yet).
-    await expect(manager.receiveRequest(makeRequest('codex', ['session.run']))).rejects.toThrow(/not offered/);
+    await expect(manager.receiveRequest(makeRequest('codex', ['session.run']))).rejects.toThrow(
+      /not offered/,
+    );
   });
 
   it('refuses an unknown integration', async () => {
@@ -227,7 +246,9 @@ describe('integration consent', () => {
     await requestAndApprove();
     await manager.revoke('codex', 'web');
     expect((await manager.guard.authorize('codex', 'history.read')).allowed).toBe(false);
-    expect(updates.some((u) => u.kind === 'grant_changed' && u.state.status === 'revoked')).toBe(true);
+    expect(updates.some((u) => u.kind === 'grant_changed' && u.state.status === 'revoked')).toBe(
+      true,
+    );
   });
 
   it('a revoke also cancels a request that was waiting, so it cannot be approved later', async () => {
@@ -243,5 +264,30 @@ describe('integration consent', () => {
     expect(
       updates.some((u) => u.kind === 'access_refused' && u.integration === 'antigravity'),
     ).toBe(true);
+  });
+
+  it('delivers a new local website-termination request to the running gateway once', async () => {
+    const disconnects: Array<{ id: string; requestedAt: string }> = [];
+    const running = new IntegrationManager({
+      signer,
+      ctx: home,
+      onLocalWebDisconnect: (request) => disconnects.push(request),
+    });
+    running.startWatching(10);
+
+    try {
+      // Let the watcher establish its baseline before the CLI-side manager
+      // writes a new request into the local control file.
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      const requestId = await manager.requestLocalWebDisconnect();
+      await vi.waitFor(() => expect(disconnects).toHaveLength(1));
+      expect(disconnects[0]?.id).toBe(requestId);
+
+      // Further watch cycles must not replay the same request.
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(disconnects).toHaveLength(1);
+    } finally {
+      running.stopWatching();
+    }
   });
 });

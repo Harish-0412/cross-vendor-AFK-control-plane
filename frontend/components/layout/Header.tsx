@@ -1,34 +1,60 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { LogOut, Moon, Sun, WifiOff } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import {
+  ChevronRight,
+  LogOut,
+  Moon,
+  Sparkles,
+  Sun,
+  WifiOff,
+} from "lucide-react";
 import { useTheme } from "next-themes";
+
+import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/lib/auth";
 import { realtimeClient, useRealtimeStore } from "@/lib/realtime";
-import { Button } from "@/components/ui/button";
 import { KillSwitch } from "@/components/layout/KillSwitch";
-import { Shield } from "lucide-react";
+
+const routeNames: Record<string, string> = {
+  dashboard: "Overview",
+  devices: "Connected machines",
+  sessions: "Live sessions",
+  history: "Conversation history",
+  approvals: "Approvals",
+  projects: "Projects",
+  integrations: "AI integrations",
+  organization: "Organization",
+  budgets: "Budgets",
+  routing: "Agent routing",
+  audit: "Audit log",
+  policy: "Policy",
+  settings: "Settings",
+};
 
 export function Header() {
+  const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuthStore();
-  const status = useRealtimeStore((s) => s.status);
-  const [scrolled, setScrolled] = useState(false);
+  const status = useRealtimeStore((state) => state.status);
   const { theme, setTheme, resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
 
+  useEffect(() => setMounted(true), []);
   useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8);
+    const onScroll = () => setScrolled(window.scrollY > 6);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  const currentSection = useMemo(() => {
+    const segment = pathname.split("/").filter(Boolean)[0] ?? "dashboard";
+    return routeNames[segment] ?? "Workspace";
+  }, [pathname]);
 
   const handleLogout = async () => {
     realtimeClient.disconnect();
@@ -38,97 +64,115 @@ export function Header() {
 
   const isDark = (resolvedTheme || theme) === "dark";
 
-  const toggleTheme = () => {
-    setTheme(isDark ? "light" : "dark");
-  };
-
-  const getStatusBadge = () => {
-    switch (status) {
-      case "connected":
-        return (
-          <div className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="hidden sm:inline">Connected</span>
-          </div>
-        );
-      case "reconnecting":
-      case "connecting":
-        return (
-          <div className="flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-400 border border-amber-500/20">
-            <span className="h-2 w-2 rounded-full bg-amber-500 animate-ping" />
-            <span className="hidden sm:inline">{status === "connecting" ? "Connecting..." : "Reconnecting..."}</span>
-          </div>
-        );
-      case "offline":
-      default:
-        return (
-          <div className="flex items-center gap-1.5 rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive border border-destructive/20">
-            <WifiOff className="h-3 w-3" />
-            <span className="hidden sm:inline">Offline</span>
-          </div>
-        );
-    }
-  };
-
   return (
     <header
-      className={`sticky top-0 z-40 flex h-16 w-full items-center justify-between border-b bg-card/80 px-4 backdrop-blur-xl transition-shadow duration-300 lg:px-8 ${
-        scrolled ? "border-border shadow-lg shadow-black/5" : "border-transparent"
+      className={`sticky top-0 z-40 flex h-[76px] w-full items-center justify-between border-b px-4 backdrop-blur-xl transition-all sm:px-6 lg:px-8 ${
+        scrolled
+          ? "border-slate-200/80 bg-background/90 shadow-sm dark:border-white/[0.07]"
+          : "border-slate-200/60 bg-background/75 dark:border-white/[0.05]"
       }`}
     >
-      <div className="flex items-center gap-2 lg:hidden">
-        <Link href="/dashboard" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Shield className="h-5 w-5" />
-          </div>
-          <span className="font-semibold text-foreground tracking-tight text-lg">Odysseus AFK</span>
-        </Link>
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 lg:hidden">
+          <Link href="/dashboard" className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 text-white">
+              <Sparkles className="h-4 w-4" />
+            </div>
+            <span className="text-sm font-semibold">Odysseus</span>
+          </Link>
+        </div>
+        <div className="hidden items-center gap-2 lg:flex">
+          <span className="text-xs font-medium text-muted-foreground">
+            Control plane
+          </span>
+          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50" />
+          <span className="truncate text-sm font-semibold text-foreground">
+            {currentSection}
+          </span>
+        </div>
       </div>
 
-      <div className="hidden lg:flex items-center gap-2 text-sm text-muted-foreground">
-        <span>Control Plane:</span>
-        <span className="font-mono text-foreground text-xs bg-muted px-2 py-0.5 rounded">v0.1.0</span>
-      </div>
-
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3">
         <KillSwitch />
-        {getStatusBadge()}
+
+        <div
+          className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-semibold ${
+            status === "connected"
+              ? "border-emerald-500/20 bg-emerald-500/[0.08] text-emerald-700 dark:text-emerald-300"
+              : status === "offline"
+                ? "border-red-500/20 bg-red-500/[0.07] text-red-700 dark:text-red-300"
+                : "border-amber-500/20 bg-amber-500/[0.08] text-amber-700 dark:text-amber-300"
+          }`}
+          title={
+            status === "connected"
+              ? "Authenticated live updates are active"
+              : "Live updates are not currently connected"
+          }
+        >
+          {status === "offline" ? (
+            <WifiOff className="h-3.5 w-3.5" />
+          ) : (
+            <span className="relative flex h-2 w-2">
+              {status === "connected" && (
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+              )}
+              <span
+                className={`relative inline-flex h-2 w-2 rounded-full ${status === "connected" ? "bg-emerald-500" : "bg-amber-500"}`}
+              />
+            </span>
+          )}
+          <span className="hidden sm:inline">
+            {status === "connected"
+              ? "Live sync"
+              : status === "offline"
+                ? "Offline"
+                : "Connecting"}
+          </span>
+        </div>
 
         {mounted ? (
           <Button
             variant="ghost"
             size="icon"
-            onClick={toggleTheme}
-            className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-            title={isDark ? "Switch to light mode" : "Switch to dark mode"}
-            aria-label="Toggle color theme"
+            onClick={() => setTheme(isDark ? "light" : "dark")}
+            className="h-9 w-9 rounded-xl text-muted-foreground"
+            aria-label={isDark ? "Use light theme" : "Use dark theme"}
           >
             {isDark ? (
-              <Sun className="h-4 w-4 text-amber-400 transition-transform duration-200 hover:rotate-45" />
+              <Sun className="h-4 w-4" />
             ) : (
-              <Moon className="h-4 w-4 text-primary transition-transform duration-200 hover:-rotate-12" />
+              <Moon className="h-4 w-4" />
             )}
           </Button>
         ) : (
-          <div className="h-8 w-8" />
+          <div className="h-9 w-9" />
         )}
 
         {user && (
-          <div className="hidden md:flex flex-col text-right">
-            <span className="text-xs font-medium text-foreground">{user.name || user.email}</span>
-            <span className="text-[10px] text-muted-foreground">{(user.role || "user").toUpperCase()}</span>
+          <div className="hidden items-center gap-2 border-l pl-3 md:flex">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-700 text-xs font-semibold text-white">
+              {(user.name || user.email || "U").slice(0, 1).toUpperCase()}
+            </div>
+            <div className="max-w-36 leading-tight">
+              <p className="truncate text-xs font-semibold">
+                {user.name || user.email}
+              </p>
+              <p className="text-[10px] capitalize text-muted-foreground">
+                {user.role || "user"}
+              </p>
+            </div>
           </div>
         )}
 
         <Button
-          variant="outline"
-          size="sm"
+          variant="ghost"
+          size="icon"
           onClick={handleLogout}
-          className="gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+          className="h-9 w-9 rounded-xl text-muted-foreground hover:text-red-600"
           title="Sign out"
+          aria-label="Sign out"
         >
-          <LogOut className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">Logout</span>
+          <LogOut className="h-4 w-4" />
         </Button>
       </div>
     </header>

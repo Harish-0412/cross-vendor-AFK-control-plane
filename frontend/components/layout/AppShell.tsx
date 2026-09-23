@@ -11,7 +11,8 @@ import { Loader2 } from "lucide-react";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const { isAuthenticated, isLoading, isInitialized, checkAuth } = useAuthStore();
+  const { isAuthenticated, isLoading, isInitialized, checkAuth } =
+    useAuthStore();
 
   useEffect(() => {
     if (!isInitialized) {
@@ -22,12 +23,17 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (isInitialized && !isLoading) {
       if (!isAuthenticated) {
-        const currentPath = typeof window !== 'undefined'
-          ? window.location.pathname + window.location.search
-          : '';
-        const target = currentPath && currentPath !== '/' && !currentPath.startsWith('/login') && !currentPath.startsWith('/register')
-          ? `/login?redirect=${encodeURIComponent(currentPath)}`
-          : '/login';
+        const currentPath =
+          typeof window !== "undefined"
+            ? window.location.pathname + window.location.search
+            : "";
+        const target =
+          currentPath &&
+          currentPath !== "/" &&
+          !currentPath.startsWith("/login") &&
+          !currentPath.startsWith("/register")
+            ? `/login?redirect=${encodeURIComponent(currentPath)}`
+            : "/login";
         router.push(target);
       } else {
         realtimeClient.connect();
@@ -40,7 +46,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">Connecting to Odysseus Control Plane...</p>
+          <p className="text-sm text-muted-foreground">
+            Connecting to Odysseus Control Plane...
+          </p>
         </div>
       </div>
     );
@@ -52,20 +60,22 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">Redirecting to sign in...</p>
+          <p className="text-sm text-muted-foreground">
+            Redirecting to sign in...
+          </p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="app-canvas min-h-screen bg-background">
       <Sidebar />
 
-      <div className="flex flex-col lg:pl-64 min-h-screen pb-16 lg:pb-0">
+      <div className="flex min-h-screen flex-col pb-16 lg:pl-72 lg:pb-0">
         <Header />
 
-        <main className="flex-1 overflow-x-hidden p-4 lg:p-8">
+        <main className="flex-1 overflow-x-hidden p-4 sm:p-6 lg:p-8 xl:p-10">
           {children}
         </main>
 

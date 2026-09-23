@@ -11,7 +11,7 @@
  * approved on the workstation. See docs/INTEGRATIONS_PLAN_ANTIGRAVITY_OPENAI.md.
  */
 
-export type IntegrationId = 'antigravity' | 'codex' | 'chatgpt-export' | 'openai-org';
+export type IntegrationId = 'antigravity' | 'claude' | 'codex' | 'chatgpt-export' | 'openai-org';
 
 export type IntegrationScope = 'history.read' | 'usage.read' | 'session.run';
 
@@ -66,6 +66,24 @@ export const INTEGRATIONS: Record<IntegrationId, IntegrationDefinition> = {
       'Antigravity login and state files',
       'Browser recordings and media',
       'Databases and protobuf files under ~/.gemini/antigravity',
+    ],
+  },
+  claude: {
+    id: 'claude',
+    name: 'Claude Code',
+    summary: 'Your local Claude Code conversations and the token counts recorded with them.',
+    scopes: ['history.read', 'usage.read'],
+    reads: {
+      'history.read': 'Conversation files in ~/.claude/projects (one JSONL file per session)',
+      'usage.read': 'Per-message token usage recorded inside those same conversation files',
+    },
+    leavesMachine:
+      'Session titles and metadata by default; conversation content only for sessions you ' +
+      'choose to sync. All content is redacted on this machine before it is sent.',
+    neverRead: [
+      '~/.claude/.credentials.json and other Claude login files',
+      'Claude settings, plugins, shell snapshots and debug logs',
+      'Anything outside ~/.claude/projects',
     ],
   },
   'chatgpt-export': {
@@ -168,10 +186,15 @@ export const HISTORY_LIMITS = {
 } as const;
 
 export interface TokenTotals {
+  /** Non-cached input tokens exactly as the provider reported them. */
   input: number;
+  /** Cache-read input tokens. */
   cachedInput: number;
+  /** Cache-creation/write tokens, when the provider reports them separately. */
+  cacheWriteInput?: number | undefined;
   output: number;
   reasoning: number;
+  /** Sum of every reported token class; cached tokens are counted once. */
   total: number;
 }
 

@@ -66,6 +66,9 @@ export interface PairingSession {
   code: string; // e.g. "T55Q-Y3D2"
   deviceId: string;
   gatewayId: string;
+  /** Human-recognisable name reported locally when the short-lived code is created. */
+  deviceName?: string | undefined;
+  platform?: DeviceRecord['platform'] | undefined;
   userId?: string | undefined;
   fingerprintHex: string;
   fingerprintWords: string[];

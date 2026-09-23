@@ -5,6 +5,7 @@
  *   pnpm grants approve [request]  approve a request (needs the browser's code)
  *   pnpm grants deny [request]     deny a request
  *   pnpm grants revoke <integration>
+ *   pnpm grants terminate-web       disconnect active website/mobile clients
  *
  * Approval only works from an interactive terminal. The running gateway notices
  * any change made here and reports it to the Control Plane.
@@ -25,7 +26,10 @@ async function main(): Promise<void> {
       const name = INTEGRATIONS[state.integration].name.padEnd(22);
       const status =
         state.status === 'active'
-          ? paint(palette.green, `active   ${state.scopes.join(', ')}  ${dim(`until ${state.expiresAt?.slice(0, 10)}`)}`)
+          ? paint(
+              palette.green,
+              `active   ${state.scopes.join(', ')}  ${dim(`until ${state.expiresAt?.slice(0, 10)}`)}`,
+            )
           : state.status === 'pending'
             ? paint(palette.amber, 'waiting for approval')
             : dim('not connected');
@@ -35,9 +39,13 @@ async function main(): Promise<void> {
     if (pending.length > 0) {
       write();
       for (const request of pending) {
-        write(`  ${paint(palette.amber, '●')} ${request.requestId}  ${INTEGRATIONS[request.integration].name}  ${dim(`from ${request.requestedBy.email ?? request.requestedBy.userId}`)}`);
+        write(
+          `  ${paint(palette.amber, '●')} ${request.requestId}  ${INTEGRATIONS[request.integration].name}  ${dim(`from ${request.requestedBy.email ?? request.requestedBy.userId}`)}`,
+        );
       }
-      write(dim(`\n  Approve with: pnpm grants approve ${pending.length === 1 ? '' : '<request>'}`));
+      write(
+        dim(`\n  Approve with: pnpm grants approve ${pending.length === 1 ? '' : '<request>'}`),
+      );
     }
     write();
     return;
@@ -77,11 +85,23 @@ async function main(): Promise<void> {
       return;
     }
     const removed = await manager.revoke(argument, 'workstation');
-    write(removed ? `  ${paint(palette.green, '✓')}  Revoked ${argument}` : `  ${argument} had no active grant`);
+    write(
+      removed
+        ? `  ${paint(palette.green, '✓')}  Revoked ${argument}`
+        : `  ${argument} had no active grant`,
+    );
     return;
   }
 
-  write(`  Unknown command "${command}". Use: list, approve, deny, revoke`);
+  if (command === 'terminate-web') {
+    await manager.requestLocalWebDisconnect();
+    write(
+      `  ${paint(palette.green, '✓')}  Disconnect requested. The running gateway will close active web clients.`,
+    );
+    return;
+  }
+
+  write(`  Unknown command "${command}". Use: list, approve, deny, revoke, terminate-web`);
   process.exitCode = 1;
 }
 

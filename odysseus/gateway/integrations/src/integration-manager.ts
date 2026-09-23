@@ -24,15 +24,18 @@ import {
 } from '@odysseus/protocol';
 
 import { MAX_CONFIRMATION_ATTEMPTS, confirmationMatches } from './confirmation';
+import { readJsonFile, writeJsonFileAtomic } from './atomic-file';
 import { GrantGuard } from './grant-guard';
 import { GrantStore, type DeviceSigner, type PendingRequest } from './grant-store';
-import { displayPath, integrationRoots, type PathContext } from './paths';
+import { connectionControlFile, displayPath, integrationRoots, type PathContext } from './paths';
 
 export interface IntegrationManagerOptions {
   signer: DeviceSigner;
   ctx: PathContext;
   /** Called for every state change and refused read, to forward to the Control Plane. */
   onUpdate?: (update: IntegrationUpdate) => void;
+  /** Running gateway callback for a terminate request written by the local CLI. */
+  onLocalWebDisconnect?: (request: { id: string; requestedAt: string }) => void;
   now?: () => number;
 }
 
@@ -47,11 +50,14 @@ export class IntegrationManager {
   private readonly onUpdate: (update: IntegrationUpdate) => void;
   private watchTimer: NodeJS.Timeout | undefined;
   private lastSnapshot = '';
+  private lastWebDisconnectRequestId = '';
+  private webControlInitialised = false;
 
   constructor(options: IntegrationManagerOptions) {
     this.ctx = options.ctx;
     this.now = options.now ?? Date.now;
     this.onUpdate = options.onUpdate ?? (() => undefined);
+    this.onLocalWebDisconnect = options.onLocalWebDisconnect ?? (() => undefined);
     this.store = new GrantStore(options.ctx, options.signer);
     this.guard = new GrantGuard(
       this.store,
@@ -62,6 +68,7 @@ export class IntegrationManager {
   }
 
   private readonly signerDeviceId: string;
+  private readonly onLocalWebDisconnect: (request: { id: string; requestedAt: string }) => void;
 
   // ------------------------------------------------------- remote: request
 
@@ -334,6 +341,20 @@ export class IntegrationManager {
     );
   }
 
+  /**
+   * Ask the running gateway on this workstation to close every active web
+   * client for the paired account. The request is a local mode-0600 file; it
+   * grants no access and carries no cloud credential.
+   */
+  async requestLocalWebDisconnect(): Promise<string> {
+    const id = `disconnect_${randomUUID().replace(/-/g, '')}`;
+    await writeJsonFileAtomic(connectionControlFile(this.ctx), {
+      version: 1,
+      terminateRequest: { id, requestedAt: new Date(this.now()).toISOString() },
+    });
+    return id;
+  }
+
   // ---------------------------------------------------------- lifecycle
 
   /** Expire stale requests. Grants expire on their own at verification time. */
@@ -356,6 +377,7 @@ export class IntegrationManager {
     const check = async () => {
       try {
         await this.sweep();
+        await this.checkLocalWebControl();
         const snapshot = JSON.stringify(await this.list());
         if (this.lastSnapshot && snapshot !== this.lastSnapshot) {
           const previous = JSON.parse(this.lastSnapshot) as IntegrationGrantState[];
@@ -391,5 +413,26 @@ export class IntegrationManager {
       })
       .catch(() => undefined);
     this.onUpdate({ kind: 'grant_changed', state });
+  }
+
+  private async checkLocalWebControl(): Promise<void> {
+    const file = await readJsonFile<{
+      terminateRequest?: { id?: unknown; requestedAt?: unknown };
+    }>(connectionControlFile(this.ctx), {});
+    const request = file.terminateRequest;
+    const id = typeof request?.id === 'string' ? request.id : '';
+    const requestedAt = typeof request?.requestedAt === 'string' ? request.requestedAt : '';
+
+    // Treat the file present when the gateway starts as a baseline, not a new
+    // instruction. This prevents an old request from kicking out a future web
+    // session after a workstation reboot.
+    if (!this.webControlInitialised) {
+      this.webControlInitialised = true;
+      this.lastWebDisconnectRequestId = id;
+      return;
+    }
+    if (!id || id === this.lastWebDisconnectRequestId || !requestedAt) return;
+    this.lastWebDisconnectRequestId = id;
+    this.onLocalWebDisconnect({ id, requestedAt });
   }
 }

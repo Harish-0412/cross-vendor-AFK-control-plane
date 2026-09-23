@@ -420,6 +420,21 @@ export class HttpRouter {
         const code = typeof body['code'] === 'string' ? body['code'] : undefined;
         const deviceId = typeof body['deviceId'] === 'string' ? body['deviceId'] : undefined;
         const gatewayId = typeof body['gatewayId'] === 'string' ? body['gatewayId'] : undefined;
+        const reportedName =
+          typeof body['deviceName'] === 'string'
+            ? body['deviceName']
+                .replace(/[\u0000-\u001f\u007f]/g, '')
+                .trim()
+                .slice(0, 120)
+            : '';
+        const reportedPlatform = body['platform'];
+        const platform =
+          reportedPlatform === 'windows' ||
+          reportedPlatform === 'linux' ||
+          reportedPlatform === 'darwin' ||
+          reportedPlatform === 'unknown'
+            ? reportedPlatform
+            : undefined;
         const fingerprintHex =
           typeof body['fingerprintHex'] === 'string' ? body['fingerprintHex'] : '';
         const fingerprintWords = Array.isArray(body['fingerprintWords'])
@@ -448,6 +463,8 @@ export class HttpRouter {
           code,
           deviceId,
           gatewayId,
+          ...(reportedName ? { deviceName: reportedName } : {}),
+          ...(platform ? { platform } : {}),
           fingerprintHex,
           fingerprintWords,
           publicKeyJwk,
@@ -631,8 +648,11 @@ export class HttpRouter {
           pairingId: pairing.id,
           deviceId: pairing.deviceId,
           gatewayId: pairing.gatewayId,
+          deviceName: pairing.deviceName || `Workstation (${pairing.deviceId.slice(-6)})`,
+          platform: pairing.platform ?? 'unknown',
           fingerprintHex: pairing.fingerprintHex,
           fingerprintWords: pairing.fingerprintWords,
+          expiresAt: pairing.expiresAt.toISOString(),
           status: 'code_verified',
         });
       }
@@ -645,7 +665,12 @@ export class HttpRouter {
         const code = typeof body['code'] === 'string' ? body['code'] : undefined;
         const confirmed = typeof body['confirmed'] === 'boolean' ? body['confirmed'] : true;
         const friendlyName =
-          typeof body['friendlyName'] === 'string' ? body['friendlyName'] : undefined;
+          typeof body['friendlyName'] === 'string'
+            ? body['friendlyName']
+                .replace(/[\u0000-\u001f\u007f]/g, '')
+                .trim()
+                .slice(0, 120)
+            : '';
 
         const pairing = pairingId
           ? await this.db.pairings.findById(pairingId)
@@ -654,6 +679,9 @@ export class HttpRouter {
             : null;
 
         if (!pairing) {
+          return this.sendJson(res, 404, { error: 'Pairing session not found' });
+        }
+        if (pairing.userId !== authUser.id) {
           return this.sendJson(res, 404, { error: 'Pairing session not found' });
         }
 
@@ -691,8 +719,9 @@ export class HttpRouter {
             id: pairing.deviceId,
             gatewayId: pairing.gatewayId,
             userId: authUser.id,
-            friendlyName: friendlyName || `Workstation (${pairing.deviceId.slice(-6)})`,
-            platform: 'unknown',
+            friendlyName:
+              friendlyName || pairing.deviceName || `Workstation (${pairing.deviceId.slice(-6)})`,
+            platform: pairing.platform ?? 'unknown',
             publicKeyPem: pairing.publicKeyPem ?? '',
             publicKeyJwk: pairing.publicKeyJwk,
             fingerprintHex: pairing.fingerprintHex,
@@ -700,7 +729,12 @@ export class HttpRouter {
             status: 'trusted',
           });
         } else {
-          await this.db.devices.updateStatus(device.id, 'trusted');
+          device =
+            (await this.db.devices.update(device.id, {
+              status: 'trusted',
+              ...(friendlyName ? { friendlyName } : {}),
+              ...(pairing.platform ? { platform: pairing.platform } : {}),
+            })) ?? device;
         }
 
         return this.sendJson(res, 200, {
@@ -708,6 +742,7 @@ export class HttpRouter {
           device: {
             id: device.id,
             friendlyName: device.friendlyName,
+            platform: device.platform,
             status: device.status,
             online: this.registry.isDeviceOnline(device.id),
           },
@@ -722,6 +757,7 @@ export class HttpRouter {
         const mapped = await Promise.all(
           devices.map(async (d) => {
             const sessions = await this.db.sessions.listByDevice(d.id);
+            const connection = this.registry.getGateway(d.id);
             const activeSessionCount = sessions.filter(
               (s) => s.state === 'running' || s.state === 'waiting_for_approval',
             ).length;
@@ -729,8 +765,17 @@ export class HttpRouter {
               id: d.id,
               friendlyName: d.friendlyName,
               platform: d.platform,
+              systemInfo: d.systemInfo ?? null,
               status: d.status,
               online: this.registry.isDeviceOnline(d.id),
+              connectedAt: connection?.connectedAt.toISOString() ?? null,
+              lastHeartbeatAt: connection?.lastHeartbeatAt.toISOString() ?? null,
+              tunnelConnectionCount: this.registry.countConnections(d.id),
+              activeWebClients: this.registry.getClientsForUser(d.userId).length,
+              fingerprintShort: d.fingerprintHex
+                ? d.fingerprintHex.replace(/:/g, '').slice(0, 12).toUpperCase()
+                : null,
+              fingerprintWords: (d.fingerprintWords ?? []).slice(0, 4),
               lastSeenAt: d.lastSeenAt?.toISOString() ?? null,
               activeSessionCount,
               resourceUsage: d.resourceUsage ?? null,

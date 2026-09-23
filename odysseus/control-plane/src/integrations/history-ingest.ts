@@ -62,6 +62,9 @@ function validTokens(value: unknown): TokenTotals | undefined {
   return {
     input: count(t['input']),
     cachedInput: count(t['cachedInput']),
+    ...(typeof t['cacheWriteInput'] === 'number'
+      ? { cacheWriteInput: count(t['cacheWriteInput']) }
+      : {}),
     output: count(t['output']),
     reasoning: count(t['reasoning']),
     total: count(t['total']),

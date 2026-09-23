@@ -4,8 +4,11 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Bot,
+  BrainCircuit,
   CheckCircle2,
   Clock,
+  Cpu,
+  Fingerprint,
   History,
   KeyRound,
   Loader2,
@@ -20,9 +23,22 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,7 +49,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ApiError } from "@/lib/api-client";
 import {
   AVAILABLE_INTEGRATIONS,
@@ -51,7 +73,11 @@ const SCOPE_LABEL: Record<IntegrationScope, string> = {
   "session.run": "Run sessions",
 };
 
-const ICON: Partial<Record<IntegrationId, typeof Bot>> = { codex: Bot, antigravity: Sparkles };
+const ICON: Partial<Record<IntegrationId, typeof Bot>> = {
+  codex: Bot,
+  antigravity: Sparkles,
+  claude: BrainCircuit,
+};
 
 interface PendingConnect {
   integration: IntegrationId;
@@ -61,7 +87,9 @@ interface PendingConnect {
 }
 
 function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof ApiError || error instanceof Error ? error.message : fallback;
+  return error instanceof ApiError || error instanceof Error
+    ? error.message
+    : fallback;
 }
 
 /**
@@ -76,7 +104,9 @@ export function AiToolIntegrations() {
   const [deviceId, setDeviceId] = useState<string>("");
   const [integrations, setIntegrations] = useState<DeviceIntegration[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectedScopes, setSelectedScopes] = useState<Record<string, IntegrationScope[]>>({});
+  const [selectedScopes, setSelectedScopes] = useState<
+    Record<string, IntegrationScope[]>
+  >({});
   const [busy, setBusy] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingConnect | null>(null);
   const [revoking, setRevoking] = useState<DeviceIntegration | null>(null);
@@ -86,14 +116,28 @@ export function AiToolIntegrations() {
   const device = devices?.find((candidate) => candidate.id === deviceId);
 
   useEffect(() => {
-    aiIntegrations
-      .devices()
-      .then((list) => {
-        setDevices(list);
-        const preferred = list.find((candidate) => candidate.online) ?? list[0];
-        if (preferred) setDeviceId(preferred.id);
-      })
-      .catch(() => setDevices([]));
+    let cancelled = false;
+    const refresh = () =>
+      aiIntegrations
+        .devices()
+        .then((list) => {
+          if (cancelled) return;
+          setDevices(list);
+          setDeviceId((current) => {
+            if (current && list.some((candidate) => candidate.id === current))
+              return current;
+            return (
+              (list.find((candidate) => candidate.online) ?? list[0])?.id ?? ""
+            );
+          });
+        })
+        .catch(() => !cancelled && setDevices([]));
+    void refresh();
+    const timer = setInterval(() => void refresh(), 10_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
   }, []);
 
   const load = useCallback(async () => {
@@ -126,7 +170,9 @@ export function AiToolIntegrations() {
       setIntegrations(list);
       const state = list.find((item) => item.id === pending.integration)?.state;
       if (state?.status === "active") {
-        toast.success(`${pending.name} connected. Importing your conversations…`);
+        toast.success(
+          `${pending.name} connected. Importing your conversations…`,
+        );
         setPending(null);
       } else if (state?.status === "denied" || state?.status === "expired") {
         toast.error(state.reason ?? `The request was ${state.status}`);
@@ -139,12 +185,18 @@ export function AiToolIntegrations() {
     };
   }, [pending, deviceId]);
 
-  const toggleScope = (integration: string, scope: IntegrationScope, on: boolean) => {
+  const toggleScope = (
+    integration: string,
+    scope: IntegrationScope,
+    on: boolean,
+  ) => {
     setSelectedScopes((current) => {
       const existing = current[integration] ?? [];
       return {
         ...current,
-        [integration]: on ? [...new Set([...existing, scope])] : existing.filter((item) => item !== scope),
+        [integration]: on
+          ? [...new Set([...existing, scope])]
+          : existing.filter((item) => item !== scope),
       };
     });
   };
@@ -157,8 +209,17 @@ export function AiToolIntegrations() {
     }
     setBusy(item.id);
     try {
-      const created = await aiIntegrations.requestAccess(deviceId, item.id, scopes);
-      setPending({ integration: item.id, name: item.name, code: created.confirmationCode, expiresAt: created.expiresAt });
+      const created = await aiIntegrations.requestAccess(
+        deviceId,
+        item.id,
+        scopes,
+      );
+      setPending({
+        integration: item.id,
+        name: item.name,
+        code: created.confirmationCode,
+        expiresAt: created.expiresAt,
+      });
       await load();
     } catch (error) {
       toast.error(errorMessage(error, "Could not send the request"));
@@ -171,7 +232,9 @@ export function AiToolIntegrations() {
     setBusy(`sync:${item.id}`);
     try {
       await aiIntegrations.syncNow(deviceId, item.id);
-      toast.success(`Syncing ${item.name}. New conversations will appear in History shortly.`);
+      toast.success(
+        `Syncing ${item.name}. New conversations will appear in History shortly.`,
+      );
     } catch (error) {
       toast.error(errorMessage(error, "Could not start a sync"));
     } finally {
@@ -215,8 +278,9 @@ export function AiToolIntegrations() {
         <CardHeader>
           <CardTitle className="text-base">No paired workstation</CardTitle>
           <CardDescription>
-            AI coding tools run on your own computer. Pair it first (run <code>pnpm pair</code> on it), then come back
-            here to connect Codex or Antigravity.
+            AI coding tools run on your own computer. Pair it first (run{" "}
+            <code>pnpm pair</code> on it), then come back here to connect Codex,
+            Antigravity, or Claude Code.
           </CardDescription>
         </CardHeader>
         <CardFooter>
@@ -240,7 +304,8 @@ export function AiToolIntegrations() {
             <SelectContent>
               {devices.map((option) => (
                 <SelectItem key={option.id} value={option.id}>
-                  {option.friendlyName} {option.online ? "· online" : "· offline"}
+                  {option.friendlyName}{" "}
+                  {option.online ? "· online" : "· offline"}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -248,10 +313,90 @@ export function AiToolIntegrations() {
         </div>
         {device && !device.online && (
           <p className="text-xs text-muted-foreground">
-            This workstation is offline. Start the gateway on it to connect or sync.
+            This workstation is offline. Start the gateway on it to connect or
+            sync.
           </p>
         )}
       </div>
+
+      {device && (
+        <Card
+          className={
+            device.online
+              ? "border-emerald-500/30 bg-emerald-500/[0.03]"
+              : undefined
+          }
+        >
+          <CardContent className="grid gap-4 pt-5 md:grid-cols-[1fr_auto] md:items-center">
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className={`h-2.5 w-2.5 rounded-full ${device.online ? "bg-emerald-500" : "bg-muted-foreground/40"}`}
+                />
+                <span className="font-semibold">{device.friendlyName}</span>
+                <Badge
+                  variant={device.online ? "default" : "outline"}
+                  className={
+                    device.online
+                      ? "bg-emerald-600 hover:bg-emerald-600"
+                      : undefined
+                  }
+                >
+                  {device.online ? "Identity verified · connected" : "Offline"}
+                </Badge>
+              </div>
+              <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1.5">
+                  <Monitor className="h-3.5 w-3.5" />
+                  {device.systemInfo?.hostname ?? "Hostname pending"}
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <Cpu className="h-3.5 w-3.5" />
+                  {[device.platform, device.systemInfo?.arch]
+                    .filter(Boolean)
+                    .join(" · ") || "System details pending"}
+                </span>
+                <span>
+                  Gateway{" "}
+                  {device.systemInfo?.gatewayVersion ?? "version pending"}
+                </span>
+                <span>
+                  {device.tunnelConnectionCount ?? 0} secure tunnel
+                  {device.tunnelConnectionCount === 1 ? "" : "s"}
+                </span>
+                <span>
+                  {device.activeWebClients ?? 0} active web client
+                  {device.activeWebClients === 1 ? "" : "s"}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1.5 font-mono">
+                  <Fingerprint className="h-3.5 w-3.5" />
+                  {device.fingerprintShort ??
+                    device.id.slice(-12).toUpperCase()}
+                </span>
+                {device.fingerprintWords &&
+                  device.fingerprintWords.length > 0 && (
+                    <span>{device.fingerprintWords.join(" · ")}</span>
+                  )}
+                {device.connectedAt && (
+                  <span>
+                    Connected {formatRelative(device.connectedAt, now)}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="max-w-sm rounded-md border bg-background/80 p-3 text-xs text-muted-foreground">
+              Local chat reads pause when the last website or mobile tab
+              disconnects. From this PC, run{" "}
+              <code className="font-medium text-foreground">
+                pnpm grants terminate-web
+              </code>{" "}
+              to close every active web connection.
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {loading && integrations.length === 0 ? (
         <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
@@ -268,7 +413,10 @@ export function AiToolIntegrations() {
             const chosen = selectedScopes[item.id] ?? [];
 
             return (
-              <Card key={item.id} className={!available ? "opacity-70" : undefined}>
+              <Card
+                key={item.id}
+                className={!available ? "opacity-70" : undefined}
+              >
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3">
@@ -277,7 +425,9 @@ export function AiToolIntegrations() {
                       </div>
                       <div>
                         <CardTitle className="text-base">{item.name}</CardTitle>
-                        <CardDescription className="text-xs">{item.summary}</CardDescription>
+                        <CardDescription className="text-xs">
+                          {item.summary}
+                        </CardDescription>
                       </div>
                     </div>
                     {!available ? (
@@ -308,12 +458,17 @@ export function AiToolIntegrations() {
                       </div>
                       {item.state.roots && item.state.roots.length > 0 && (
                         <p className="text-xs text-muted-foreground">
-                          Reading only: <code className="text-foreground">{item.state.roots.join(", ")}</code>
+                          Reading only:{" "}
+                          <code className="text-foreground">
+                            {item.state.roots.join(", ")}
+                          </code>
                         </p>
                       )}
                       {item.state.expiresAt && (
                         <p className="text-xs text-muted-foreground">
-                          Access expires {formatRelative(item.state.expiresAt, now)} — you will be asked again.
+                          Access expires{" "}
+                          {formatRelative(item.state.expiresAt, now)} — you will
+                          be asked again.
                         </p>
                       )}
                     </>
@@ -321,16 +476,25 @@ export function AiToolIntegrations() {
                     <>
                       <div className="space-y-2">
                         {item.scopes.map((scope) => (
-                          <label key={scope} className="flex cursor-pointer items-start gap-2.5">
+                          <label
+                            key={scope}
+                            className="flex cursor-pointer items-start gap-2.5"
+                          >
                             <Checkbox
                               checked={chosen.includes(scope)}
-                              onCheckedChange={(checked) => toggleScope(item.id, scope, checked === true)}
+                              onCheckedChange={(checked) =>
+                                toggleScope(item.id, scope, checked === true)
+                              }
                               disabled={waiting}
                               className="mt-0.5"
                             />
                             <span>
-                              <span className="font-medium">{SCOPE_LABEL[scope]}</span>
-                              <span className="block text-xs text-muted-foreground">{item.reads[scope]}</span>
+                              <span className="font-medium">
+                                {SCOPE_LABEL[scope]}
+                              </span>
+                              <span className="block text-xs text-muted-foreground">
+                                {item.reads[scope]}
+                              </span>
                             </span>
                           </label>
                         ))}
@@ -340,7 +504,9 @@ export function AiToolIntegrations() {
                         {item.leavesMachine}
                       </p>
                       <details className="text-xs text-muted-foreground">
-                        <summary className="cursor-pointer select-none">Never read</summary>
+                        <summary className="cursor-pointer select-none">
+                          Never read
+                        </summary>
                         <ul className="mt-1.5 list-disc space-y-0.5 pl-5">
                           {item.neverRead.map((entry) => (
                             <li key={entry}>{entry}</li>
@@ -350,11 +516,14 @@ export function AiToolIntegrations() {
                     </>
                   ) : (
                     <p className="text-xs text-muted-foreground">
-                      Planned for a later phase. Nothing is read for this integration today.
+                      Planned for a later phase. Nothing is read for this
+                      integration today.
                     </p>
                   )}
                   {status === "denied" && item.state.reason && (
-                    <p className="text-xs text-destructive">Last request: {item.state.reason}</p>
+                    <p className="text-xs text-destructive">
+                      Last request: {item.state.reason}
+                    </p>
                   )}
                 </CardContent>
 
@@ -364,13 +533,16 @@ export function AiToolIntegrations() {
                       <>
                         <Button asChild size="sm" variant="default">
                           <Link href={`/history?integration=${item.id}`}>
-                            <History className="mr-1.5 h-3.5 w-3.5" /> View history
+                            <History className="mr-1.5 h-3.5 w-3.5" /> View
+                            history
                           </Link>
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={!device?.online || busy === `sync:${item.id}`}
+                          disabled={
+                            !device?.online || busy === `sync:${item.id}`
+                          }
                           onClick={() => void syncNow(item)}
                         >
                           {busy === `sync:${item.id}` ? (
@@ -380,21 +552,36 @@ export function AiToolIntegrations() {
                           )}
                           Sync now
                         </Button>
-                        <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setRevoking(item)}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-destructive"
+                          onClick={() => setRevoking(item)}
+                        >
                           <ShieldOff className="mr-1.5 h-3.5 w-3.5" /> Revoke
                         </Button>
                       </>
                     ) : waiting ? (
-                      <Button size="sm" variant="ghost" onClick={() => setRevoking(item)}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setRevoking(item)}
+                      >
                         Cancel request
                       </Button>
                     ) : (
                       <Button
                         size="sm"
-                        disabled={!device?.online || busy === item.id || chosen.length === 0}
+                        disabled={
+                          !device?.online ||
+                          busy === item.id ||
+                          chosen.length === 0
+                        }
                         onClick={() => void connect(item)}
                       >
-                        {busy === item.id && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                        {busy === item.id && (
+                          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                        )}
                         Connect
                       </Button>
                     )}
@@ -407,17 +594,23 @@ export function AiToolIntegrations() {
       )}
 
       {/* The confirmation code: shown once, only in this browser. */}
-      <Dialog open={pending !== null} onOpenChange={(open) => !open && setPending(null)}>
+      <Dialog
+        open={pending !== null}
+        onOpenChange={(open) => !open && setPending(null)}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Approve on your workstation</DialogTitle>
             <DialogDescription>
-              Access to {pending?.name} is granted on {device?.friendlyName ?? "your workstation"}, not here. Type this
+              Access to {pending?.name} is granted on{" "}
+              {device?.friendlyName ?? "your workstation"}, not here. Type this
               code there to approve.
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-xl border bg-muted/40 py-5 text-center">
-            <div className="font-mono text-4xl font-semibold tracking-[0.25em]">{pending?.code}</div>
+            <div className="font-mono text-4xl font-semibold tracking-[0.25em]">
+              {pending?.code}
+            </div>
             {pending && (
               <div className="mt-2 text-xs text-muted-foreground">
                 Expires {formatRelative(pending.expiresAt, now)}
@@ -428,26 +621,32 @@ export function AiToolIntegrations() {
             <p className="flex items-start gap-2">
               <Terminal className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
               <span>
-                The gateway terminal on that computer is showing this request. Check what it will read, then type the
-                code.
+                The gateway terminal on that computer is showing this request.
+                Check what it will read, then type the code.
               </span>
             </p>
             <p className="pl-6 text-xs text-muted-foreground">
-              If the gateway runs in the background, open a terminal there and run{" "}
-              <code className="text-foreground">pnpm grants approve</code>.
+              If the gateway runs in the background, open a terminal there and
+              run <code className="text-foreground">pnpm grants approve</code>.
             </p>
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Waiting for approval…
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Waiting for
+            approval…
           </div>
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={revoking !== null} onOpenChange={(open) => !open && setRevoking(null)}>
+      <AlertDialog
+        open={revoking !== null}
+        onOpenChange={(open) => !open && setRevoking(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {revoking?.state.status === "pending" ? "Cancel this request?" : `Disconnect ${revoking?.name}?`}
+              {revoking?.state.status === "pending"
+                ? "Cancel this request?"
+                : `Disconnect ${revoking?.name}?`}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {revoking?.state.status === "pending"
@@ -457,8 +656,13 @@ export function AiToolIntegrations() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void confirmRevoke()} className="bg-destructive text-white hover:bg-destructive/90">
-              {revoking?.state.status === "pending" ? "Cancel request" : "Disconnect & delete"}
+            <AlertDialogAction
+              onClick={() => void confirmRevoke()}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              {revoking?.state.status === "pending"
+                ? "Cancel request"
+                : "Disconnect & delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

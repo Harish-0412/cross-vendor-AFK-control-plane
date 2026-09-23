@@ -17,13 +17,31 @@ import type {
 
 import { apiClient } from "./api-client";
 
-export type { HistoryItem, IntegrationId, IntegrationScope, ProviderUsageSnapshot };
+export type {
+  HistoryItem,
+  IntegrationId,
+  IntegrationScope,
+  ProviderUsageSnapshot,
+};
 
 export interface DeviceOption {
   id: string;
   friendlyName: string;
   online: boolean;
   platform?: string;
+  systemInfo?: {
+    hostname?: string;
+    arch?: string;
+    nodeVersion?: string;
+    gatewayVersion?: string;
+  } | null;
+  connectedAt?: string | null;
+  lastHeartbeatAt?: string | null;
+  tunnelConnectionCount?: number;
+  activeWebClients?: number;
+  fingerprintShort?: string | null;
+  fingerprintWords?: string[];
+  lastSeenAt?: string | null;
 }
 
 export interface DeviceIntegration extends IntegrationDefinition {
@@ -47,32 +65,55 @@ export interface ProviderUsageEntry {
 }
 
 /** Integrations whose data can be read today. The others are planned, not built. */
-export const AVAILABLE_INTEGRATIONS: IntegrationId[] = ["codex", "antigravity"];
+export const AVAILABLE_INTEGRATIONS: IntegrationId[] = [
+  "codex",
+  "antigravity",
+  "claude",
+];
 
 export const aiIntegrations = {
   devices: () => apiClient.get<DeviceOption[]>("/api/v1/devices"),
 
   forDevice: (deviceId: string) =>
-    apiClient.get<DeviceIntegration[]>(`/api/v1/devices/${deviceId}/integrations`),
-
-  requestAccess: (deviceId: string, integration: IntegrationId, scopes: IntegrationScope[]) =>
-    apiClient.post<{ requestId: string; confirmationCode: string; expiresAt: string; scopes: IntegrationScope[] }>(
-      `/api/v1/devices/${deviceId}/integrations/${integration}/requests`,
-      { scopes },
+    apiClient.get<DeviceIntegration[]>(
+      `/api/v1/devices/${deviceId}/integrations`,
     ),
 
+  requestAccess: (
+    deviceId: string,
+    integration: IntegrationId,
+    scopes: IntegrationScope[],
+  ) =>
+    apiClient.post<{
+      requestId: string;
+      confirmationCode: string;
+      expiresAt: string;
+      scopes: IntegrationScope[];
+    }>(`/api/v1/devices/${deviceId}/integrations/${integration}/requests`, {
+      scopes,
+    }),
+
   revoke: (deviceId: string, integration: IntegrationId) =>
-    apiClient.delete<{ delivered: boolean }>(`/api/v1/devices/${deviceId}/integrations/${integration}`),
+    apiClient.delete<{ delivered: boolean }>(
+      `/api/v1/devices/${deviceId}/integrations/${integration}`,
+    ),
 
   syncNow: (deviceId: string, integration: IntegrationId) =>
-    apiClient.post(`/api/v1/devices/${deviceId}/integrations/${integration}/sync`, {}),
+    apiClient.post(
+      `/api/v1/devices/${deviceId}/integrations/${integration}/sync`,
+      {},
+    ),
 
-  history: (filter: { integration?: IntegrationId; deviceId?: string } = {}) => {
+  history: (
+    filter: { integration?: IntegrationId; deviceId?: string } = {},
+  ) => {
     const params = new URLSearchParams();
     if (filter.integration) params.set("integration", filter.integration);
     if (filter.deviceId) params.set("deviceId", filter.deviceId);
     const query = params.toString();
-    return apiClient.get<ImportedConversation[]>(`/api/v1/history${query ? `?${query}` : ""}`);
+    return apiClient.get<ImportedConversation[]>(
+      `/api/v1/history${query ? `?${query}` : ""}`,
+    );
   },
 
   conversation: (id: string) =>
@@ -102,13 +143,18 @@ export interface WindowView {
 }
 
 export function describeWindow(minutes: number): string {
-  if (minutes >= 10080 && minutes % 10080 === 0) return minutes === 10080 ? "Weekly" : `${minutes / 10080}-week`;
-  if (minutes >= 1440 && minutes % 1440 === 0) return minutes === 1440 ? "Daily" : `${minutes / 1440}-day`;
+  if (minutes >= 10080 && minutes % 10080 === 0)
+    return minutes === 10080 ? "Weekly" : `${minutes / 10080}-week`;
+  if (minutes >= 1440 && minutes % 1440 === 0)
+    return minutes === 1440 ? "Daily" : `${minutes / 1440}-day`;
   if (minutes >= 60 && minutes % 60 === 0) return `${minutes / 60}-hour`;
   return `${minutes}-minute`;
 }
 
-export function windowViews(snapshot: ProviderUsageSnapshot, now = Date.now()): WindowView[] {
+export function windowViews(
+  snapshot: ProviderUsageSnapshot,
+  now = Date.now(),
+): WindowView[] {
   return (snapshot.windows ?? []).map((window) => {
     const resetsAt = new Date(window.resetsAt);
     return {
@@ -141,7 +187,9 @@ export function formatRelative(date: Date | string, now = Date.now()): string {
 }
 
 export function formatTokens(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}k`;
+  if (value >= 1_000_000)
+    return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
+  if (value >= 1_000)
+    return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}k`;
   return String(value);
 }

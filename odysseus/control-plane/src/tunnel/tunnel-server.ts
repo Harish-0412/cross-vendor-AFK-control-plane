@@ -62,6 +62,7 @@ export class TunnelServer {
   private onEventBroadcast?: (event: StoredEvent) => void;
   private onIntegrationUpdate?: (deviceId: string, payload: unknown) => void;
   private onGatewayAuthenticated?: (deviceId: string) => void;
+  private onClientControl?: (deviceId: string, payload: Record<string, unknown>) => void;
   private onApprovalCreated?: (approval: ApprovalRecord) => void;
   private onAdmissionPhaseChange?: (
     deviceId: string,
@@ -173,6 +174,11 @@ export class TunnelServer {
   /** Called once a gateway has completed the signed handshake. */
   setOnGatewayAuthenticated(callback: (deviceId: string) => void): void {
     this.onGatewayAuthenticated = callback;
+  }
+
+  /** Local workstation request to terminate its account's active web clients. */
+  setOnClientControl(callback: (deviceId: string, payload: Record<string, unknown>) => void): void {
+    this.onClientControl = callback;
   }
 
   setOnApprovalCreated(callback: (approval: ApprovalRecord) => void): void {
@@ -484,6 +490,11 @@ export class TunnelServer {
         return;
       }
 
+      if (type === 'client_control') {
+        this.onClientControl?.(authedId, payload ?? {});
+        return;
+      }
+
       // 2. Handle Heartbeat
       if (type === 'heartbeat') {
         await this.db.devices.updateLastSeen(authedId, new Date());
@@ -509,7 +520,10 @@ export class TunnelServer {
               this.onAdmissionPhaseChange?.(authedId, phase, previous);
             }
           }
-          const resources = (p['resources'] ?? p['resourceUsage'] ?? p) as Record<string, unknown>;
+          const resources = (p['resources'] ?? p['resourceUsage'] ?? p['load'] ?? p) as Record<
+            string,
+            unknown
+          >;
           if (
             typeof resources['cpuPercent'] === 'number' ||
             typeof resources['memoryMb'] === 'number' ||
@@ -531,6 +545,34 @@ export class TunnelServer {
                   : undefined,
               diskFreeMb:
                 typeof resources['diskFreeMb'] === 'number' ? resources['diskFreeMb'] : undefined,
+            });
+          }
+
+          const rawSystem = p['systemInfo'];
+          if (rawSystem && typeof rawSystem === 'object') {
+            const system = rawSystem as Record<string, unknown>;
+            const platform = system['platform'];
+            await this.db.devices.update(authedId, {
+              ...(platform === 'windows' ||
+              platform === 'linux' ||
+              platform === 'darwin' ||
+              platform === 'unknown'
+                ? { platform }
+                : {}),
+              systemInfo: {
+                ...(typeof system['hostname'] === 'string'
+                  ? { hostname: system['hostname'].slice(0, 120) }
+                  : {}),
+                ...(typeof system['arch'] === 'string'
+                  ? { arch: system['arch'].slice(0, 40) }
+                  : {}),
+                ...(typeof system['nodeVersion'] === 'string'
+                  ? { nodeVersion: system['nodeVersion'].slice(0, 40) }
+                  : {}),
+                ...(typeof system['gatewayVersion'] === 'string'
+                  ? { gatewayVersion: system['gatewayVersion'].slice(0, 40) }
+                  : {}),
+              },
             });
           }
         }

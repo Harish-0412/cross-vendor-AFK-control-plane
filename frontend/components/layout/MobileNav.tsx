@@ -4,86 +4,94 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Activity,
+  Building2,
+  FileCode2,
+  FolderGit2,
+  GitBranch,
+  History,
   LayoutDashboard,
   Monitor,
-  Activity,
-  ShieldAlert,
   MoreHorizontal,
-  FolderGit2,
   Plug,
-  Building2,
-  Wallet,
-  GitBranch,
   ScrollText,
-  FileCode2,
   Settings,
-  X, History, } from "lucide-react";
+  ShieldAlert,
+  Wallet,
+  X,
+} from "lucide-react";
 
-const primaryTabs = [
+const tabs = [
   { name: "Home", href: "/dashboard", icon: LayoutDashboard },
-  { name: "Devices", href: "/devices", icon: Monitor },
-  { name: "Sessions", href: "/sessions", icon: Activity },
-  { name: "History", href: "/history", icon: History },
+  { name: "Machines", href: "/devices", icon: Monitor },
   { name: "Approvals", href: "/approvals", icon: ShieldAlert },
-];
+  { name: "History", href: "/history", icon: History },
+] as const;
 
 const moreItems = [
+  { name: "Live sessions", href: "/sessions", icon: Activity },
   { name: "Projects", href: "/projects", icon: FolderGit2 },
-  { name: "Integrations", href: "/integrations", icon: Plug },
+  { name: "AI integrations", href: "/integrations", icon: Plug },
   { name: "Organization", href: "/organization", icon: Building2 },
   { name: "Budgets", href: "/budgets", icon: Wallet },
-  { name: "Routing", href: "/routing", icon: GitBranch },
-  { name: "Audit Log", href: "/audit", icon: ScrollText },
+  { name: "Agent routing", href: "/routing", icon: GitBranch },
   { name: "Policy", href: "/policy", icon: FileCode2 },
+  { name: "Audit log", href: "/audit", icon: ScrollText },
   { name: "Settings", href: "/settings", icon: Settings },
-];
+] as const;
 
 export function MobileNav() {
   const pathname = usePathname();
-  const [moreOpen, setMoreOpen] = useState(false);
-
-  const isMoreActive = moreItems.some(
-    (item) => pathname === item.href || pathname.startsWith(item.href + "/")
-  );
+  const [open, setOpen] = useState(false);
+  const isActive = (href: string) =>
+    pathname === href || pathname.startsWith(`${href}/`);
+  const moreActive = moreItems.some((item) => isActive(item.href));
 
   return (
     <>
-      {/* Bottom sheet overlay */}
-      {moreOpen && (
-        <div
-          className="lg:hidden fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
-          onClick={() => setMoreOpen(false)}
+      {open && (
+        <button
+          aria-label="Close navigation"
+          className="fixed inset-0 z-50 bg-slate-950/50 backdrop-blur-sm lg:hidden"
+          onClick={() => setOpen(false)}
         />
       )}
 
-      {/* Bottom sheet */}
-      {moreOpen && (
-        <div className="lg:hidden fixed bottom-16 inset-x-0 z-50 bg-card border-t border-border rounded-t-2xl shadow-2xl pb-2">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-            <span className="text-sm font-semibold text-foreground">More</span>
+      {open && (
+        <div className="fixed inset-x-3 bottom-[76px] z-50 overflow-hidden rounded-3xl border bg-card/95 shadow-2xl backdrop-blur-xl lg:hidden">
+          <div className="flex items-center justify-between border-b px-5 py-4">
+            <div>
+              <p className="text-sm font-semibold">All tools</p>
+              <p className="text-xs text-muted-foreground">
+                Navigate your control plane
+              </p>
+            </div>
             <button
-              onClick={() => setMoreOpen(false)}
-              className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"
+              onClick={() => setOpen(false)}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+              aria-label="Close"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
-          <div className="grid grid-cols-4 gap-1 p-3">
+          <div className="grid grid-cols-3 gap-2 p-3">
             {moreItems.map((item) => {
-              const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+              const active = isActive(item.href);
               return (
                 <Link
                   key={item.name}
                   href={item.href}
-                  onClick={() => setMoreOpen(false)}
-                  className={`flex flex-col items-center justify-center gap-1.5 p-3 rounded-xl transition-colors ${
-                    isActive
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                  onClick={() => setOpen(false)}
+                  className={`flex min-h-20 flex-col items-center justify-center gap-2 rounded-2xl px-2 py-3 text-center transition ${
+                    active
+                      ? "bg-blue-600/10 text-blue-700 dark:text-blue-300"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   }`}
                 >
                   <item.icon className="h-5 w-5" />
-                  <span className="text-[10px] font-medium text-center leading-tight">{item.name}</span>
+                  <span className="text-[10px] font-semibold leading-tight">
+                    {item.name}
+                  </span>
                 </Link>
               );
             })}
@@ -91,36 +99,44 @@ export function MobileNav() {
         </div>
       )}
 
-      {/* Fixed bottom nav bar */}
-      <div className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-border bg-card/95 backdrop-blur-xl pb-safe">
-        <div className="flex h-16 items-center justify-around px-2">
-          {primaryTabs.map((item) => {
-            const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden">
+        <div className="grid h-16 grid-cols-5 px-1">
+          {tabs.map((item) => {
+            const active = isActive(item.href);
             return (
               <Link
                 key={item.name}
                 href={item.href}
-                className={`flex flex-col items-center justify-center w-full h-full gap-1 ${
-                  isActive ? "text-primary" : "text-foreground/60 hover:text-foreground"
+                className={`relative flex flex-col items-center justify-center gap-1 text-[10px] font-medium ${
+                  active
+                    ? "text-blue-700 dark:text-blue-300"
+                    : "text-muted-foreground"
                 }`}
               >
-                <item.icon className="h-5 w-5" />
-                <span className="text-[10px] font-medium">{item.name}</span>
+                {active && (
+                  <span className="absolute top-0 h-0.5 w-8 rounded-full bg-blue-600" />
+                )}
+                <item.icon className="h-[18px] w-[18px]" />
+                {item.name}
               </Link>
             );
           })}
-
           <button
-            onClick={() => setMoreOpen((v) => !v)}
-            className={`flex flex-col items-center justify-center w-full h-full gap-1 ${
-              isMoreActive || moreOpen ? "text-primary" : "text-foreground/60 hover:text-foreground"
+            onClick={() => setOpen((value) => !value)}
+            className={`relative flex flex-col items-center justify-center gap-1 text-[10px] font-medium ${
+              open || moreActive
+                ? "text-blue-700 dark:text-blue-300"
+                : "text-muted-foreground"
             }`}
           >
-            <MoreHorizontal className="h-5 w-5" />
-            <span className="text-[10px] font-medium">More</span>
+            {(open || moreActive) && (
+              <span className="absolute top-0 h-0.5 w-8 rounded-full bg-blue-600" />
+            )}
+            <MoreHorizontal className="h-[18px] w-[18px]" />
+            More
           </button>
         </div>
-      </div>
+      </nav>
     </>
   );
 }

@@ -6,6 +6,8 @@
  * fingerprint words, and approves. The public key is what the tunnel handshake
  * later verifies signatures against, so it is sent here, at pairing time.
  */
+import { hostname, platform as osPlatform } from 'node:os';
+
 import { DeviceIdentityManager } from '../gateway/identity/src/device-identity';
 import { PairingManager } from '../gateway/pairing/src/pairing-manager';
 
@@ -27,7 +29,10 @@ import {
   write,
 } from './pair-ui';
 
-const CONTROL_PLANE_URL = (process.env['CONTROL_PLANE_URL'] ?? 'http://localhost:4000').replace(/\/+$/, '');
+const CONTROL_PLANE_URL = (process.env['CONTROL_PLANE_URL'] ?? 'http://localhost:4000').replace(
+  /\/+$/,
+  '',
+);
 const WEB_URL = (process.env['ODYSSEUS_WEB_URL'] ?? 'http://localhost:3000').replace(/\/+$/, '');
 const POLL_INTERVAL_MS = 2000;
 /** How long to keep retrying while a sleeping host starts up. */
@@ -133,6 +138,15 @@ async function main(): Promise<void> {
           code: session.code,
           deviceId: session.deviceId,
           gatewayId: session.gatewayId,
+          deviceName: hostname().slice(0, 120),
+          platform:
+            osPlatform() === 'win32'
+              ? 'windows'
+              : osPlatform() === 'darwin'
+                ? 'darwin'
+                : osPlatform() === 'linux'
+                  ? 'linux'
+                  : 'unknown',
           fingerprintHex: session.fingerprintHex,
           fingerprintWords: session.fingerprintWords,
           // Registered so the Control Plane can verify the tunnel signatures
@@ -140,7 +154,8 @@ async function main(): Promise<void> {
           publicKeyJwk: identity.publicKeyJwk,
           publicKeyPem: identity.publicKeyPem,
         },
-        () => handle.update(`Waking ${host} ${dim('— free hosting sleeps when idle, up to a minute')}`),
+        () =>
+          handle.update(`Waking ${host} ${dim('— free hosting sleeps when idle, up to a minute')}`),
       ),
     () => 'public key registered',
   );
@@ -156,11 +171,15 @@ async function main(): Promise<void> {
     ...fingerprintGrid(session.fingerprintWords),
   ]);
   write();
-  write(`  ${paint(palette.violet, '→')}  ${bold('Open')}  ${link(pairUrl, paint(palette.violet, pairUrl))}`);
+  write(
+    `  ${paint(palette.violet, '→')}  ${bold('Open')}  ${link(pairUrl, paint(palette.violet, pairUrl))}`,
+  );
   write();
   write(`  ${dim('1')}  Sign in on your phone or browser`);
   write(`  ${dim('2')}  The link fills in the code ${dim('— or type it')}`);
-  write(`  ${dim('3')}  ${bold('Check all 10 words match, in order')} ${dim('— this is the security check')}`);
+  write(
+    `  ${dim('3')}  ${bold('Check all 10 words match, in order')} ${dim('— this is the security check')}`,
+  );
   write(`  ${dim('4')}  Approve`);
   write();
 
@@ -169,7 +188,8 @@ async function main(): Promise<void> {
   let tick: NodeJS.Timeout | undefined;
   let phase = 'Waiting for you to enter the code';
 
-  const render = () => status.set(`${phase}  ${dim('·')}  ${dim(`${formatRemaining(deadline - Date.now())} left`)}`);
+  const render = () =>
+    status.set(`${phase}  ${dim('·')}  ${dim(`${formatRemaining(deadline - Date.now())} left`)}`);
   tick = setInterval(render, 1000);
   render();
 
@@ -226,13 +246,22 @@ async function main(): Promise<void> {
       showCursor();
       process.exit(0);
     } else if (state === 'rejected') {
-      await finish(`  ${paint(palette.red, '✗')}  Rejected in the web app — the fingerprint did not match, or it was declined`, 1);
+      await finish(
+        `  ${paint(palette.red, '✗')}  Rejected in the web app — the fingerprint did not match, or it was declined`,
+        1,
+      );
     } else if (state === 'expired') {
-      await finish(`  ${paint(palette.red, '✗')}  The code expired before it was approved — run ${bold('pnpm pair')} again`, 1);
+      await finish(
+        `  ${paint(palette.red, '✗')}  The code expired before it was approved — run ${bold('pnpm pair')} again`,
+        1,
+      );
     }
   }
 
-  await finish(`  ${paint(palette.red, '✗')}  Timed out after 5 minutes — run ${bold('pnpm pair')} again`, 1);
+  await finish(
+    `  ${paint(palette.red, '✗')}  Timed out after 5 minutes — run ${bold('pnpm pair')} again`,
+    1,
+  );
 }
 
 main().catch((error: unknown) => {

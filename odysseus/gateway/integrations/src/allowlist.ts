@@ -22,6 +22,13 @@ const PATTERNS: Partial<Record<IntegrationId, Partial<Record<IntegrationScope, R
       new RegExp(`^${UUID}/\\.system_generated/logs/transcript(_full)?\\.jsonl$`, 'i'),
     ],
   },
+  claude: {
+    // Claude Code stores one session per project directory. Project directory
+    // names are intentionally not interpreted; safe-files resolves every
+    // candidate beneath the signed grant root before this pattern is checked.
+    'history.read': [new RegExp(`^[^/]+/${UUID}\\.jsonl$`, 'i')],
+    'usage.read': [new RegExp(`^[^/]+/${UUID}\\.jsonl$`, 'i')],
+  },
 };
 
 export function allowedPatterns(integration: IntegrationId, scope: IntegrationScope): RegExp[] {

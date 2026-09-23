@@ -1,20 +1,24 @@
 // frontend/lib/realtime.ts
 // Realtime WebSocket client for web frontend connecting to Control Plane /ws/client
 
-import { create } from 'zustand';
-import type { EventEnvelope } from '@odysseus/protocol';
-import { getAccessToken, requestRefreshToken } from './api-client';
+import { create } from "zustand";
+import type { EventEnvelope } from "@odysseus/protocol";
+import { getAccessToken, requestRefreshToken } from "./api-client";
 
-export type RealtimeStatus = 'connecting' | 'connected' | 'reconnecting' | 'offline';
+export type RealtimeStatus =
+  "connecting" | "connected" | "reconnecting" | "offline";
 
 export interface InboundEventMessage {
-  type: 'event';
+  type: string;
   sessionId?: string;
   deviceId?: string;
   sequence?: number;
   eventType?: string;
   envelope?: EventEnvelope;
   timestamp?: string;
+  integration?: string;
+  kind?: string;
+  [key: string]: unknown;
 }
 
 interface RealtimeStore {
@@ -23,7 +27,7 @@ interface RealtimeStore {
 }
 
 export const useRealtimeStore = create<RealtimeStore>((set) => ({
-  status: 'offline',
+  status: "offline",
   setStatus: (status) => set({ status }),
 }));
 
@@ -38,26 +42,36 @@ class RealtimeClient {
   private opened = false;
   /** The server accepted the token and sent its 'connected' welcome. */
   private welcomed = false;
+  private lifecycleInstalled = false;
+  private lastSessionSequence = new Map<string, number>();
 
-  private sessionListeners = new Map<string, Set<(envelope: EventEnvelope) => void>>();
+  private sessionListeners = new Map<
+    string,
+    Set<(envelope: EventEnvelope) => void>
+  >();
   private deviceListeners = new Map<string, Set<(data: unknown) => void>>();
   private globalListeners = new Set<(message: InboundEventMessage) => void>();
 
   constructor() {
     this.wsBaseUrl =
       process.env.NEXT_PUBLIC_WS_URL ||
-      (typeof window !== 'undefined'
-        ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:4000`
-        : 'ws://localhost:4000');
+      (typeof window !== "undefined"
+        ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.hostname}:4000`
+        : "ws://localhost:4000");
   }
 
   connect(): void {
-    if (typeof window === 'undefined') return;
-    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+    if (typeof window === "undefined") return;
+    if (
+      this.ws &&
+      (this.ws.readyState === WebSocket.OPEN ||
+        this.ws.readyState === WebSocket.CONNECTING)
+    ) {
       return;
     }
 
     this.isIntentionallyClosed = false;
+    this.installLifecycleHandlers();
     const token = getAccessToken();
 
     // The Control Plane refuses a socket without a token (close 4001). The
@@ -67,14 +81,16 @@ class RealtimeClient {
     if (!token) {
       void requestRefreshToken().then((fresh) => {
         if (fresh) this.connect();
-        else useRealtimeStore.getState().setStatus('offline');
+        else useRealtimeStore.getState().setStatus("offline");
       });
       return;
     }
 
-    const url = `${this.wsBaseUrl}/ws/client?token=${encodeURIComponent(token)}`;
+    const url = `${this.wsBaseUrl}/ws/client`;
 
-    useRealtimeStore.getState().setStatus(this.reconnectAttempts > 0 ? 'reconnecting' : 'connecting');
+    useRealtimeStore
+      .getState()
+      .setStatus(this.reconnectAttempts > 0 ? "reconnecting" : "connecting");
 
     this.opened = false;
     this.welcomed = false;
@@ -92,26 +108,34 @@ class RealtimeClient {
       // Reporting 'connected' here showed a green status for sockets that
       // were about to be rejected.
       this.opened = true;
+      // Send the bearer token inside the encrypted WebSocket rather than in
+      // its URL, where hosting/proxy access logs commonly record it.
+      this.send({ type: "auth", token });
     };
 
     this.ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data) as Record<string, unknown>;
-        if (msg.type === 'connected') {
+        if (msg.type === "connected") {
           this.welcomed = true;
           // Backoff resets only once the server has accepted us, so a socket
           // that is repeatedly rejected keeps backing off.
           this.reconnectAttempts = 0;
-          useRealtimeStore.getState().setStatus('connected');
+          useRealtimeStore.getState().setStatus("connected");
           for (const sessionId of this.sessionListeners.keys()) {
-            this.send({ action: 'subscribe_session', sessionId });
+            const seen = this.lastSessionSequence.get(sessionId);
+            this.send({
+              action: "subscribe_session",
+              sessionId,
+              ...(seen !== undefined ? { fromSequence: seen + 1 } : {}),
+            });
           }
           for (const deviceId of this.deviceListeners.keys()) {
-            this.send({ action: 'subscribe_device', deviceId });
+            this.send({ action: "subscribe_device", deviceId });
           }
           return;
         }
-        if (msg.type === 'event') {
+        if (msg.type === "event") {
           const evtMsg = msg as unknown as InboundEventMessage;
           const envelope = evtMsg.envelope;
 
@@ -123,6 +147,16 @@ class RealtimeClient {
           // Notify session listeners
           const targetSessionId = evtMsg.sessionId || envelope?.sessionId;
           if (targetSessionId && envelope) {
+            const sequence = evtMsg.sequence ?? envelope.sequence;
+            if (typeof sequence === "number") {
+              this.lastSessionSequence.set(
+                targetSessionId,
+                Math.max(
+                  sequence,
+                  this.lastSessionSequence.get(targetSessionId) ?? 0,
+                ),
+              );
+            }
             const listeners = this.sessionListeners.get(targetSessionId);
             if (listeners) {
               for (const l of listeners) {
@@ -141,6 +175,25 @@ class RealtimeClient {
               }
             }
           }
+          return;
+        }
+
+        // Integration changes are not EventEnvelopes, but pages such as
+        // History still need an immediate refresh instead of waiting for a
+        // polling interval.
+        if (
+          msg.type === "integration_update" ||
+          msg.type === "integration_data"
+        ) {
+          for (const listener of this.globalListeners) {
+            listener(msg as unknown as InboundEventMessage);
+          }
+          return;
+        }
+
+        if (msg.type === "disconnected" && msg.source === "workstation") {
+          this.isIntentionallyClosed = true;
+          useRealtimeStore.getState().setStatus("offline");
         }
       } catch {
         /* ignore malformed message */
@@ -149,8 +202,13 @@ class RealtimeClient {
 
     this.ws.onclose = (event: CloseEvent) => {
       this.ws = null;
+      if (event.code === 4004) {
+        this.isIntentionallyClosed = true;
+        useRealtimeStore.getState().setStatus("offline");
+        return;
+      }
       if (!this.isIntentionallyClosed) {
-        useRealtimeStore.getState().setStatus('reconnecting');
+        useRealtimeStore.getState().setStatus("reconnecting");
         // The server rejected the token — almost always because the access
         // token expired. Reconnecting with the same token would fail the same
         // way forever, so refresh first.
@@ -165,13 +223,13 @@ class RealtimeClient {
         if (rejected) {
           void requestRefreshToken().then((fresh) => {
             if (fresh) this.scheduleReconnect();
-            else useRealtimeStore.getState().setStatus('offline');
+            else useRealtimeStore.getState().setStatus("offline");
           });
           return;
         }
         this.scheduleReconnect();
       } else {
-        useRealtimeStore.getState().setStatus('offline');
+        useRealtimeStore.getState().setStatus("offline");
       }
     };
 
@@ -199,12 +257,27 @@ class RealtimeClient {
     }
   }
 
-  subscribeSession(sessionId: string, onEvent: (envelope: EventEnvelope) => void): () => void {
+  private installLifecycleHandlers(): void {
+    if (this.lifecycleInstalled || typeof window === "undefined") return;
+    this.lifecycleInstalled = true;
+    window.addEventListener("pagehide", () => this.disconnect());
+    window.addEventListener("pageshow", () => this.connect());
+  }
+
+  subscribeSession(
+    sessionId: string,
+    onEvent: (envelope: EventEnvelope) => void,
+  ): () => void {
     let set = this.sessionListeners.get(sessionId);
     if (!set) {
       set = new Set();
       this.sessionListeners.set(sessionId, set);
-      this.send({ action: 'subscribe_session', sessionId });
+      const seen = this.lastSessionSequence.get(sessionId);
+      this.send({
+        action: "subscribe_session",
+        sessionId,
+        ...(seen !== undefined ? { fromSequence: seen + 1 } : {}),
+      });
     }
     set.add(onEvent);
 
@@ -214,18 +287,22 @@ class RealtimeClient {
         s.delete(onEvent);
         if (s.size === 0) {
           this.sessionListeners.delete(sessionId);
-          this.send({ action: 'unsubscribe_session', sessionId });
+          this.send({ action: "unsubscribe_session", sessionId });
+          this.lastSessionSequence.delete(sessionId);
         }
       }
     };
   }
 
-  subscribeDevice(deviceId: string, onUpdate: (data: unknown) => void): () => void {
+  subscribeDevice(
+    deviceId: string,
+    onUpdate: (data: unknown) => void,
+  ): () => void {
     let set = this.deviceListeners.get(deviceId);
     if (!set) {
       set = new Set();
       this.deviceListeners.set(deviceId, set);
-      this.send({ action: 'subscribe_device', deviceId });
+      this.send({ action: "subscribe_device", deviceId });
     }
     set.add(onUpdate);
 
@@ -235,12 +312,15 @@ class RealtimeClient {
         s.delete(onUpdate);
         if (s.size === 0) {
           this.deviceListeners.delete(deviceId);
+          this.send({ action: "unsubscribe_device", deviceId });
         }
       }
     };
   }
 
-  subscribeAllEvents(listener: (message: InboundEventMessage) => void): () => void {
+  subscribeAllEvents(
+    listener: (message: InboundEventMessage) => void,
+  ): () => void {
     this.globalListeners.add(listener);
     return () => {
       this.globalListeners.delete(listener);
@@ -254,10 +334,11 @@ class RealtimeClient {
       this.reconnectTimer = null;
     }
     if (this.ws) {
+      this.send({ type: "disconnect" });
       this.ws.close();
       this.ws = null;
     }
-    useRealtimeStore.getState().setStatus('offline');
+    useRealtimeStore.getState().setStatus("offline");
   }
 }
 

@@ -7,6 +7,7 @@ export * from './integration-manager';
 export * from './paths';
 export * from './safe-files';
 export * from './sync/antigravity';
+export * from './sync/claude';
 export * from './sync/codex';
 export * from './sync/history-sync';
 export * from './sync/text';

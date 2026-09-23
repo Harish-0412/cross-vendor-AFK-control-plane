@@ -27,6 +27,8 @@ export type TunnelMessageType =
   | 'replay_event'
   | 'disconnect'
   | 'error'
+  /** Gateway → Control Plane: locally requested browser termination. */
+  | 'client_control'
   /** Gateway → Control Plane: integration grant changes and refused reads. */
   | 'integration_update';
 
@@ -304,6 +306,14 @@ export interface HeartbeatPayload {
     pendingApprovals: number;
     cpuPercent: number;
     memoryMb: number;
+  };
+  /** Stable, non-secret identity details shown to the user for verification. */
+  systemInfo?: {
+    hostname: string;
+    platform: 'windows' | 'linux' | 'darwin' | 'unknown';
+    arch: string;
+    nodeVersion: string;
+    gatewayVersion: string;
   };
 }
 

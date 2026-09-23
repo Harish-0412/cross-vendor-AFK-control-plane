@@ -3,7 +3,16 @@
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Bot, FileX, History as HistoryIcon, Loader2, Search, Sparkles, Wrench } from "lucide-react";
+import {
+  Bot,
+  BrainCircuit,
+  FileX,
+  History as HistoryIcon,
+  Loader2,
+  Search,
+  Sparkles,
+  Wrench,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,18 +27,28 @@ import {
   type ImportedConversation,
   type IntegrationId,
 } from "@/lib/ai-integrations";
+import { realtimeClient } from "@/lib/realtime";
 
-const TOOL_META: Partial<Record<IntegrationId, { name: string; icon: typeof Bot }>> = {
+const TOOL_META: Partial<
+  Record<IntegrationId, { name: string; icon: typeof Bot }>
+> = {
   codex: { name: "Codex", icon: Bot },
   antigravity: { name: "Antigravity", icon: Sparkles },
+  claude: { name: "Claude Code", icon: BrainCircuit },
 };
 
 function HistoryList() {
   const params = useSearchParams();
   const initial = params?.get("integration");
-  const [filter, setFilter] = useState<string>(initial === "codex" || initial === "antigravity" ? initial : "all");
+  const [filter, setFilter] = useState<string>(
+    initial === "codex" || initial === "antigravity" || initial === "claude"
+      ? initial
+      : "all",
+  );
   const [query, setQuery] = useState("");
-  const [conversations, setConversations] = useState<ImportedConversation[] | null>(null);
+  const [conversations, setConversations] = useState<
+    ImportedConversation[] | null
+  >(null);
   const [now] = useState(() => Date.now());
 
   useEffect(() => {
@@ -42,9 +61,17 @@ function HistoryList() {
     void load();
     // A fresh connection imports in the background; keep the list current.
     const timer = setInterval(() => void load(), 15_000);
+    const unsubscribe = realtimeClient.subscribeAllEvents((message) => {
+      if (
+        message.type === "integration_data" ||
+        message.type === "integration_update"
+      )
+        void load();
+    });
     return () => {
       cancelled = true;
       clearInterval(timer);
+      unsubscribe();
     };
   }, []);
 
@@ -62,7 +89,8 @@ function HistoryList() {
   const counts = useMemo(() => {
     const result: Record<string, number> = { all: conversations?.length ?? 0 };
     for (const conversation of conversations ?? []) {
-      result[conversation.integration] = (result[conversation.integration] ?? 0) + 1;
+      result[conversation.integration] =
+        (result[conversation.integration] ?? 0) + 1;
     }
     return result;
   }, [conversations]);
@@ -74,7 +102,8 @@ function HistoryList() {
           <HistoryIcon className="h-6 w-6" /> History
         </h1>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          Past conversations from the AI coding tools you connected, imported from your workstation.
+          Past conversations from the AI coding tools you connected, imported
+          from your workstation.
         </p>
       </div>
 
@@ -84,8 +113,15 @@ function HistoryList() {
             <Tabs value={filter} onValueChange={setFilter}>
               <TabsList>
                 <TabsTrigger value="all">All ({counts.all ?? 0})</TabsTrigger>
-                <TabsTrigger value="codex">Codex ({counts.codex ?? 0})</TabsTrigger>
-                <TabsTrigger value="antigravity">Antigravity ({counts.antigravity ?? 0})</TabsTrigger>
+                <TabsTrigger value="codex">
+                  Codex ({counts.codex ?? 0})
+                </TabsTrigger>
+                <TabsTrigger value="antigravity">
+                  Antigravity ({counts.antigravity ?? 0})
+                </TabsTrigger>
+                <TabsTrigger value="claude">
+                  Claude ({counts.claude ?? 0})
+                </TabsTrigger>
               </TabsList>
             </Tabs>
             <div className="relative min-w-[200px] flex-1">
@@ -106,14 +142,20 @@ function HistoryList() {
           ) : conversations.length === 0 ? (
             <Card>
               <CardContent className="space-y-3 py-10 text-center">
-                <p className="text-sm text-muted-foreground">No imported conversations yet.</p>
+                <p className="text-sm text-muted-foreground">
+                  No imported conversations yet.
+                </p>
                 <Button asChild size="sm" variant="outline">
-                  <Link href="/integrations">Connect Codex or Antigravity</Link>
+                  <Link href="/integrations">
+                    Connect Codex, Antigravity, or Claude Code
+                  </Link>
                 </Button>
               </CardContent>
             </Card>
           ) : visible.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">Nothing matches.</p>
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              Nothing matches.
+            </p>
           ) : (
             <div className="divide-y rounded-lg border">
               {visible.map((conversation) => {
@@ -132,32 +174,55 @@ function HistoryList() {
                       <div className="flex items-center gap-2">
                         <span className="truncate font-medium">
                           {conversation.title || (
-                            <span className="text-muted-foreground">Untitled conversation</span>
+                            <span className="text-muted-foreground">
+                              Untitled conversation
+                            </span>
                           )}
                         </span>
                         {!conversation.hasTranscript && (
-                          <Badge variant="outline" className="shrink-0 gap-1 text-[10px]">
+                          <Badge
+                            variant="outline"
+                            className="shrink-0 gap-1 text-[10px]"
+                          >
                             <FileX className="h-3 w-3" /> No transcript
                           </Badge>
                         )}
                         {conversation.contentSynced && (
-                          <Badge variant="secondary" className="shrink-0 text-[10px]">
+                          <Badge
+                            variant="secondary"
+                            className="shrink-0 text-[10px]"
+                          >
                             Content synced
                           </Badge>
                         )}
                       </div>
                       <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
                         <span>{tool?.name ?? conversation.integration}</span>
-                        <span>{formatRelative(conversation.updatedAt, now)}</span>
-                        {conversation.hasTranscript && <span>{conversation.messageCount} messages</span>}
+                        <span>
+                          {formatRelative(conversation.updatedAt, now)}
+                        </span>
+                        {conversation.hasTranscript && (
+                          <span>{conversation.messageCount} messages</span>
+                        )}
                         {conversation.toolCallCount > 0 && (
                           <span className="inline-flex items-center gap-1">
-                            <Wrench className="h-3 w-3" /> {conversation.toolCallCount}
+                            <Wrench className="h-3 w-3" />{" "}
+                            {conversation.toolCallCount}
                           </span>
                         )}
-                        {conversation.tokens && <span>{formatTokens(conversation.tokens.total)} tokens</span>}
-                        {conversation.model && <span>{conversation.model}</span>}
-                        {conversation.workspace && <span className="truncate">{conversation.workspace}</span>}
+                        {conversation.tokens && (
+                          <span title="Exact total recorded by the provider; no dollar estimate">
+                            {formatTokens(conversation.tokens.total)} tokens
+                          </span>
+                        )}
+                        {conversation.model && (
+                          <span>{conversation.model}</span>
+                        )}
+                        {conversation.workspace && (
+                          <span className="truncate">
+                            {conversation.workspace}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </Link>
@@ -168,7 +233,9 @@ function HistoryList() {
         </div>
 
         <aside className="space-y-3">
-          <h2 className="text-sm font-semibold text-foreground">Remaining usage</h2>
+          <h2 className="text-sm font-semibold text-foreground">
+            Remaining usage
+          </h2>
           <ProviderLimits compact />
         </aside>
       </div>
@@ -178,7 +245,11 @@ function HistoryList() {
 
 export default function HistoryPage() {
   return (
-    <Suspense fallback={<div className="py-10 text-sm text-muted-foreground">Loading…</div>}>
+    <Suspense
+      fallback={
+        <div className="py-10 text-sm text-muted-foreground">Loading…</div>
+      }
+    >
       <HistoryList />
     </Suspense>
   );

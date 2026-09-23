@@ -3,7 +3,21 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
-import { Monitor, Plus, Circle, Server, Laptop, Cpu, HardDrive, RefreshCw, OctagonAlert, Lock, Loader2 } from "lucide-react";
+import {
+  Monitor,
+  Plus,
+  Circle,
+  Server,
+  Laptop,
+  Cpu,
+  HardDrive,
+  RefreshCw,
+  OctagonAlert,
+  Lock,
+  Loader2,
+  Fingerprint,
+  Radio,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiClient } from "@/lib/api-client";
 import { realtimeClient } from "@/lib/realtime";
@@ -15,6 +29,18 @@ interface DeviceRecord {
   platform: "windows" | "linux" | "darwin" | "unknown";
   status: string;
   online: boolean;
+  systemInfo?: {
+    hostname?: string;
+    arch?: string;
+    nodeVersion?: string;
+    gatewayVersion?: string;
+  } | null;
+  connectedAt?: string | null;
+  lastHeartbeatAt?: string | null;
+  tunnelConnectionCount?: number;
+  activeWebClients?: number;
+  fingerprintShort?: string | null;
+  fingerprintWords?: string[];
   lastSeenAt: string | null;
   activeSessionCount: number;
   resourceUsage?: {
@@ -33,7 +59,10 @@ export default function DevicesPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const runDeviceAction = async (device: DeviceRecord, action: "kill-switch" | "lock") => {
+  const runDeviceAction = async (
+    device: DeviceRecord,
+    action: "kill-switch" | "lock",
+  ) => {
     if (busyId) return;
     if (device.activeSessionCount === 0) {
       toast.info("No active sessions on this device");
@@ -43,7 +72,12 @@ export default function DevicesPage() {
     try {
       const res = await apiClient.post<{ sessions: unknown[] }>(
         `/api/v1/devices/${device.id}/${action}`,
-        { reason: action === "kill-switch" ? "Kill switch from devices page" : "Lock from devices page" },
+        {
+          reason:
+            action === "kill-switch"
+              ? "Kill switch from devices page"
+              : "Lock from devices page",
+        },
       );
       const count = res?.sessions?.length ?? 0;
       toast.success(
@@ -53,7 +87,9 @@ export default function DevicesPage() {
       );
       void fetchDevices();
     } catch {
-      toast.error(`Failed to ${action === "kill-switch" ? "stop" : "lock"} device`);
+      toast.error(
+        `Failed to ${action === "kill-switch" ? "stop" : "lock"} device`,
+      );
     } finally {
       setBusyId(null);
     }
@@ -120,8 +156,12 @@ export default function DevicesPage() {
         className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
       >
         <div className="flex flex-col gap-1">
-          <h1 className="text-2xl lg:text-3xl font-bold tracking-tight text-foreground">Connected Machines</h1>
-          <p className="text-sm text-muted-foreground">Manage and inspect your registered remote gateway devices.</p>
+          <h1 className="text-2xl lg:text-3xl font-bold tracking-tight text-foreground">
+            Connected Machines
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Manage and inspect your registered remote gateway devices.
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <Button
@@ -134,7 +174,9 @@ export default function DevicesPage() {
             disabled={refreshing}
             className="gap-1.5 text-xs"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
+            />
             Refresh
           </Button>
           <Link href="/devices/pair">
@@ -148,9 +190,12 @@ export default function DevicesPage() {
       {devices.length === 0 && !loading && (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card p-12 text-center shadow-sm">
           <Monitor className="h-10 w-10 text-muted-foreground mb-3" />
-          <h3 className="text-base font-semibold text-foreground">No devices paired yet</h3>
+          <h3 className="text-base font-semibold text-foreground">
+            No devices paired yet
+          </h3>
           <p className="text-sm text-muted-foreground mt-1 max-w-md">
-            Pair your local workstation or remote server running the Odysseus Gateway to start executing agent tasks.
+            Pair your local workstation or remote server running the Odysseus
+            Gateway to start executing agent tasks.
           </p>
           <Link href="/devices/pair" className="mt-4">
             <Button size="sm" className="gap-1.5">
@@ -166,96 +211,153 @@ export default function DevicesPage() {
             key={device.id}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: 0.06 + i * 0.06, ease: [0.22, 1, 0.36, 1] }}
+            transition={{
+              duration: 0.4,
+              delay: 0.06 + i * 0.06,
+              ease: [0.22, 1, 0.36, 1],
+            }}
           >
-          <Link href={`/devices/${device.id}`} className="block h-full">
-            <div className="flex flex-col gap-4 h-full rounded-xl border border-border bg-card p-5 hover:border-primary/50 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 group">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent group-hover:bg-primary/10 group-hover:text-primary transition-colors">
-                    {getPlatformIcon(device.platform)}
+            <Link href={`/devices/${device.id}`} className="block h-full">
+              <div className="flex flex-col gap-4 h-full rounded-xl border border-border bg-card p-5 hover:border-primary/50 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 group">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent group-hover:bg-primary/10 group-hover:text-primary transition-colors">
+                      {getPlatformIcon(device.platform)}
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-foreground tracking-tight text-sm">
+                        {device.friendlyName}
+                      </span>
+                      <span className="text-[11px] text-muted-foreground">
+                        {device.systemInfo?.hostname ?? "Hostname pending"}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex flex-col">
-                    <span className="font-semibold text-foreground tracking-tight text-sm">
-                      {device.friendlyName}
+                  <div className="flex items-center gap-1.5 rounded-full bg-accent px-2.5 py-1 text-xs font-medium">
+                    <Circle
+                      className={`h-2 w-2 fill-current ${
+                        device.online ? "text-emerald-500" : "text-destructive"
+                      }`}
+                    />
+                    <span className="capitalize">
+                      {device.online ? "Online" : "Offline"}
                     </span>
-                    <span className="text-[11px] font-mono text-muted-foreground">{device.id}</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5 rounded-full bg-accent px-2.5 py-1 text-xs font-medium">
-                  <Circle
-                    className={`h-2 w-2 fill-current ${
-                      device.online ? "text-emerald-500" : "text-destructive"
-                    }`}
-                  />
-                  <span className="capitalize">{device.online ? "Online" : "Offline"}</span>
-                </div>
-              </div>
 
-              {/* Resource usage telemetry if reported */}
-              {device.resourceUsage && (
-                <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/50 p-2.5 text-xs">
-                  <div className="flex items-center gap-1.5 text-muted-foreground">
-                    <Cpu className="h-3.5 w-3.5 text-primary" />
-                    <span>CPU:</span>
+                {/* Resource usage telemetry if reported */}
+                {device.resourceUsage && (
+                  <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/50 p-2.5 text-xs">
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <Cpu className="h-3.5 w-3.5 text-primary" />
+                      <span>CPU:</span>
+                      <span className="font-medium text-foreground font-mono">
+                        {device.resourceUsage.cpuPercent !== undefined
+                          ? `${device.resourceUsage.cpuPercent}%`
+                          : "—"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <HardDrive className="h-3.5 w-3.5 text-blue-500" />
+                      <span>RAM:</span>
+                      <span className="font-medium text-foreground font-mono">
+                        {device.resourceUsage.memoryMb !== undefined
+                          ? `${device.resourceUsage.memoryMb} MB`
+                          : "—"}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-col gap-1.5 pt-2 border-t border-border/50 text-xs text-muted-foreground">
+                  <div className="flex items-center justify-between gap-3">
+                    <span>System</span>
+                    <span className="font-medium text-foreground">
+                      {[device.platform, device.systemInfo?.arch]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span>Gateway</span>
+                    <span className="font-medium text-foreground">
+                      {device.systemInfo?.gatewayVersion ?? "Version pending"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="inline-flex items-center gap-1">
+                      <Radio className="h-3 w-3" /> Secure tunnels
+                    </span>
                     <span className="font-medium text-foreground font-mono">
-                      {device.resourceUsage.cpuPercent !== undefined
-                        ? `${device.resourceUsage.cpuPercent}%`
-                        : "—"}
+                      {device.tunnelConnectionCount ?? 0}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1.5 text-muted-foreground">
-                    <HardDrive className="h-3.5 w-3.5 text-blue-500" />
-                    <span>RAM:</span>
+                  <div className="flex items-center justify-between gap-3">
+                    <span>Active web clients</span>
                     <span className="font-medium text-foreground font-mono">
-                      {device.resourceUsage.memoryMb !== undefined
-                        ? `${device.resourceUsage.memoryMb} MB`
-                        : "—"}
+                      {device.activeWebClients ?? 0}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Last seen</span>
+                    <span className="font-medium text-foreground">
+                      {formatLastSeen(device.lastSeenAt, device.online)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Active sessions</span>
+                    <span className="font-medium text-foreground font-mono">
+                      {device.activeSessionCount}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 pt-1">
+                    <span className="inline-flex items-center gap-1">
+                      <Fingerprint className="h-3 w-3" /> Verified identity
+                    </span>
+                    <span
+                      className="truncate font-mono text-[10px] font-medium text-foreground"
+                      title={device.fingerprintWords?.join(" · ") || device.id}
+                    >
+                      {device.fingerprintShort ??
+                        device.id.slice(-12).toUpperCase()}
                     </span>
                   </div>
                 </div>
-              )}
 
-              <div className="flex flex-col gap-1.5 pt-2 border-t border-border/50 text-xs text-muted-foreground">
-                <div className="flex items-center justify-between">
-                  <span>Last seen</span>
-                  <span className="font-medium text-foreground">
-                    {formatLastSeen(device.lastSeenAt, device.online)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Active sessions</span>
-                  <span className="font-medium text-foreground font-mono">
-                    {device.activeSessionCount}
-                  </span>
-                </div>
+                {/* Phase 7 §2.5 — per-device kill switch / lock */}
+                {device.activeSessionCount > 0 && (
+                  <div
+                    className="flex items-center gap-2 pt-1"
+                    onClick={(e) => e.preventDefault()}
+                  >
+                    <button
+                      onClick={() =>
+                        void runDeviceAction(device, "kill-switch")
+                      }
+                      disabled={busyId === device.id}
+                      className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/5 px-2 py-1.5 text-[11px] font-bold text-red-600 dark:text-red-400 transition-all hover:bg-red-500/15 disabled:opacity-50"
+                      title="Cancel every active session on this device"
+                    >
+                      {busyId === device.id ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <OctagonAlert className="h-3 w-3" />
+                      )}
+                      Stop All
+                    </button>
+                    <button
+                      onClick={() => void runDeviceAction(device, "lock")}
+                      disabled={busyId === device.id}
+                      className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/5 px-2 py-1.5 text-[11px] font-bold text-amber-600 dark:text-amber-400 transition-all hover:bg-amber-500/15 disabled:opacity-50"
+                      title="Lock sessions to observation-only (approvals superseded)"
+                    >
+                      <Lock className="h-3 w-3" />
+                      Lock
+                    </button>
+                  </div>
+                )}
               </div>
-
-              {/* Phase 7 §2.5 — per-device kill switch / lock */}
-              {device.activeSessionCount > 0 && (
-                <div className="flex items-center gap-2 pt-1" onClick={(e) => e.preventDefault()}>
-                  <button
-                    onClick={() => void runDeviceAction(device, "kill-switch")}
-                    disabled={busyId === device.id}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/5 px-2 py-1.5 text-[11px] font-bold text-red-600 dark:text-red-400 transition-all hover:bg-red-500/15 disabled:opacity-50"
-                    title="Cancel every active session on this device"
-                  >
-                    {busyId === device.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <OctagonAlert className="h-3 w-3" />}
-                    Stop All
-                  </button>
-                  <button
-                    onClick={() => void runDeviceAction(device, "lock")}
-                    disabled={busyId === device.id}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/5 px-2 py-1.5 text-[11px] font-bold text-amber-600 dark:text-amber-400 transition-all hover:bg-amber-500/15 disabled:opacity-50"
-                    title="Lock sessions to observation-only (approvals superseded)"
-                  >
-                    <Lock className="h-3 w-3" />
-                    Lock
-                  </button>
-                </div>
-              )}
-            </div>
-          </Link>
+            </Link>
           </motion.div>
         ))}
       </div>

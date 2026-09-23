@@ -81,6 +81,8 @@ export interface IntegrationCommandHandler {
   sync?(payload: unknown): Promise<unknown>;
   /** Send one conversation's content, identified by id only. */
   syncContent?(payload: unknown): Promise<unknown>;
+  /** Pause/resume local reads when the signed-in website leaves/returns. */
+  setClientPresence?(active: boolean, clients: number): Promise<unknown> | unknown;
 }
 
 export class GatewayImpl implements GatewayCore {
@@ -156,6 +158,20 @@ export class GatewayImpl implements GatewayCore {
           pendingApprovals: 0,
           cpuPercent: resources.cpuPercent,
           memoryMb: resources.memoryMb,
+        },
+        systemInfo: {
+          hostname: os.hostname().slice(0, 120),
+          platform:
+            os.platform() === 'win32'
+              ? 'windows'
+              : os.platform() === 'darwin'
+                ? 'darwin'
+                : os.platform() === 'linux'
+                  ? 'linux'
+                  : 'unknown',
+          arch: os.arch(),
+          nodeVersion: process.version,
+          gatewayVersion: GATEWAY_VERSION,
         },
       };
     });
@@ -413,12 +429,8 @@ export class GatewayImpl implements GatewayCore {
 
   /** Sessions that are still doing work, i.e. would be lost by an abort now. */
   getActiveSessionCount(): number {
-    return this.registry.listByState([
-      'initializing',
-      'running',
-      'waiting_for_approval',
-      'paused',
-    ]).length;
+    return this.registry.listByState(['initializing', 'running', 'waiting_for_approval', 'paused'])
+      .length;
   }
 
   /**
@@ -528,6 +540,20 @@ export class GatewayImpl implements GatewayCore {
     const sessionId = typeof payload['sessionId'] === 'string' ? payload['sessionId'] : undefined;
     try {
       switch (commandType) {
+        case 'client.presence': {
+          const handler = this.integrationHandler;
+          if (!handler?.setClientPresence) {
+            return { success: false, error: 'Integrations are not enabled on this gateway' };
+          }
+          const clients =
+            typeof payload['clients'] === 'number' && payload['clients'] >= 0
+              ? Math.floor(payload['clients'])
+              : 0;
+          return {
+            success: true,
+            result: await handler.setClientPresence(payload['active'] === true, clients),
+          };
+        }
         // The Control Plane may ask for access and may revoke it. There is no
         // command that approves: approval only happens at this machine.
         case 'integration.sync':
@@ -550,7 +576,10 @@ export class GatewayImpl implements GatewayCore {
             return { success: true, result: await handler.receiveRequest(payload) };
           }
           if (commandType === 'integration.revoke') {
-            return { success: true, result: { revoked: await handler.revoke(payload['integration'], 'web') } };
+            return {
+              success: true,
+              result: { revoked: await handler.revoke(payload['integration'], 'web') },
+            };
           }
           return { success: true, result: await handler.list() };
         }

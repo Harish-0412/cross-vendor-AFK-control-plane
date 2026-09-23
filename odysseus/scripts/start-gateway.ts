@@ -186,6 +186,16 @@ async function main(): Promise<void> {
         });
       }
     },
+    onLocalWebDisconnect: (request) => {
+      tunnelClient.send('client_control', {
+        action: 'terminate_all',
+        requestId: request.id,
+        requestedAt: request.requestedAt,
+        reason: 'Disconnected from the workstation',
+      });
+      history?.setBrowserPresence(false);
+      deviceLog.info('web_clients.terminate_requested', { requestId: request.id });
+    },
   });
 
   // One prompt at a time: a second request waits for `pnpm grants`.
@@ -232,12 +242,18 @@ async function main(): Promise<void> {
       if (!history) throw new Error('History sync is not running');
       return history.syncContent(value.integration, value.externalId);
     },
+    setClientPresence: (active, clients) => {
+      history?.setBrowserPresence(active);
+      deviceLog.info(active ? 'web_clients.connected' : 'web_clients.disconnected', { clients });
+      return { active, clients, localReadsPaused: !active };
+    },
   });
 
   history = new HistorySync({
     manager: integrations,
     ctx: pathContext,
     emit: (update) => tunnelClient.send('integration_update', update),
+    requireBrowserPresence: true,
   });
   // Keep granted integrations current. Unchanged files are served from a
   // cache, so a quiet interval costs only a directory listing.
@@ -287,6 +303,9 @@ async function main(): Promise<void> {
         break;
       case 'state_change':
         if (event.state === 'disconnected' || event.state === 'reconnecting') {
+          // Without the authenticated Control Plane link there is no way to
+          // prove a website is still present, so fail closed and stop reads.
+          history?.setBrowserPresence(false);
           runtime.notifyTunnelLost(event.message);
         }
         break;
@@ -368,7 +387,8 @@ async function registerAvailableAdapters(
     logger: log,
   });
 
-  for (const warning of discovery.warnings) log.warn('adapter.discovery_warning', { detail: warning });
+  for (const warning of discovery.warnings)
+    log.warn('adapter.discovery_warning', { detail: warning });
   if (discovery.errors.length > 0) {
     for (const error of discovery.errors) log.error('adapter.required_failed', { detail: error });
     return { fatal: discovery.errors[0] };

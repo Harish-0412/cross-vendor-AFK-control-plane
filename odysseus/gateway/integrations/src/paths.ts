@@ -32,6 +32,11 @@ export function requestsFile(ctx: PathContext): string {
   return join(ctx.odysseusHome, 'grant-requests.json');
 }
 
+/** Local-only requests written by `pnpm grants terminate-web`. */
+export function connectionControlFile(ctx: PathContext): string {
+  return join(ctx.odysseusHome, 'connection-control.json');
+}
+
 /**
  * The directories each integration may read. Anything outside these, and
  * anything inside them that does not match the integration's allowlist, is
@@ -44,6 +49,8 @@ export function integrationRoots(integration: IntegrationId, ctx: PathContext): 
       return [join(ctx.home, '.codex', 'sessions')];
     case 'antigravity':
       return [join(ctx.home, '.gemini', 'antigravity', 'brain')];
+    case 'claude':
+      return [join(ctx.home, '.claude', 'projects')];
     case 'chatgpt-export':
     case 'openai-org':
       return [];

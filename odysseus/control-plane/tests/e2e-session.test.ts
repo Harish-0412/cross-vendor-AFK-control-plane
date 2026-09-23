@@ -2,10 +2,7 @@ import { WebSocket } from 'ws';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 import { ControlPlane } from '../src/control-plane';
-import {
-  connectAuthenticatedGateway,
-  createTestIdentity,
-} from './helpers/gateway-handshake';
+import { connectAuthenticatedGateway, createTestIdentity } from './helpers/gateway-handshake';
 
 describe('End-to-End Session Lifecycle & Real-time Multiplexing', () => {
   let cp: ControlPlane;
@@ -76,17 +73,21 @@ describe('End-to-End Session Lifecycle & Real-time Multiplexing', () => {
 
     // 3. Gateway connects to the tunnel and proves its identity by signing
     // the server's challenge with the key registered during pairing.
-    const gatewayWs = await connectAuthenticatedGateway(
-      WebSocket as never,
-      tunnelUrl,
-      identity,
-    );
+    const gatewayWs = await connectAuthenticatedGateway(WebSocket as never, tunnelUrl, identity);
 
     expect(cp.registry.isDeviceOnline(deviceId)).toBe(true);
 
-    // 4. Web Client connects to /ws/client with token
-    const clientWs = new WebSocket(`${clientUrl}?token=${token}`);
-    await new Promise((resolve) => clientWs.on('open', resolve));
+    // 4. Web Client connects and authenticates inside the encrypted socket.
+    // The bearer token must never be placed in the URL.
+    const clientWs = new WebSocket(clientUrl);
+    await new Promise<void>((resolve) => {
+      clientWs.on('open', () => {
+        clientWs.send(JSON.stringify({ type: 'auth', token }));
+      });
+      clientWs.on('message', (data) => {
+        if (JSON.parse(data.toString('utf8')).type === 'connected') resolve();
+      });
+    });
 
     // Setup listener on Gateway for commands from Control Plane
     let receivedCommand: any = null;

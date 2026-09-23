@@ -28,16 +28,19 @@ import { displayPath, type PathContext } from '../paths';
 import { listAllowedFiles, readGrantedLines, type ListedFile } from '../safe-files';
 
 import { antigravityItems, summariseAntigravity } from './antigravity';
+import { claudeItems, summariseClaude } from './claude';
 import { codexItems, codexUsage, summariseCodex } from './codex';
 import { UUID_PATTERN } from './text';
 
 /** Integrations whose history lives in files this module can read. */
-export const FILE_HISTORY_INTEGRATIONS: IntegrationId[] = ['codex', 'antigravity'];
+export const FILE_HISTORY_INTEGRATIONS: IntegrationId[] = ['codex', 'antigravity', 'claude'];
 
 export interface HistorySyncOptions {
   manager: IntegrationManager;
   ctx: PathContext;
   emit: (update: IntegrationDataUpdate) => void;
+  /** Production enables this so local files are read only while a web client is live. */
+  requireBrowserPresence?: boolean;
 }
 
 interface CachedSummary {
@@ -52,8 +55,11 @@ export class HistorySync {
   private readonly cache = new Map<string, CachedSummary>();
   private readonly running = new Set<string>();
   private autoTimer: NodeJS.Timeout | undefined;
+  private browserPresent: boolean;
 
-  constructor(private readonly options: HistorySyncOptions) {}
+  constructor(private readonly options: HistorySyncOptions) {
+    this.browserPresent = options.requireBrowserPresence !== true;
+  }
 
   private get guard() {
     return this.options.manager.guard;
@@ -63,6 +69,7 @@ export class HistorySync {
 
   /** Titles and metadata for every conversation, then usage if granted. */
   async syncAll(integration: IntegrationId): Promise<{ conversations: number }> {
+    this.assertBrowserPresent();
     const key = `all:${integration}`;
     if (this.running.has(key)) return { conversations: -1 };
     this.running.add(key);
@@ -79,12 +86,15 @@ export class HistorySync {
   }
 
   async syncSummaries(integration: IntegrationId): Promise<number> {
+    this.assertBrowserPresent();
     const summaries =
       integration === 'codex'
         ? await this.scanCodex()
         : integration === 'antigravity'
           ? await this.scanAntigravity()
-          : [];
+          : integration === 'claude'
+            ? await this.scanClaude()
+            : [];
 
     const scanId = `scan_${randomUUID().replace(/-/g, '')}`;
     const size = HISTORY_LIMITS.summariesPerMessage;
@@ -115,6 +125,7 @@ export class HistorySync {
     const summaries: ExternalConversationSummary[] = [];
 
     for (const file of files) {
+      this.assertBrowserPresent();
       const cached = this.cache.get(file.absolutePath);
       if (
         cached &&
@@ -163,6 +174,7 @@ export class HistorySync {
     // Prefer the untruncated transcript when a conversation has both.
     const byConversation = new Map<string, ListedFile>();
     for (const file of files) {
+      this.assertBrowserPresent();
       const conversationId = file.relativePath.split('/')[0] ?? '';
       const existing = byConversation.get(conversationId);
       if (!existing || file.relativePath.endsWith('transcript_full.jsonl')) {
@@ -172,6 +184,7 @@ export class HistorySync {
 
     const summaries: ExternalConversationSummary[] = [];
     for (const [conversationId, file] of byConversation) {
+      this.assertBrowserPresent();
       const cached = this.cache.get(file.absolutePath);
       if (cached && cached.size === file.size && cached.mtimeMs === file.mtimeMs) {
         this.index.set(`antigravity:${conversationId}`, file.absolutePath);
@@ -198,6 +211,7 @@ export class HistorySync {
     // Conversations Antigravity kept no transcript for are listed as such
     // rather than silently missing. Only directory names are read.
     for (const root of access.grant.roots) {
+      this.assertBrowserPresent();
       let entries;
       try {
         entries = await readdir(root, { withFileTypes: true });
@@ -205,6 +219,7 @@ export class HistorySync {
         continue;
       }
       for (const entry of entries) {
+        this.assertBrowserPresent();
         if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
         if (!UUID_PATTERN.test(entry.name) || byConversation.has(entry.name)) continue;
         const info = await stat(join(root, entry.name)).catch(() => null);
@@ -225,6 +240,52 @@ export class HistorySync {
     return summaries.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
   }
 
+  private async scanClaude(): Promise<ExternalConversationSummary[]> {
+    const includeTokens = await this.hasScope('claude', 'usage.read');
+    const files = await listAllowedFiles(this.guard, 'claude', 'history.read');
+    const summaries: ExternalConversationSummary[] = [];
+
+    for (const file of files) {
+      this.assertBrowserPresent();
+      const cached = this.cache.get(file.absolutePath);
+      if (
+        cached &&
+        cached.size === file.size &&
+        cached.mtimeMs === file.mtimeMs &&
+        Boolean(cached.summary.tokens) === includeTokens
+      ) {
+        this.index.set(`claude:${cached.summary.externalId}`, file.absolutePath);
+        summaries.push(cached.summary);
+        continue;
+      }
+
+      const { lines } = await readGrantedLines(
+        this.guard,
+        'claude',
+        'history.read',
+        file.absolutePath,
+      );
+      const idFromName = basename(file.relativePath, '.jsonl');
+      const parsed = summariseClaude(
+        lines.map((line) => line.line),
+        { includeTokens, fallbackId: idFromName },
+      );
+      if (!parsed) continue;
+
+      const { cwd, ...rest } = parsed;
+      const summary: ExternalConversationSummary = {
+        ...rest,
+        integration: 'claude',
+        ...(cwd ? { workspace: displayPath(cwd, this.options.ctx) } : {}),
+      };
+      this.cache.set(file.absolutePath, { size: file.size, mtimeMs: file.mtimeMs, summary });
+      this.index.set(`claude:${summary.externalId}`, file.absolutePath);
+      summaries.push(summary);
+    }
+
+    return summaries.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  }
+
   // -------------------------------------------------------------- content
 
   /**
@@ -232,6 +293,7 @@ export class HistorySync {
    * this process's own index — it is never used to build a path.
    */
   async syncContent(integration: IntegrationId, externalId: unknown): Promise<{ items: number }> {
+    this.assertBrowserPresent();
     if (typeof externalId !== 'string' || !UUID_PATTERN.test(externalId)) {
       throw new Error('Invalid conversation id');
     }
@@ -248,7 +310,12 @@ export class HistorySync {
 
     const { lines } = await readGrantedLines(this.guard, integration, 'history.read', path);
     const raw = lines.map((line) => line.line);
-    const { items, truncated } = integration === 'codex' ? codexItems(raw) : antigravityItems(raw);
+    const { items, truncated } =
+      integration === 'codex'
+        ? codexItems(raw)
+        : integration === 'claude'
+          ? claudeItems(raw)
+          : antigravityItems(raw);
 
     const size = HISTORY_LIMITS.itemsPerMessage;
     const parts = Math.max(1, Math.ceil(items.length / size));
@@ -270,6 +337,7 @@ export class HistorySync {
 
   /** The latest plan limits Codex recorded. Nothing is sent when none exist. */
   async refreshUsage(integration: IntegrationId): Promise<ProviderUsageSnapshot | null> {
+    this.assertBrowserPresent();
     if (integration !== 'codex') return null;
     const files = await listAllowedFiles(this.guard, 'codex', 'usage.read');
     // Limits are cumulative state: the newest files hold the latest figures.
@@ -277,6 +345,7 @@ export class HistorySync {
 
     let latest: ProviderUsageSnapshot | null = null;
     for (const file of newest) {
+      this.assertBrowserPresent();
       const { lines } = await readGrantedLines(
         this.guard,
         'codex',
@@ -311,6 +380,7 @@ export class HistorySync {
 
   /** Sync every integration that currently has an active grant. */
   async syncAllActive(): Promise<void> {
+    if (!this.browserPresent) return;
     for (const state of await this.options.manager.list().catch(() => [])) {
       if (state.status !== 'active' || !FILE_HISTORY_INTEGRATIONS.includes(state.integration))
         continue;
@@ -322,6 +392,17 @@ export class HistorySync {
   stopAuto(): void {
     if (this.autoTimer) clearInterval(this.autoTimer);
     this.autoTimer = undefined;
+  }
+
+  /** Called by the authenticated Control Plane presence bridge. */
+  setBrowserPresence(present: boolean): void {
+    const becamePresent = present && !this.browserPresent;
+    this.browserPresent = present;
+    if (becamePresent) void this.syncAllActive();
+  }
+
+  isBrowserPresent(): boolean {
+    return this.browserPresent;
   }
 
   /** Forget cached data for an integration, e.g. after a revoke. */
@@ -343,5 +424,11 @@ export class HistorySync {
     // scope that was simply never requested.
     const grant = await this.options.manager.store.findActive(integration);
     return Boolean(grant?.scopes.includes(scope));
+  }
+
+  private assertBrowserPresent(): void {
+    if (!this.browserPresent) {
+      throw new Error('No active Odysseus web client; local integration reads are paused');
+    }
   }
 }

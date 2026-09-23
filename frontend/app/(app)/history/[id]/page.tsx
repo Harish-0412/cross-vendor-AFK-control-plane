@@ -2,12 +2,28 @@
 
 import Link from "next/link";
 import { use, useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft, Brain, Download, FileX, Loader2, Scissors, Terminal, Wrench } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Brain,
+  Download,
+  FileX,
+  Loader2,
+  Scissors,
+  Terminal,
+  Wrench,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { ApiError } from "@/lib/api-client";
 import {
   aiIntegrations,
@@ -24,9 +40,15 @@ import {
  * All text is rendered as text (never as HTML) — it came from a tool's files,
  * and must not be able to inject anything into this page.
  */
-export default function ConversationPage({ params }: { params: Promise<{ id: string }> }) {
+export default function ConversationPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   const { id } = use(params);
-  const [conversation, setConversation] = useState<ImportedConversation | null>(null);
+  const [conversation, setConversation] = useState<ImportedConversation | null>(
+    null,
+  );
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loadingContent, setLoadingContent] = useState(false);
@@ -40,7 +62,11 @@ export default function ConversationPage({ params }: { params: Promise<{ id: str
       setItems(data.items);
       return data.conversation;
     } catch (err) {
-      setError(err instanceof ApiError && err.status === 404 ? "Conversation not found." : "Could not load it.");
+      setError(
+        err instanceof ApiError && err.status === 404
+          ? "Conversation not found."
+          : "Could not load it.",
+      );
       return null;
     }
   }, [id]);
@@ -60,16 +86,24 @@ export default function ConversationPage({ params }: { params: Promise<{ id: str
       const previous = conversation?.contentSyncedAt;
       pollRef.current = setInterval(async () => {
         const latest = await load();
-        const done = latest?.contentSynced && latest.contentSyncedAt !== previous;
+        const done =
+          latest?.contentSynced && latest.contentSyncedAt !== previous;
         if (done || Date.now() - started > 90_000) {
           if (pollRef.current) clearInterval(pollRef.current);
           setLoadingContent(false);
-          if (!done) toast.error("The workstation did not send the conversation. Is the gateway running?");
+          if (!done)
+            toast.error(
+              "The workstation did not send the conversation. Is the gateway running?",
+            );
         }
       }, 2000);
     } catch (err) {
       setLoadingContent(false);
-      toast.error(err instanceof Error ? err.message : "Could not ask the workstation for it");
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Could not ask the workstation for it",
+      );
     }
   };
 
@@ -90,36 +124,89 @@ export default function ConversationPage({ params }: { params: Promise<{ id: str
     );
   }
 
-  const toolName = conversation.integration === "codex" ? "Codex" : conversation.integration === "antigravity" ? "Antigravity" : conversation.integration;
+  const toolName =
+    conversation.integration === "codex"
+      ? "Codex"
+      : conversation.integration === "antigravity"
+        ? "Antigravity"
+        : conversation.integration === "claude"
+          ? "Claude Code"
+          : conversation.integration;
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <BackLink />
 
       <div className="space-y-2">
-        <h1 className="text-xl font-bold text-foreground">{conversation.title || "Untitled conversation"}</h1>
+        <h1 className="text-xl font-bold text-foreground">
+          {conversation.title || "Untitled conversation"}
+        </h1>
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span>{toolName}</span>
-          <span>Started {new Date(conversation.startedAt).toLocaleString()}</span>
-          <span>Last activity {formatRelative(conversation.updatedAt, now)}</span>
+          <span>
+            Started {new Date(conversation.startedAt).toLocaleString()}
+          </span>
+          <span>
+            Last activity {formatRelative(conversation.updatedAt, now)}
+          </span>
           {conversation.model && <span>{conversation.model}</span>}
           {conversation.workspace && <span>{conversation.workspace}</span>}
           <span>{conversation.messageCount} messages</span>
           <span>{conversation.toolCallCount} tool calls</span>
           {conversation.tokens && (
-            <span title={`input ${conversation.tokens.input.toLocaleString()} · cached ${conversation.tokens.cachedInput.toLocaleString()} · output ${conversation.tokens.output.toLocaleString()} · reasoning ${conversation.tokens.reasoning.toLocaleString()}`}>
+            <span
+              title={`input ${conversation.tokens.input.toLocaleString()} · cached ${conversation.tokens.cachedInput.toLocaleString()} · output ${conversation.tokens.output.toLocaleString()} · reasoning ${conversation.tokens.reasoning.toLocaleString()}`}
+            >
               {formatTokens(conversation.tokens.total)} tokens
             </span>
           )}
+          {!conversation.tokens && (
+            <span>Token counts not recorded by this tool</span>
+          )}
         </div>
       </div>
+
+      {conversation.tokens && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Recorded token usage</CardTitle>
+            <CardDescription>
+              Exact counts stored by {toolName}; cached tokens are shown
+              separately and counted once in the total.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
+            <TokenMetric label="Input" value={conversation.tokens.input} />
+            <TokenMetric
+              label="Cache read"
+              value={conversation.tokens.cachedInput}
+            />
+            {conversation.tokens.cacheWriteInput !== undefined && (
+              <TokenMetric
+                label="Cache write"
+                value={conversation.tokens.cacheWriteInput}
+              />
+            )}
+            <TokenMetric label="Output" value={conversation.tokens.output} />
+            <TokenMetric
+              label="Reasoning"
+              value={conversation.tokens.reasoning}
+            />
+            <TokenMetric
+              label="Total"
+              value={conversation.tokens.total}
+              strong
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {!conversation.hasTranscript ? (
         <Card>
           <CardContent className="flex items-start gap-3 py-5 text-sm text-muted-foreground">
             <FileX className="mt-0.5 h-4 w-4 shrink-0" />
-            {toolName} kept no readable transcript for this conversation on your workstation, so there are no messages
-            to show.
+            {toolName} kept no readable transcript for this conversation on your
+            workstation, so there are no messages to show.
           </CardContent>
         </Card>
       ) : !conversation.contentSynced ? (
@@ -127,18 +214,24 @@ export default function ConversationPage({ params }: { params: Promise<{ id: str
           <CardHeader>
             <CardTitle className="text-base">Messages are not synced</CardTitle>
             <CardDescription>
-              Only the title and details are imported by default. Load this conversation to fetch its messages from
-              your workstation — they are redacted there before they are sent.
+              Only the title and details are imported by default. Load this
+              conversation to fetch its messages from your workstation — they
+              are redacted there before they are sent.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button onClick={() => void requestContent()} disabled={loadingContent}>
+            <Button
+              onClick={() => void requestContent()}
+              disabled={loadingContent}
+            >
               {loadingContent ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <Download className="mr-2 h-4 w-4" />
               )}
-              {loadingContent ? "Fetching from your workstation…" : "Load conversation"}
+              {loadingContent
+                ? "Fetching from your workstation…"
+                : "Load conversation"}
             </Button>
           </CardContent>
         </Card>
@@ -146,17 +239,28 @@ export default function ConversationPage({ params }: { params: Promise<{ id: str
         <>
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
             <span>
-              Synced {conversation.contentSyncedAt ? formatRelative(conversation.contentSyncedAt, now) : ""} ·{" "}
-              {items.length} items
+              Synced{" "}
+              {conversation.contentSyncedAt
+                ? formatRelative(conversation.contentSyncedAt, now)
+                : ""}{" "}
+              · {items.length} items
             </span>
-            <Button size="sm" variant="ghost" onClick={() => void requestContent()} disabled={loadingContent}>
-              {loadingContent && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => void requestContent()}
+              disabled={loadingContent}
+            >
+              {loadingContent && (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              )}
               Refresh from workstation
             </Button>
           </div>
           {conversation.contentTruncated && (
             <p className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs">
-              <Scissors className="h-3.5 w-3.5" /> This conversation is very long; only its first part was synced.
+              <Scissors className="h-3.5 w-3.5" /> This conversation is very
+              long; only its first part was synced.
             </p>
           )}
           <div className="space-y-3">
@@ -170,9 +274,31 @@ export default function ConversationPage({ params }: { params: Promise<{ id: str
   );
 }
 
+function TokenMetric({
+  label,
+  value,
+  strong = false,
+}: {
+  label: string;
+  value: number;
+  strong?: boolean;
+}) {
+  return (
+    <div className="rounded-md border bg-muted/20 px-3 py-2">
+      <div className="text-[11px] text-muted-foreground">{label}</div>
+      <div className={strong ? "font-semibold tabular-nums" : "tabular-nums"}>
+        {value.toLocaleString()}
+      </div>
+    </div>
+  );
+}
+
 function BackLink() {
   return (
-    <Link href="/history" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+    <Link
+      href="/history"
+      className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+    >
       <ArrowLeft className="h-4 w-4" /> History
     </Link>
   );
@@ -210,7 +336,9 @@ function Item({ item }: { item: HistoryItem }) {
           <summary className="flex cursor-pointer select-none items-center gap-1.5">
             <Brain className="h-3.5 w-3.5" /> Reasoning
           </summary>
-          <div className="mt-1.5 whitespace-pre-wrap break-words border-l-2 pl-3">{item.text}</div>
+          <div className="mt-1.5 whitespace-pre-wrap break-words border-l-2 pl-3">
+            {item.text}
+          </div>
         </details>
       );
     case "tool_call":
@@ -220,7 +348,9 @@ function Item({ item }: { item: HistoryItem }) {
             <Wrench className="h-3.5 w-3.5" /> {item.toolName ?? "tool"}
             <Shortened item={item} />
           </summary>
-          <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words border-t px-3 py-2 font-mono">{item.text}</pre>
+          <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words border-t px-3 py-2 font-mono">
+            {item.text}
+          </pre>
         </details>
       );
     case "tool_result":
@@ -230,7 +360,9 @@ function Item({ item }: { item: HistoryItem }) {
             <Terminal className="h-3.5 w-3.5" /> Result
             <Shortened item={item} />
           </summary>
-          <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words border-t px-3 py-2 font-mono">{item.text}</pre>
+          <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words border-t px-3 py-2 font-mono">
+            {item.text}
+          </pre>
         </details>
       );
     case "error":
@@ -243,7 +375,9 @@ function Item({ item }: { item: HistoryItem }) {
       );
     default:
       return (
-        <p className="whitespace-pre-wrap text-center text-[11px] text-muted-foreground">{item.text}</p>
+        <p className="whitespace-pre-wrap text-center text-[11px] text-muted-foreground">
+          {item.text}
+        </p>
       );
   }
 }

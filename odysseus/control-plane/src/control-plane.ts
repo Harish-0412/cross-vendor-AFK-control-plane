@@ -203,6 +203,54 @@ export class ControlPlane {
         // eslint-disable-next-line no-console
         console.warn('[Odysseus Control Plane] Delivering pending revokes failed:', error);
       });
+      void (async () => {
+        const device = await this.db.devices.findById(deviceId);
+        if (!device) return;
+        const clients = this.registry.getClientsForUser(device.userId).length;
+        await this.tunnelServer.sendCommandToDevice(
+          deviceId,
+          'client.presence',
+          { active: clients > 0, clients },
+          5_000,
+          false,
+        );
+      })().catch((error: unknown) => {
+        console.warn('[Odysseus Control Plane] Initial presence delivery failed:', error);
+      });
+    });
+
+    // Local history readers run only while at least one authenticated website
+    // or mobile client is live. Multiple tabs count as one presence state;
+    // closing the final one pauses reads immediately on every paired gateway.
+    this.clientServer.setOnPresenceChange(async (userId, clients) => {
+      const devices = await this.db.devices.listByUser(userId);
+      await Promise.all(
+        devices.map((device) =>
+          this.tunnelServer.sendCommandToDevice(
+            device.id,
+            'client.presence',
+            { active: clients > 0, clients },
+            5_000,
+            false,
+          ),
+        ),
+      );
+    });
+
+    this.tunnelServer.setOnClientControl((deviceId, payload) => {
+      if (payload['action'] !== 'terminate_all') return;
+      void (async () => {
+        const device = await this.db.devices.findById(deviceId);
+        if (!device) return;
+        this.clientServer.disconnectUser(
+          device.userId,
+          typeof payload['reason'] === 'string'
+            ? payload['reason']
+            : 'Disconnected from the workstation',
+        );
+      })().catch((error: unknown) => {
+        console.warn('[Odysseus Control Plane] Workstation disconnect failed:', error);
+      });
     });
   }
 

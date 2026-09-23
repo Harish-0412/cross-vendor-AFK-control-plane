@@ -55,12 +55,14 @@ describe('Subphase 3.4 — Tunnel Server & Realtime Multiplexer', () => {
       const ws = new WebSocket(tunnelUrl);
       await new Promise<void>((resolve) => ws.on('open', () => resolve()));
 
-      ws.send(JSON.stringify({
-        id: 'a2',
-        type: 'auth',
-        sequence: 1,
-        payload: { deviceId: 'dev_never_paired', gatewayId: 'gw_evil' },
-      }));
+      ws.send(
+        JSON.stringify({
+          id: 'a2',
+          type: 'auth',
+          sequence: 1,
+          payload: { deviceId: 'dev_never_paired', gatewayId: 'gw_evil' },
+        }),
+      );
 
       const msg = await new Promise<Record<string, unknown>>((resolve) => {
         ws.on('message', (data) => {
@@ -91,12 +93,14 @@ describe('Subphase 3.4 — Tunnel Server & Realtime Multiplexer', () => {
       const ws = new WebSocket(tunnelUrl);
       await new Promise<void>((resolve) => ws.on('open', () => resolve()));
 
-      ws.send(JSON.stringify({
-        id: 'a3',
-        type: 'auth',
-        sequence: 1,
-        payload: { deviceId: 'dev_revoked', gatewayId: 'gw_revoked' },
-      }));
+      ws.send(
+        JSON.stringify({
+          id: 'a3',
+          type: 'auth',
+          sequence: 1,
+          payload: { deviceId: 'dev_revoked', gatewayId: 'gw_revoked' },
+        }),
+      );
 
       const msg = await new Promise<Record<string, unknown>>((resolve) => {
         ws.on('message', (data) => {
@@ -126,12 +130,23 @@ describe('Subphase 3.4 — Tunnel Server & Realtime Multiplexer', () => {
       const before = (await cp.db.devices.findById('dev_hb'))!.lastSeenAt!.getTime();
       await new Promise((r) => setTimeout(r, 20));
 
-      ws.send(JSON.stringify({
-        id: 'hb2',
-        type: 'heartbeat',
-        sequence: 2,
-        payload: { cpu: 10, memoryMb: 2048 },
-      }));
+      ws.send(
+        JSON.stringify({
+          id: 'hb2',
+          type: 'heartbeat',
+          sequence: 2,
+          payload: {
+            load: { cpuPercent: 10, memoryMb: 2048, activeSessions: 0, pendingApprovals: 0 },
+            systemInfo: {
+              hostname: 'haris-workstation',
+              platform: 'windows',
+              arch: 'x64',
+              nodeVersion: 'v22.1.0',
+              gatewayVersion: '0.1.0',
+            },
+          },
+        }),
+      );
 
       const ack = await new Promise<Record<string, unknown>>((resolve) => {
         ws.on('message', (data) => {
@@ -145,6 +160,13 @@ describe('Subphase 3.4 — Tunnel Server & Realtime Multiplexer', () => {
 
       const after = (await cp.db.devices.findById('dev_hb'))!.lastSeenAt!.getTime();
       expect(after).toBeGreaterThan(before);
+      const updated = await cp.db.devices.findById('dev_hb');
+      expect(updated?.systemInfo).toMatchObject({
+        hostname: 'haris-workstation',
+        arch: 'x64',
+        gatewayVersion: '0.1.0',
+      });
+      expect(updated?.resourceUsage).toMatchObject({ cpuPercent: 10, memoryMb: 2048 });
 
       ws.close();
     });
@@ -161,7 +183,10 @@ describe('Subphase 3.4 — Tunnel Server & Realtime Multiplexer', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: 'relay@test.dev', password: 'Password123!' }),
       });
-      const { accessToken, user } = (await reg.json()) as { accessToken: string; user: { id: string } };
+      const { accessToken, user } = (await reg.json()) as {
+        accessToken: string;
+        user: { id: string };
+      };
 
       const deviceId = 'dev_relay_1';
       const relayIdentity = createTestIdentity(deviceId, 'gw_relay');
@@ -184,11 +209,7 @@ describe('Subphase 3.4 — Tunnel Server & Realtime Multiplexer', () => {
       );
 
       // Gateway connects and proves its identity, exactly as the real one does.
-      const gw = await connectAuthenticatedGateway(
-        WebSocket as never,
-        tunnelUrl,
-        relayIdentity,
-      );
+      const gw = await connectAuthenticatedGateway(WebSocket as never, tunnelUrl, relayIdentity);
 
       // Create a session so the event has a session context
       const sess = await fetch(`${cp.getUrl()}/api/v1/sessions`, {
@@ -199,8 +220,14 @@ describe('Subphase 3.4 — Tunnel Server & Realtime Multiplexer', () => {
       const { id: sessionId } = (await sess.json()) as { id: string };
 
       // Web client subscribes to the session
-      const client = new WebSocket(`${clientUrl}?token=${accessToken}`);
+      const client = new WebSocket(clientUrl);
       await new Promise<void>((resolve) => client.on('open', () => resolve()));
+      client.send(JSON.stringify({ type: 'auth', token: accessToken }));
+      await new Promise<void>((resolve) => {
+        client.on('message', (data) => {
+          if (JSON.parse(data.toString('utf8')).type === 'connected') resolve();
+        });
+      });
       client.send(JSON.stringify({ action: 'subscribe_session', sessionId }));
       await new Promise<void>((resolve) => {
         client.on('message', (data) => {
@@ -209,19 +236,21 @@ describe('Subphase 3.4 — Tunnel Server & Realtime Multiplexer', () => {
       });
 
       // Gateway emits an event
-      gw.send(JSON.stringify({
-        id: 'gw_evt',
-        type: 'event',
-        sequence: 10,
-        payload: {
-          eventId: 'evt_001',
-          eventType: 'session.output',
-          sessionId,
-          sequence: 1,
-          occurredAt: new Date().toISOString(),
-          payload: { stream: 'stdout', content: 'hello from gateway' },
-        },
-      }));
+      gw.send(
+        JSON.stringify({
+          id: 'gw_evt',
+          type: 'event',
+          sequence: 10,
+          payload: {
+            eventId: 'evt_001',
+            eventType: 'session.output',
+            sessionId,
+            sequence: 1,
+            occurredAt: new Date().toISOString(),
+            payload: { stream: 'stdout', content: 'hello from gateway' },
+          },
+        }),
+      );
 
       // Wait for client to receive the event
       const clientMsg = await new Promise<Record<string, unknown>>((resolve) => {
@@ -238,10 +267,83 @@ describe('Subphase 3.4 — Tunnel Server & Realtime Multiplexer', () => {
       expect(clientMsg).not.toBeNull();
       expect(clientMsg!.type).toBe('event');
       expect(clientMsg!.eventType).toBe('session.output');
-      expect((clientMsg!.envelope as Record<string, unknown>).payload).toEqual({ stream: 'stdout', content: 'hello from gateway' });
+      expect((clientMsg!.envelope as Record<string, unknown>).payload).toEqual({
+        stream: 'stdout',
+        content: 'hello from gateway',
+      });
 
       gw.close();
       client.close();
+    });
+
+    it('authenticates inside the socket and refuses subscriptions to another user device', async () => {
+      const register = async (email: string) => {
+        const response = await fetch(`${cp.getUrl()}/api/v1/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password: 'Password123!' }),
+        });
+        return (await response.json()) as { accessToken: string; user: { id: string } };
+      };
+      const owner = await register('socket-owner@test.dev');
+      const other = await register('socket-other@test.dev');
+      const otherIdentity = createTestIdentity('dev_socket_other', 'gw_socket_other');
+      await cp.db.devices.create(
+        deviceRecordFor(otherIdentity, { userId: other.user.id }) as never,
+      );
+
+      const client = new WebSocket(clientUrl);
+      await new Promise<void>((resolve) => client.on('open', () => resolve()));
+      const messages: Record<string, unknown>[] = [];
+      client.on('message', (data) => messages.push(JSON.parse(data.toString('utf8'))));
+      client.send(JSON.stringify({ type: 'auth', token: owner.accessToken }));
+      await vi.waitFor(() =>
+        expect(messages.some((message) => message.type === 'connected')).toBe(true),
+      );
+
+      client.send(JSON.stringify({ action: 'subscribe_device', deviceId: 'dev_socket_other' }));
+      await vi.waitFor(() =>
+        expect(messages.some((message) => message.type === 'subscription_error')).toBe(true),
+      );
+      expect(cp.registry.getClientsSubscribedToDevice('dev_socket_other')).toHaveLength(0);
+      client.close();
+    });
+
+    it('lets the workstation terminate every active website connection', async () => {
+      const response = await fetch(`${cp.getUrl()}/api/v1/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'socket-terminate@test.dev', password: 'Password123!' }),
+      });
+      const { accessToken, user } = (await response.json()) as {
+        accessToken: string;
+        user: { id: string };
+      };
+      const identity = createTestIdentity('dev_terminate_web', 'gw_terminate_web');
+      await cp.db.devices.create(deviceRecordFor(identity, { userId: user.id }) as never);
+      const gateway = await connectAuthenticatedGateway(WebSocket as never, tunnelUrl, identity);
+      const client = new WebSocket(clientUrl);
+      await new Promise<void>((resolve) => client.on('open', () => resolve()));
+      const connected = new Promise<void>((resolve) => {
+        client.on('message', (data) => {
+          if (JSON.parse(data.toString('utf8')).type === 'connected') resolve();
+        });
+      });
+      client.send(JSON.stringify({ type: 'auth', token: accessToken }));
+      await connected;
+
+      const closed = new Promise<number>((resolve) => client.on('close', (code) => resolve(code)));
+      gateway.send(
+        JSON.stringify({
+          id: 'local_disconnect_1',
+          type: 'client_control',
+          sequence: 3,
+          payload: { action: 'terminate_all', reason: 'Disconnected from workstation' },
+        }),
+      );
+      await expect(closed).resolves.toBe(4004);
+      expect(cp.registry.getClientsForUser(user.id)).toHaveLength(0);
+      gateway.close();
     });
   });
 
@@ -263,17 +365,21 @@ describe('Subphase 3.4 — Tunnel Server & Realtime Multiplexer', () => {
         const msg = JSON.parse(data.toString('utf8'));
         if (msg.type === 'command') {
           inboundCmd = msg;
-          gw.send(JSON.stringify({
-            id: 'ack_' + msg.id,
-            type: 'ack',
-            sequence: 20,
-            correlationId: msg.id,
-            payload: { received: true, serverReceivedSequence: 20 },
-          }));
+          gw.send(
+            JSON.stringify({
+              id: 'ack_' + msg.id,
+              type: 'ack',
+              sequence: 20,
+              correlationId: msg.id,
+              payload: { received: true, serverReceivedSequence: 20 },
+            }),
+          );
         }
       });
 
-      const result = await cp.tunnelServer.sendCommandToDevice('dev_cmd', 'session.pause', { sessionId: 'sess_123' });
+      const result = await cp.tunnelServer.sendCommandToDevice('dev_cmd', 'session.pause', {
+        sessionId: 'sess_123',
+      });
       expect(result.delivered).toBe(true);
       expect(result.acknowledged).toBe(true);
       expect(inboundCmd).not.toBeNull();
@@ -297,7 +403,12 @@ describe('Subphase 3.4 — Tunnel Server & Realtime Multiplexer', () => {
         status: 'trusted',
       });
 
-      const result = await cp.tunnelServer.sendCommandToDevice('dev_offline_cmd', 'session.stop', {}, 500);
+      const result = await cp.tunnelServer.sendCommandToDevice(
+        'dev_offline_cmd',
+        'session.stop',
+        {},
+        500,
+      );
       expect(result.delivered).toBe(false);
       expect(result.acknowledged).toBe(false);
     });

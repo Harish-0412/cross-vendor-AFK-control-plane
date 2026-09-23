@@ -2,10 +2,7 @@ import { WebSocket } from 'ws';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 import { ControlPlane } from '../src/control-plane';
-import {
-  connectAuthenticatedGateway,
-  createTestIdentity,
-} from './helpers/gateway-handshake';
+import { connectAuthenticatedGateway, createTestIdentity } from './helpers/gateway-handshake';
 
 describe('Subphase 3.3 — Device Registry & Pairing Handshake Relay', () => {
   let cp: ControlPlane;
@@ -18,8 +15,16 @@ describe('Subphase 3.3 — Device Registry & Pairing Handshake Relay', () => {
   const DEVICE_ID = 'dev_a1b2c3d4e5f6';
   const GATEWAY_ID = 'gw_987654321';
   const FINGERPRINT_WORDS = [
-    'struggle', 'buyer', 'cave', 'true', 'trouble',
-    'churn', 'auto', 'burst', 'witness', 'submit',
+    'struggle',
+    'buyer',
+    'cave',
+    'true',
+    'trouble',
+    'churn',
+    'auto',
+    'burst',
+    'witness',
+    'submit',
   ];
 
   beforeEach(async () => {
@@ -40,7 +45,7 @@ describe('Subphase 3.3 — Device Registry & Pairing Handshake Relay', () => {
     });
     const data = (await res.json()) as Record<string, unknown>;
     userToken = (data as { accessToken: string }).accessToken;
-    userId = ((data as { user: { id: string } }).user).id;
+    userId = (data as { user: { id: string } }).user.id;
   });
 
   afterEach(async () => {
@@ -66,6 +71,8 @@ describe('Subphase 3.3 — Device Registry & Pairing Handshake Relay', () => {
         code,
         deviceId,
         gatewayId,
+        deviceName: 'Harish-Dev-PC',
+        platform: 'windows',
         fingerprintHex: 'GRA5TGR8',
         fingerprintWords: FINGERPRINT_WORDS,
         publicKeyJwk: identity.publicKeyJwk,
@@ -98,6 +105,8 @@ describe('Subphase 3.3 — Device Registry & Pairing Handshake Relay', () => {
       expect(pairRes.status).toBe(200);
       const pairData = (await pairRes.json()) as Record<string, unknown>;
       expect(pairData['deviceId']).toBe(DEVICE_ID);
+      expect(pairData['deviceName']).toBe('Harish-Dev-PC');
+      expect(pairData['platform']).toBe('windows');
       expect(pairData['fingerprintWords']).toEqual(FINGERPRINT_WORDS);
       expect(pairData['status']).toBe('code_verified');
       expect(pairData['pairingId']).toBe(pairingId);
@@ -123,6 +132,35 @@ describe('Subphase 3.3 — Device Registry & Pairing Handshake Relay', () => {
       expect(device['friendlyName']).toBe('MacBook Pro Dev');
       expect(device['status']).toBe('trusted');
       expect(device['online']).toBe(false); // No tunnel connected yet
+    });
+
+    it('uses the verified workstation name when the user does not rename it', async () => {
+      const pairingId = await initiatePairing();
+      const pairRes = await fetch(`${baseUrl}/api/v1/devices/pair`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${userToken}`,
+        },
+        body: JSON.stringify({ code: PAIR_CODE }),
+      });
+      const verified = (await pairRes.json()) as { deviceName: string; platform: string };
+      expect(verified.deviceName).toBe('Harish-Dev-PC');
+      expect(verified.platform).toBe('windows');
+
+      const confirmRes = await fetch(`${baseUrl}/api/v1/devices/confirm`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${userToken}`,
+        },
+        body: JSON.stringify({ pairingId, confirmed: true }),
+      });
+      const confirmed = (await confirmRes.json()) as {
+        device: { friendlyName: string; platform: string };
+      };
+      expect(confirmed.device.friendlyName).toBe('Harish-Dev-PC');
+      expect(confirmed.device.platform).toBe('windows');
     });
 
     it('should reject pairing when user does not match the authenticated user', async () => {
@@ -248,14 +286,22 @@ describe('Subphase 3.3 — Device Registry & Pairing Handshake Relay', () => {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${userToken}`,
         },
-        body: JSON.stringify({ pairingId: (await (await fetch(`${baseUrl}/api/v1/devices/pair`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${userToken}`,
-          },
-          body: JSON.stringify({ code: PAIR_CODE }),
-        })).json() as { pairingId: string }).pairingId, confirmed: true, friendlyName: 'Workstation' }),
+        body: JSON.stringify({
+          pairingId: (
+            (await (
+              await fetch(`${baseUrl}/api/v1/devices/pair`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${userToken}`,
+                },
+                body: JSON.stringify({ code: PAIR_CODE }),
+              })
+            ).json()) as { pairingId: string }
+          ).pairingId,
+          confirmed: true,
+          friendlyName: 'Workstation',
+        }),
       });
 
       const listRes = await fetch(`${baseUrl}/api/v1/devices`, {
@@ -603,11 +649,15 @@ describe('Subphase 3.3 — Device Registry & Pairing Handshake Relay', () => {
       const ws = new WebSocket(tunnelUrl);
       await new Promise<void>((resolve) => ws.on('open', () => resolve()));
 
-      ws.send(JSON.stringify({
-        id: 'auth_revoked', type: 'auth', sequence: 1,
-        timestamp: new Date().toISOString(),
-        payload: { deviceId: DEVICE_ID, gatewayId: GATEWAY_ID },
-      }));
+      ws.send(
+        JSON.stringify({
+          id: 'auth_revoked',
+          type: 'auth',
+          sequence: 1,
+          timestamp: new Date().toISOString(),
+          payload: { deviceId: DEVICE_ID, gatewayId: GATEWAY_ID },
+        }),
+      );
 
       const failureMsg = await new Promise<Record<string, unknown>>((resolve) => {
         ws.on('message', (data) => {

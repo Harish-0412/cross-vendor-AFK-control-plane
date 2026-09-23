@@ -301,13 +301,7 @@ export class IntegrationAccessService {
       // arriving after a revoke — including a scan already in flight — is
       // dropped, so a revoke really does stop the flow.
       const grant = await this.db.integrationGrants.find(deviceId, integration);
-      if (
-        !grant ||
-        grant.status === 'revoked' ||
-        grant.status === 'expired' ||
-        grant.status === 'denied'
-      )
-        return;
+      if (!grant || grant.status !== 'active') return;
       const change = await this.ingest.ingest(device, payload as Record<string, unknown>);
       if (change) {
         this.notify(device.userId, {

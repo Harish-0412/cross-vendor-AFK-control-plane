@@ -39,7 +39,9 @@ describe('web client websocket authentication', () => {
   function outcomeOf(ws: WebSocket): Promise<{ opened: boolean; code?: number }> {
     return new Promise((resolve) => {
       let opened = false;
-      const timer = setTimeout(() => resolve({ opened }), 3_000);
+      // The server intentionally gives browser clients five seconds to send
+      // their first-frame credential before closing an unauthenticated socket.
+      const timer = setTimeout(() => resolve({ opened }), 6_500);
 
       ws.on('message', (data) => {
         const msg = JSON.parse(data.toString('utf8')) as { type?: string };
@@ -59,6 +61,12 @@ describe('web client websocket authentication', () => {
     });
   }
 
+  function authenticateOnOpen(ws: WebSocket, authToken: string): void {
+    ws.on('open', () => {
+      ws.send(JSON.stringify({ type: 'auth', token: authToken }));
+    });
+  }
+
   it('refuses a connection with no token', async () => {
     const ws = new WebSocket(clientUrl);
     const outcome = await outcomeOf(ws);
@@ -68,7 +76,8 @@ describe('web client websocket authentication', () => {
   });
 
   it('refuses a connection with an invalid token', async () => {
-    const ws = new WebSocket(`${clientUrl}?token=not-a-real-token`);
+    const ws = new WebSocket(clientUrl);
+    authenticateOnOpen(ws, 'not-a-real-token');
     const outcome = await outcomeOf(ws);
 
     expect(outcome.opened).toBe(false);
@@ -76,7 +85,8 @@ describe('web client websocket authentication', () => {
   });
 
   it('accepts a connection with a valid token', async () => {
-    const ws = new WebSocket(`${clientUrl}?token=${token}`);
+    const ws = new WebSocket(clientUrl);
+    authenticateOnOpen(ws, token);
     const outcome = await outcomeOf(ws);
 
     expect(outcome.opened).toBe(true);
@@ -94,18 +104,20 @@ describe('web client websocket authentication', () => {
   });
 
   it('rejects a websocket upgrade from an origin that is not allowlisted', async () => {
-    const ws = new WebSocket(`${clientUrl}?token=${token}`, {
+    const ws = new WebSocket(clientUrl, {
       headers: { Origin: 'https://evil.example.com' },
     });
+    authenticateOnOpen(ws, token);
     const outcome = await outcomeOf(ws);
 
     expect(outcome.opened).toBe(false);
   });
 
   it('allows a websocket upgrade from an allowlisted origin', async () => {
-    const ws = new WebSocket(`${clientUrl}?token=${token}`, {
+    const ws = new WebSocket(clientUrl, {
       headers: { Origin: 'https://app.odysseus.test' },
     });
+    authenticateOnOpen(ws, token);
     const outcome = await outcomeOf(ws);
 
     expect(outcome.opened).toBe(true);

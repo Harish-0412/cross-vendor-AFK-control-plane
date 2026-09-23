@@ -558,6 +558,9 @@ export class TunnelClient {
       },
     });
     this.startHeartbeat();
+    // Device identity is visible in the UI immediately after auth, rather
+    // than only after the first regular heartbeat interval.
+    this.sendHeartbeat();
     void this.flushQueue();
   }
 

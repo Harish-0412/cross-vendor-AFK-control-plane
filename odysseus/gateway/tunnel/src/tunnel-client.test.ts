@@ -17,9 +17,7 @@ class MockWebSocket {
   readyState = 0;
   onopen: ((event: unknown) => void) | null = null;
   onmessage: ((event: { data: unknown }) => void) | null = null;
-  onclose:
-    | ((event: { code: number; reason: string; wasClean: boolean }) => void)
-    | null = null;
+  onclose: ((event: { code: number; reason: string; wasClean: boolean }) => void) | null = null;
   onerror: ((event: unknown) => void) | null = null;
   readonly sent: string[] = [];
 
@@ -188,8 +186,8 @@ describe('TunnelClient', () => {
     client.send('heartbeat', { ts: Date.now() });
 
     const stats = client.getStats();
-    // auth handshake + the two messages sent above
-    expect(stats.messagesSent).toBe(3);
+    // auth handshake + immediate identity heartbeat + the two messages above
+    expect(stats.messagesSent).toBe(4);
     expect(stats.messagesQueued).toBe(0);
     expect(stats.bytesSent).toBeGreaterThan(0);
     expect(stats.lastSentAt).toBeInstanceOf(Date);
@@ -209,12 +207,12 @@ describe('TunnelClient', () => {
     await connectAndSettle(client);
 
     expect(client.getQueuedMessages()).toHaveLength(0);
-    // auth handshake + the three queued messages
-    expect(client.getStats().messagesSent).toBe(4);
+    // auth handshake + immediate identity heartbeat + three queued messages
+    expect(client.getStats().messagesSent).toBe(5);
 
     // Nothing is left, so an explicit flush is a no-op rather than a resend.
     await expect(client.flushQueue()).resolves.toBe(0);
-    expect(client.getStats().messagesSent).toBe(4);
+    expect(client.getStats().messagesSent).toBe(5);
   });
 
   test('flushQueue terminates when connected without a usable socket', async () => {
@@ -415,9 +413,9 @@ describe('TunnelClient', () => {
 
     expect(framesByType.filter((type) => type === 'event')).toHaveLength(3);
     expect(framesByType.filter((type) => type === 'auth')).toHaveLength(3);
-    // 3 cycles x (auth + event + disconnect)
+    // 3 cycles x (auth + identity heartbeat + event + disconnect)
     expect(framesByType.filter((type) => type === 'disconnect')).toHaveLength(3);
-    expect(client.getStats().messagesSent).toBe(9);
+    expect(client.getStats().messagesSent).toBe(12);
   });
 
   // --- PR 4: failure taxonomy --------------------------------------------

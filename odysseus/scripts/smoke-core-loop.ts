@@ -36,7 +36,8 @@ async function main(): Promise<void> {
     body: JSON.stringify({ email, password: 'SmokeTest123!', name: 'Smoke' }),
   });
   const reg = await json(regRes);
-  const token = (reg['accessToken'] ?? (reg['tokens'] as Record<string, unknown>)?.['accessToken']) as string;
+  const token = (reg['accessToken'] ??
+    (reg['tokens'] as Record<string, unknown>)?.['accessToken']) as string;
   check('register user', !!token, token ? 'got access token' : JSON.stringify(reg).slice(0, 200));
   if (!token) process.exit(1);
   const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
@@ -95,10 +96,16 @@ async function main(): Promise<void> {
   await pairingManager.shutdown();
 
   // 3 ------------------------------------------------- browser-style client
-  const clientWs = new WebSocket(`ws://localhost:4000/ws/client?token=${encodeURIComponent(token)}`);
+  const clientWs = new WebSocket('ws://localhost:4000/ws/client');
   const clientEvents: Array<Record<string, unknown>> = [];
   await new Promise<void>((resolve, reject) => {
-    clientWs.on('open', () => resolve());
+    clientWs.on('open', () => {
+      clientWs.send(JSON.stringify({ type: 'auth', token }));
+    });
+    clientWs.on('message', (buf: Buffer) => {
+      const message = JSON.parse(buf.toString('utf8')) as { type?: string };
+      if (message.type === 'connected') resolve();
+    });
     clientWs.on('error', reject);
     setTimeout(() => reject(new Error('client ws timeout')), 8000);
   });
@@ -131,14 +138,23 @@ async function main(): Promise<void> {
   });
 
   await new Promise((r) => setTimeout(r, 2500));
-  check('gateway tunnel connected', gateway.isTunnelConnected(), `state=${gateway.getTunnelStats().state}`);
+  check(
+    'gateway tunnel connected',
+    gateway.isTunnelConnected(),
+    `state=${gateway.getTunnelStats().state}`,
+  );
 
   const devRes = await fetch(`${CP}/api/v1/devices`, { headers: authHeaders });
   const devPayload = await devRes.json();
-  const devList = (Array.isArray(devPayload) ? devPayload : (devPayload as Record<string, unknown>)['devices']) as Array<Record<string, unknown>> | undefined;
+  const devList = (
+    Array.isArray(devPayload) ? devPayload : (devPayload as Record<string, unknown>)['devices']
+  ) as Array<Record<string, unknown>> | undefined;
   const thisDevice = devList?.find((d) => d['id'] === identity.deviceId);
-  check('device visible + online in API', !!thisDevice && thisDevice['online'] === true,
-    thisDevice ? `online=${String(thisDevice['online'])}` : 'device missing');
+  check(
+    'device visible + online in API',
+    !!thisDevice && thisDevice['online'] === true,
+    thisDevice ? `online=${String(thisDevice['online'])}` : 'device missing',
+  );
 
   // 5 -------------------------------------------------------- session start
   const sessRes = await fetch(`${CP}/api/v1/sessions`, {
@@ -154,17 +170,20 @@ async function main(): Promise<void> {
   const sess = await json(sessRes);
   const sessionId = sess['id'] as string;
   check('POST /sessions accepted', sessRes.status === 201, `state=${String(sess['state'])}`);
-  check('session reached running (real ack, not false-green)', sess['state'] === 'running',
-    `state=${String(sess['state'])} error=${String(sess['error'] ?? '')}`);
+  check(
+    'session reached running (real ack, not false-green)',
+    sess['state'] === 'running',
+    `state=${String(sess['state'])} error=${String(sess['error'] ?? '')}`,
+  );
 
   // 6 ---------------------------------------------------- events round trip
   await new Promise((r) => setTimeout(r, 4000));
 
   const evRes = await fetch(`${CP}/api/v1/sessions/${sessionId}/events`, { headers: authHeaders });
   const evBody = await evRes.json();
-  const stored = (Array.isArray(evBody)
-    ? evBody
-    : ((evBody as Record<string, unknown>)['events'] ?? [])) as Array<Record<string, unknown>>;
+  const stored = (
+    Array.isArray(evBody) ? evBody : ((evBody as Record<string, unknown>)['events'] ?? [])
+  ) as Array<Record<string, unknown>>;
   check('gateway events persisted in control plane', stored.length > 0, `${stored.length} events`);
   if (stored.length > 0) {
     const types = [...new Set(stored.map((e) => String(e['eventType'] ?? '')))];
@@ -180,8 +199,11 @@ async function main(): Promise<void> {
     headers: authHeaders,
     body: JSON.stringify({ message: 'steer: now do something else' }),
   });
-  check('steering prompt delivered to gateway', promptRes.ok || promptRes.status === 202,
-    `status ${promptRes.status}`);
+  check(
+    'steering prompt delivered to gateway',
+    promptRes.ok || promptRes.status === 202,
+    `status ${promptRes.status}`,
+  );
 
   // ------------------------------------------------------------------ done
   clientWs.close();
