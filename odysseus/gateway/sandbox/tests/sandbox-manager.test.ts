@@ -3,10 +3,30 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import type { SandboxConfig } from '@odysseus/protocol';
-import { describe, test, expect, beforeEach, afterEach } from 'vitest';
+import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 
 import { getProfile, listProfiles, getPlatform } from '../src/profiles';
 import { createSandboxManager, type SandboxManager } from '../src/sandbox-manager';
+
+let previousSandboxRuntime: string | undefined;
+
+beforeAll(() => {
+  previousSandboxRuntime = process.env.ODYSSEUS_SANDBOX_RUNTIME;
+  // These are manager contract tests, not Docker integration tests. Choosing
+  // the deterministic lightweight runtime keeps their result independent of
+  // whether a developer machine or CI runner happens to expose a Docker
+  // daemon. Docker selection and path translation remain production code and
+  // can be exercised explicitly with ODYSSEUS_SANDBOX_RUNTIME=docker.
+  process.env.ODYSSEUS_SANDBOX_RUNTIME = 'lightweight';
+});
+
+afterAll(() => {
+  if (previousSandboxRuntime === undefined) {
+    delete process.env.ODYSSEUS_SANDBOX_RUNTIME;
+  } else {
+    process.env.ODYSSEUS_SANDBOX_RUNTIME = previousSandboxRuntime;
+  }
+});
 
 describe('SandboxManager', () => {
   let manager: SandboxManager;

@@ -45,7 +45,24 @@ export class LinuxSandbox extends PlatformSandboxBase {
     const resolved = resolveProfilePaths(profile, this.config.projectRoot, getHomeDir());
 
     const dockerInvocation = this.resolveDockerInvocation();
-    const useDocker = dockerInvocation !== null && (await this.haveDocker());
+    const runtime = (process.env.ODYSSEUS_SANDBOX_RUNTIME ?? 'auto').trim().toLowerCase();
+    if (!['auto', 'docker', 'lightweight'].includes(runtime)) {
+      throw new Error('ODYSSEUS_SANDBOX_RUNTIME must be one of: auto, docker, or lightweight');
+    }
+
+    if (runtime === 'docker' && dockerInvocation === null) {
+      throw new Error(
+        `Docker sandbox cannot execute host-only binary outside the project root: ${this.config.agentBinary}`,
+      );
+    }
+
+    const dockerAvailable =
+      runtime !== 'lightweight' && dockerInvocation !== null && (await this.haveDocker());
+    if (runtime === 'docker' && !dockerAvailable) {
+      throw new Error('Docker sandbox was requested, but its daemon is unavailable');
+    }
+
+    const useDocker = runtime === 'docker' || (runtime === 'auto' && dockerAvailable);
     if (useDocker && dockerInvocation) {
       await this.startDockerContainer(resolved, profile, dockerInvocation);
     } else {
