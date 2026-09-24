@@ -34,7 +34,11 @@ import {
 } from '../integrations/integration-access';
 import { VcsOAuth } from '../integrations/vcs/oauth';
 import { VcsCredentialStore } from '../integrations/vcs/token-store';
-import { isVcsProvider, type VcsProvider } from '../integrations/vcs/types';
+import {
+  isVcsProvider,
+  type StoredVcsCredential,
+  type VcsProvider,
+} from '../integrations/vcs/types';
 import { VcsClient } from '../integrations/vcs/vcs-client';
 import { type AgentRouter } from '../orchestration/agent-router';
 import { type CostGovernor } from '../orchestration/cost-governor';
@@ -1245,7 +1249,7 @@ export class HttpRouter {
         const providers: VcsProvider[] = ['github', 'gitlab', 'bitbucket'];
         const integrations = await Promise.all(
           providers.map(async (provider) => {
-            const credential = await this.vcsCredentials.get(authUser.id, provider);
+            const credential = await this.getVcsCredential(authUser.id, provider);
             return {
               id: provider,
               provider,
@@ -1329,7 +1333,7 @@ export class HttpRouter {
       ) {
         if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
         const provider = segments[3];
-        const credential = await this.vcsCredentials.get(authUser.id, provider);
+        const credential = await this.getVcsCredential(authUser.id, provider);
         if (!credential) return this.sendJson(res, 409, { error: provider + ' is not connected' });
         try {
           return this.sendJson(res, 200, {
@@ -1704,7 +1708,7 @@ export class HttpRouter {
                 error: 'repository must include a supported provider and a valid repository path',
               });
             }
-            const credential = await this.vcsCredentials.get(authUser.id, repository.provider);
+            const credential = await this.getVcsCredential(authUser.id, repository.provider);
             if (!credential) {
               return this.sendJson(res, 409, {
                 error: repository.provider + ' is not connected for this account',
@@ -1742,7 +1746,7 @@ export class HttpRouter {
             });
             if (!legacyRepository)
               return this.sendJson(res, 400, { error: 'Invalid GitHub repository' });
-            const credential = await this.vcsCredentials.get(authUser.id, 'github');
+            const credential = await this.getVcsCredential(authUser.id, 'github');
             if (!credential) {
               return this.sendJson(res, 409, { error: 'github is not connected for this account' });
             }
@@ -1943,7 +1947,7 @@ export class HttpRouter {
             });
             return this.sendJson(res, 202, { decision: 'require_approval', approval });
           }
-          const credential = await this.vcsCredentials.get(authUser.id, binding.provider);
+          const credential = await this.getVcsCredential(authUser.id, binding.provider);
           if (!credential) {
             return this.sendJson(res, 409, { error: binding.provider + ' is not connected' });
           }
@@ -3142,6 +3146,37 @@ export class HttpRouter {
     res.setHeader('Access-Control-Max-Age', '86400');
   }
 
+  /**
+   * Refresh expiring OAuth credentials before handing a token to a provider
+   * client. A failed refresh is treated as disconnected; no stale access token
+   * is ever sent after its declared expiry.
+   */
+  private async getVcsCredential(
+    userId: string,
+    provider: VcsProvider,
+  ): Promise<StoredVcsCredential | null> {
+    const credential = await this.vcsCredentials.get(userId, provider);
+    if (!credential?.expiresAt) return credential;
+    const expiry = Date.parse(credential.expiresAt);
+    if (!Number.isFinite(expiry) || expiry > Date.now() + 30_000) return credential;
+    if (!credential.refreshToken) return null;
+    try {
+      const refreshed = await this.vcsOAuth.refreshAccessToken(provider, credential.refreshToken);
+      const scope = refreshed.scope ?? credential.scope;
+      const updated: StoredVcsCredential = {
+        ...credential,
+        ...refreshed,
+        refreshToken: refreshed.refreshToken ?? credential.refreshToken,
+        ...(scope ? { scope } : {}),
+        connectedAt: credential.connectedAt,
+      };
+      await this.vcsCredentials.set(userId, provider, updated);
+      return updated;
+    } catch {
+      return null;
+    }
+  }
+
   private async executeApprovedVcsPullRequest(
     userId: string,
     action: Record<string, unknown>,
@@ -3158,7 +3193,7 @@ export class HttpRouter {
     const base = typeof action['base'] === 'string' ? action['base'] : '';
     if (!repository || !title || !head || !base)
       throw new Error('Stored pull request action is invalid');
-    const credential = await this.vcsCredentials.get(userId, provider);
+    const credential = await this.getVcsCredential(userId, provider);
     if (!credential) throw new Error(provider + ' is not connected');
     const pullRequest = await new VcsClient(provider, credential.accessToken).createPullRequest({
       repository,

@@ -8,19 +8,40 @@ describe('version-control API and project binding', () => {
   let url: string;
   let token: string;
   let platformFetch: typeof fetch;
+  let refreshRequests: number;
 
   beforeEach(async () => {
     platformFetch = globalThis.fetch;
+    refreshRequests = 0;
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const requestUrl = String(input);
       if (requestUrl.startsWith('https://github.com/login/oauth/access_token')) {
-        expect(String(init?.body)).toContain('code_verifier=');
-        return json({ access_token: 'gho_never_returned_to_browser', scope: 'repo' });
+        const fields = new URLSearchParams(String(init?.body));
+        if (fields.get('grant_type') === 'refresh_token') {
+          refreshRequests += 1;
+          expect(fields.get('refresh_token')).toBe('refresh-token-one');
+          return json({
+            access_token: 'gho_refreshed_never_returned_to_browser',
+            refresh_token: 'refresh-token-two',
+            scope: 'repo',
+            expires_in: 3600,
+          });
+        }
+        expect(fields.get('code_verifier')).toBeTruthy();
+        return json({
+          access_token: 'gho_never_returned_to_browser',
+          refresh_token: 'refresh-token-one',
+          scope: 'repo',
+          expires_in: 1,
+        });
       }
       if (requestUrl === 'https://api.github.com/user') {
         return json({ login: 'octavia', name: 'Octavia' });
       }
       if (requestUrl.includes('https://api.github.com/user/repos')) {
+        expect(init?.headers).toMatchObject({
+          Authorization: 'Bearer gho_refreshed_never_returned_to_browser',
+        });
         return json([
           {
             full_name: 'acme/platform',
@@ -114,6 +135,8 @@ describe('version-control API and project binding', () => {
     const connectedBody = await connected.text();
     expect(connectedBody).toContain('octavia');
     expect(connectedBody).not.toContain('gho_never_returned_to_browser');
+    expect(connectedBody).not.toContain('gho_refreshed_never_returned_to_browser');
+    expect(refreshRequests).toBe(1);
 
     const repositories = await fetch(url + '/api/v1/integrations/github/repositories', { headers });
     expect(await repositories.json()).toEqual({

@@ -101,7 +101,6 @@ export class VcsOAuth {
   ): Promise<{ userId: string; token: OAuthAccessToken }> {
     const transaction = this.consume(provider, state);
     const config = this.requireConfiguration(provider);
-    const definition = PROVIDERS[provider];
     const fields = new URLSearchParams({
       grant_type: 'authorization_code',
       code,
@@ -119,9 +118,39 @@ export class VcsOAuth {
       if (transaction.verifier) fields.set('code_verifier', transaction.verifier);
     }
 
+    return {
+      userId: transaction.userId,
+      token: await this.exchangeToken(provider, fields, headers),
+    };
+  }
+
+  async refreshAccessToken(provider: VcsProvider, refreshToken: string): Promise<OAuthAccessToken> {
+    const config = this.requireConfiguration(provider);
+    const fields = new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+    });
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
+    };
+    if (provider === 'bitbucket') {
+      headers.Authorization = `Basic ${Buffer.from(`${config.clientId}:${config.clientSecret}`).toString('base64')}`;
+    } else {
+      fields.set('client_id', config.clientId);
+      fields.set('client_secret', config.clientSecret);
+    }
+    return this.exchangeToken(provider, fields, headers);
+  }
+
+  private async exchangeToken(
+    provider: VcsProvider,
+    fields: URLSearchParams,
+    headers: Record<string, string>,
+  ): Promise<OAuthAccessToken> {
     let response: Response;
     try {
-      response = await this.fetchImpl(definition.tokenEndpoint, {
+      response = await this.fetchImpl(PROVIDERS[provider].tokenEndpoint, {
         method: 'POST',
         headers,
         body: fields.toString(),
@@ -135,16 +164,11 @@ export class VcsOAuth {
     }
     const expiresIn = typeof body['expires_in'] === 'number' ? body['expires_in'] : undefined;
     return {
-      userId: transaction.userId,
-      token: {
-        accessToken: body['access_token'],
-        ...(typeof body['refresh_token'] === 'string'
-          ? { refreshToken: body['refresh_token'] }
-          : {}),
-        ...(typeof body['scope'] === 'string' ? { scope: body['scope'] } : {}),
-        ...(typeof body['token_type'] === 'string' ? { tokenType: body['token_type'] } : {}),
-        ...(expiresIn ? { expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString() } : {}),
-      },
+      accessToken: body['access_token'],
+      ...(typeof body['refresh_token'] === 'string' ? { refreshToken: body['refresh_token'] } : {}),
+      ...(typeof body['scope'] === 'string' ? { scope: body['scope'] } : {}),
+      ...(typeof body['token_type'] === 'string' ? { tokenType: body['token_type'] } : {}),
+      ...(expiresIn ? { expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString() } : {}),
     };
   }
 
