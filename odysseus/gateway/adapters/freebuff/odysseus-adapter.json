@@ -1,0 +1,10 @@
+{
+  "id": "freebuff",
+  "name": "Freebuff",
+  "entry": "./src/index.ts",
+  "export": "FreebuffAdapter",
+  "protocolVersion": "1",
+  "platforms": ["linux", "darwin", "win32"],
+  "description": "The free Codebuff coding agent, driven through its terminal interface",
+  "detect": { "command": "freebuff", "versionFlag": "--version", "timeoutMs": 5000 }
+}

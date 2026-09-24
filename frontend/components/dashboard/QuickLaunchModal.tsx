@@ -38,6 +38,7 @@ const AGENT_NAMES: Record<string, string> = {
   claude: "Claude Code",
   antigravity: "Antigravity",
   opencode: "OpenCode",
+  freebuff: "Freebuff",
   mock: "Mock agent",
 };
 

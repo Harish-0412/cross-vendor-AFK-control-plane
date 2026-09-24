@@ -15,7 +15,7 @@ const commandEntries = {
   'openai-org': join(root, 'scripts', 'openai-org.ts'),
 };
 
-const adapterIds = ['antigravity', 'claude', 'codex', 'mock', 'opencode'];
+const adapterIds = ['antigravity', 'claude', 'codex', 'freebuff', 'mock', 'opencode'];
 
 await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });

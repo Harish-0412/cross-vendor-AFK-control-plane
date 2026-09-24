@@ -1,0 +1,29 @@
+{
+  "name": "@odysseus/freebuff-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Freebuff CLI adapter for Odysseus, driven through a pseudo-terminal",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "test": "vitest run",
+    "typecheck": "tsc --build --dry"
+  },
+  "dependencies": {
+    "@lydell/node-pty": "1.2.0-beta.15",
+    "@odysseus/protocol": "workspace:*",
+    "@xterm/headless": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "vitest": "^1.5.0"
+  }
+}
