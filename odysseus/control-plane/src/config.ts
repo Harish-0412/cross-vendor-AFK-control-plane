@@ -33,6 +33,23 @@ export const DEFAULT_CONTROL_PLANE_CONFIG: ControlPlaneConfig = {
   ...(process.env.GITHUB_CALLBACK_URL
     ? { githubCallbackUrl: process.env.GITHUB_CALLBACK_URL }
     : {}),
+  ...(process.env.GITLAB_CLIENT_ID ? { gitlabClientId: process.env.GITLAB_CLIENT_ID } : {}),
+  ...(process.env.GITLAB_CLIENT_SECRET
+    ? { gitlabClientSecret: process.env.GITLAB_CLIENT_SECRET }
+    : {}),
+  ...(process.env.GITLAB_CALLBACK_URL
+    ? { gitlabCallbackUrl: process.env.GITLAB_CALLBACK_URL }
+    : {}),
+  ...(process.env.BITBUCKET_CLIENT_ID
+    ? { bitbucketClientId: process.env.BITBUCKET_CLIENT_ID }
+    : {}),
+  ...(process.env.BITBUCKET_CLIENT_SECRET
+    ? { bitbucketClientSecret: process.env.BITBUCKET_CLIENT_SECRET }
+    : {}),
+  ...(process.env.BITBUCKET_CALLBACK_URL
+    ? { bitbucketCallbackUrl: process.env.BITBUCKET_CALLBACK_URL }
+    : {}),
+  ...(process.env.FRONTEND_URL ? { frontendUrl: process.env.FRONTEND_URL } : {}),
   ...(process.env.CREDENTIAL_ENCRYPTION_SECRET
     ? { credentialEncryptionSecret: process.env.CREDENTIAL_ENCRYPTION_SECRET }
     : {}),

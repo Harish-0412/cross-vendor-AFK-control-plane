@@ -5,6 +5,7 @@ import { basename, resolve } from 'node:path';
 import type {
   AgentCapabilities,
   Capability,
+  RepositoryBinding,
   SessionConfig,
   TaskKind,
   TrustProfile,
@@ -27,13 +28,14 @@ import {
 import { isAllowedOrigin } from '../config';
 import { normalizePairingCode } from '../db/pairing-code';
 import type { IDatabase } from '../db/types';
-import { GitHubClient } from '../integrations/github/github-client';
-import { GitHubOAuth } from '../integrations/github/oauth';
-import { EncryptedTokenStore } from '../integrations/github/token-store';
 import {
   IntegrationAccessError,
   type IntegrationAccessService,
 } from '../integrations/integration-access';
+import { VcsOAuth } from '../integrations/vcs/oauth';
+import { VcsCredentialStore } from '../integrations/vcs/token-store';
+import { isVcsProvider, type VcsProvider } from '../integrations/vcs/types';
+import { VcsClient } from '../integrations/vcs/vcs-client';
 import { type AgentRouter } from '../orchestration/agent-router';
 import { type CostGovernor } from '../orchestration/cost-governor';
 import { type MultiAgentOrchestrator } from '../orchestration/multi-agent-orchestrator';
@@ -56,6 +58,28 @@ function isTrustProfile(value: unknown): value is TrustProfile {
   return typeof value === 'string' && TRUST_PROFILES.includes(value as TrustProfile);
 }
 
+function parseRepositoryBinding(value: unknown): RepositoryBinding | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Record<string, unknown>;
+  if (!isVcsProvider(raw['provider']) || typeof raw['fullName'] !== 'string') return null;
+  const fullName = raw['fullName'].trim();
+  if (!/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+$/.test(fullName)) return null;
+  const defaultBranch =
+    typeof raw['defaultBranch'] === 'string' && raw['defaultBranch'].trim()
+      ? raw['defaultBranch'].trim()
+      : undefined;
+  const webUrl =
+    typeof raw['webUrl'] === 'string' && raw['webUrl'].startsWith('https://')
+      ? raw['webUrl']
+      : undefined;
+  return {
+    provider: raw['provider'],
+    fullName,
+    ...(defaultBranch ? { defaultBranch } : {}),
+    ...(webUrl ? { webUrl } : {}),
+  };
+}
+
 export class HttpRouter {
   private db: IDatabase;
   private registry: ConnectionRegistry;
@@ -70,8 +94,8 @@ export class HttpRouter {
   private riskEngine: RiskEngine;
   private costGovernor?: CostGovernor | undefined;
   private multiAgentOrchestrator?: MultiAgentOrchestrator | undefined;
-  private githubOAuth?: GitHubOAuth;
-  private githubTokens: EncryptedTokenStore;
+  private readonly vcsOAuth: VcsOAuth;
+  private readonly vcsCredentials: VcsCredentialStore;
   // §4.4 of the pre-deployment audit: neither endpoint had any attempt
   // limiting at all. Keyed by IP+email for login (so a distributed attacker
   // guessing one account, or one IP spraying many accounts, both get
@@ -117,19 +141,40 @@ export class HttpRouter {
     this.riskEngine = riskEngine;
     this.costGovernor = costGovernor;
     this.multiAgentOrchestrator = multiAgentOrchestrator;
-    this.githubTokens = new EncryptedTokenStore(
+    this.vcsCredentials = new VcsCredentialStore(
       db,
       config.credentialEncryptionSecret ?? config.jwtSecret,
     );
     this.adminService = new AdminService(db, registry, tunnelServer, auditLog, '0.1.0');
-    if (config.githubClientId && config.githubClientSecret && config.githubCallbackUrl) {
-      this.githubOAuth = new GitHubOAuth(
-        config.githubClientId,
-        config.githubClientSecret,
-        config.githubCallbackUrl,
-        config.jwtSecret,
-      );
-    }
+    this.vcsOAuth = new VcsOAuth({
+      ...(config.githubClientId && config.githubClientSecret && config.githubCallbackUrl
+        ? {
+            github: {
+              clientId: config.githubClientId,
+              clientSecret: config.githubClientSecret,
+              callbackUrl: config.githubCallbackUrl,
+            },
+          }
+        : {}),
+      ...(config.gitlabClientId && config.gitlabClientSecret && config.gitlabCallbackUrl
+        ? {
+            gitlab: {
+              clientId: config.gitlabClientId,
+              clientSecret: config.gitlabClientSecret,
+              callbackUrl: config.gitlabCallbackUrl,
+            },
+          }
+        : {}),
+      ...(config.bitbucketClientId && config.bitbucketClientSecret && config.bitbucketCallbackUrl
+        ? {
+            bitbucket: {
+              clientId: config.bitbucketClientId,
+              clientSecret: config.bitbucketClientSecret,
+              callbackUrl: config.bitbucketCallbackUrl,
+            },
+          }
+        : {}),
+    });
   }
 
   async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -1192,37 +1237,124 @@ export class HttpRouter {
         return this.sendJson(res, deleted ? 200 : 404, { success: deleted });
       }
 
-      // --- PROJECT WORKSPACES ---
-      if (path === '/api/v1/integrations/github/oauth/start' && method === 'GET') {
+      // --- VERSION CONTROL OAUTH AND PROJECT PIPELINE ---
+      // Start is authenticated by the Odysseus session. The callback is bound
+      // to that user through opaque, single-use server state.
+      if (path === '/api/v1/integrations' && method === 'GET') {
         if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
-        if (!this.githubOAuth)
-          return this.sendJson(res, 503, { error: 'GitHub OAuth is not configured' });
-        return this.sendJson(res, 200, {
-          authorizationUrl: this.githubOAuth.authorizationUrl(authUser.id),
-          scope: ['repo'],
-        });
+        const providers: VcsProvider[] = ['github', 'gitlab', 'bitbucket'];
+        const integrations = await Promise.all(
+          providers.map(async (provider) => {
+            const credential = await this.vcsCredentials.get(authUser.id, provider);
+            return {
+              id: provider,
+              provider,
+              configured: this.vcsOAuth.isConfigured(provider),
+              connected: credential !== null,
+              ...(credential
+                ? {
+                    username: credential.account.username,
+                    displayName: credential.account.displayName,
+                    avatarUrl: credential.account.avatarUrl,
+                    scopes: credential.scope?.split(/[\s,]+/).filter(Boolean) ?? [],
+                    connectedAt: credential.connectedAt,
+                  }
+                : {}),
+            };
+          }),
+        );
+        return this.sendJson(res, 200, { integrations });
       }
-      if (path === '/api/v1/integrations/github/oauth/callback' && method === 'GET') {
-        if (!this.githubOAuth)
-          return this.sendJson(res, 503, { error: 'GitHub OAuth is not configured' });
+      if (
+        segments.length === 6 &&
+        segments[0] === 'api' &&
+        segments[1] === 'v1' &&
+        segments[2] === 'integrations' &&
+        isVcsProvider(segments[3]) &&
+        segments[4] === 'oauth' &&
+        segments[5] === 'start' &&
+        method === 'GET'
+      ) {
+        if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+        const provider = segments[3];
+        if (!this.vcsOAuth.isConfigured(provider)) {
+          return this.sendJson(res, 503, {
+            error: provider + ' OAuth is not configured for this Odysseus deployment',
+          });
+        }
+        return this.sendJson(res, 200, this.vcsOAuth.authorizationUrl(provider, authUser.id));
+      }
+      if (
+        segments.length === 6 &&
+        segments[0] === 'api' &&
+        segments[1] === 'v1' &&
+        segments[2] === 'integrations' &&
+        isVcsProvider(segments[3]) &&
+        segments[4] === 'oauth' &&
+        segments[5] === 'callback' &&
+        method === 'GET'
+      ) {
+        const provider = segments[3];
         const code = url.searchParams.get('code');
         const state = url.searchParams.get('state');
-        if (!code || !state)
-          return this.sendJson(res, 400, { error: 'code and state are required' });
-        const userId = this.githubOAuth.verifyState(state);
-        await this.githubTokens.set(userId, await this.githubOAuth.exchangeCode(code));
-        return this.sendJson(res, 200, { connected: true, provider: 'github' });
+        if (!code || !state) {
+          return this.redirectOAuthResult(res, provider, 'failed', 'missing_callback_parameters');
+        }
+        try {
+          const exchanged = await this.vcsOAuth.exchangeCode(provider, state, code);
+          // A token is stored only after a live profile request succeeds.
+          const account = await new VcsClient(
+            provider,
+            exchanged.token.accessToken,
+          ).getCurrentUser();
+          await this.vcsCredentials.set(exchanged.userId, provider, {
+            ...exchanged.token,
+            account,
+            connectedAt: new Date().toISOString(),
+          });
+          return this.redirectOAuthResult(res, provider, 'connected');
+        } catch (error) {
+          console.warn('[Odysseus Control Plane] OAuth callback failed:', provider, error);
+          return this.redirectOAuthResult(res, provider, 'failed', 'verification_failed');
+        }
       }
-      if (path === '/api/v1/integrations/github/repositories' && method === 'GET') {
+      if (
+        segments.length === 5 &&
+        segments[0] === 'api' &&
+        segments[1] === 'v1' &&
+        segments[2] === 'integrations' &&
+        isVcsProvider(segments[3]) &&
+        segments[4] === 'repositories' &&
+        method === 'GET'
+      ) {
         if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
-        const token = await this.githubTokens.get(authUser.id);
-        if (!token) return this.sendJson(res, 409, { error: 'GitHub is not connected' });
-        return this.sendJson(res, 200, await new GitHubClient(token).listRepositories());
+        const provider = segments[3];
+        const credential = await this.vcsCredentials.get(authUser.id, provider);
+        if (!credential) return this.sendJson(res, 409, { error: provider + ' is not connected' });
+        try {
+          return this.sendJson(res, 200, {
+            repositories: await new VcsClient(provider, credential.accessToken).listRepositories(),
+          });
+        } catch {
+          return this.sendJson(res, 502, {
+            error:
+              'Could not retrieve repositories from ' +
+              provider +
+              '. Reconnect it if access was revoked.',
+          });
+        }
       }
-      if (path === '/api/v1/integrations/github' && method === 'DELETE') {
+      if (
+        segments.length === 4 &&
+        segments[0] === 'api' &&
+        segments[1] === 'v1' &&
+        segments[2] === 'integrations' &&
+        isVcsProvider(segments[3]) &&
+        method === 'DELETE'
+      ) {
         if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
         return this.sendJson(res, 200, {
-          disconnected: await this.githubTokens.delete(authUser.id),
+          disconnected: await this.vcsCredentials.delete(authUser.id, segments[3]),
         });
       }
 
@@ -1565,8 +1697,73 @@ export class HttpRouter {
           }
           if (typeof body['defaultBranch'] === 'string')
             preferences.defaultBranch = body['defaultBranch'];
-          if (typeof body['githubRepository'] === 'string')
-            preferences.githubRepository = body['githubRepository'];
+          if (body['repository'] !== undefined) {
+            const repository = parseRepositoryBinding(body['repository']);
+            if (!repository) {
+              return this.sendJson(res, 400, {
+                error: 'repository must include a supported provider and a valid repository path',
+              });
+            }
+            const credential = await this.vcsCredentials.get(authUser.id, repository.provider);
+            if (!credential) {
+              return this.sendJson(res, 409, {
+                error: repository.provider + ' is not connected for this account',
+              });
+            }
+            let verifiedRepository: RepositoryBinding;
+            try {
+              const verified = await new VcsClient(
+                repository.provider,
+                credential.accessToken,
+              ).getRepository(repository.fullName);
+              verifiedRepository = {
+                provider: verified.provider,
+                fullName: verified.fullName,
+                ...(verified.defaultBranch ? { defaultBranch: verified.defaultBranch } : {}),
+                ...(verified.webUrl ? { webUrl: verified.webUrl } : {}),
+              };
+            } catch {
+              return this.sendJson(res, 422, {
+                error:
+                  'The connected ' + repository.provider + ' account cannot access that repository',
+              });
+            }
+            preferences.repository = verifiedRepository;
+            if (verifiedRepository.defaultBranch)
+              preferences.defaultBranch = verifiedRepository.defaultBranch;
+            if (verifiedRepository.provider === 'github')
+              preferences.githubRepository = verifiedRepository.fullName;
+            else delete preferences.githubRepository;
+          }
+          if (typeof body['githubRepository'] === 'string') {
+            const legacyRepository = parseRepositoryBinding({
+              provider: 'github',
+              fullName: body['githubRepository'],
+            });
+            if (!legacyRepository)
+              return this.sendJson(res, 400, { error: 'Invalid GitHub repository' });
+            const credential = await this.vcsCredentials.get(authUser.id, 'github');
+            if (!credential) {
+              return this.sendJson(res, 409, { error: 'github is not connected for this account' });
+            }
+            try {
+              const verified = await new VcsClient('github', credential.accessToken).getRepository(
+                legacyRepository.fullName,
+              );
+              preferences.repository = {
+                provider: verified.provider,
+                fullName: verified.fullName,
+                ...(verified.defaultBranch ? { defaultBranch: verified.defaultBranch } : {}),
+                ...(verified.webUrl ? { webUrl: verified.webUrl } : {}),
+              };
+              preferences.githubRepository = verified.fullName;
+              if (verified.defaultBranch) preferences.defaultBranch = verified.defaultBranch;
+            } catch {
+              return this.sendJson(res, 422, {
+                error: 'The connected github account cannot access that repository',
+              });
+            }
+          }
           if (typeof body['preferredAdapter'] === 'string')
             preferences.preferredAdapter = body['preferredAdapter'];
           if (
@@ -1637,6 +1834,11 @@ export class HttpRouter {
             repository: {
               id: project.id,
               name: project.name,
+              binding:
+                project.preferences.repository ??
+                (project.preferences.githubRepository
+                  ? { provider: 'github', fullName: project.preferences.githubRepository }
+                  : null),
               githubRepository: project.preferences.githubRepository ?? null,
               status: gitStatus,
             },
@@ -1668,16 +1870,25 @@ export class HttpRouter {
           });
         }
         if (
-          segments.length === 6 &&
-          segments[4] === 'github' &&
-          segments[5] === 'pull-request' &&
-          method === 'POST'
+          method === 'POST' &&
+          ((segments.length === 6 && segments[4] === 'github' && segments[5] === 'pull-request') ||
+            (segments.length === 5 && segments[4] === 'pull-requests'))
         ) {
-          const repository = project.preferences.githubRepository;
-          if (!repository || !repository.includes('/'))
+          const binding =
+            project.preferences.repository ??
+            (project.preferences.githubRepository
+              ? { provider: 'github' as const, fullName: project.preferences.githubRepository }
+              : undefined);
+          if (!binding || !binding.fullName.includes('/'))
             return this.sendJson(res, 409, {
-              error: 'Project has no GitHub repository configured',
+              error: 'Project has no connected source-control repository configured',
             });
+          if (segments[4] === 'github' && binding.provider !== 'github') {
+            return this.sendJson(res, 409, {
+              error: 'This project is connected to ' + binding.provider + ', not GitHub',
+            });
+          }
+          const repository = binding.fullName;
           const title = typeof body['title'] === 'string' ? body['title'] : undefined;
           const head = typeof body['head'] === 'string' ? body['head'] : undefined;
           const base =
@@ -1713,7 +1924,8 @@ export class HttpRouter {
                 riskClass: 'medium',
                 resource: `${repository}:${head}->${base}`,
                 pendingControlAction: {
-                  type: 'github.pull_request_create',
+                  type: 'vcs.pull_request_create',
+                  provider: binding.provider,
                   projectId,
                   repository,
                   title,
@@ -1731,17 +1943,22 @@ export class HttpRouter {
             });
             return this.sendJson(res, 202, { decision: 'require_approval', approval });
           }
-          const token = await this.githubTokens.get(authUser.id);
-          if (!token) return this.sendJson(res, 409, { error: 'GitHub is not connected' });
-          const [owner, repo] = repository.split('/');
-          const pullRequest = await new GitHubClient(token).createPullRequest(
-            owner!,
-            repo!,
+          const credential = await this.vcsCredentials.get(authUser.id, binding.provider);
+          if (!credential) {
+            return this.sendJson(res, 409, { error: binding.provider + ' is not connected' });
+          }
+          const pullRequest = await new VcsClient(
+            binding.provider,
+            credential.accessToken,
+          ).createPullRequest({
+            repository,
             title,
             head,
             base,
-            typeof body['description'] === 'string' ? body['description'] : undefined,
-          );
+            ...(typeof body['description'] === 'string'
+              ? { description: body['description'] }
+              : {}),
+          });
           await this.auditLog.record({
             actor: { type: 'user', id: authUser.id },
             sessionId: policySession.id,
@@ -2355,8 +2572,9 @@ export class HttpRouter {
               ? (pendingControlAction as Record<string, unknown>)
               : null;
           const tunnelResult =
+            controlAction?.['type'] === 'vcs.pull_request_create' ||
             controlAction?.['type'] === 'github.pull_request_create'
-              ? await this.executeApprovedGitHubPullRequest(authUser.id, controlAction)
+              ? await this.executeApprovedVcsPullRequest(authUser.id, controlAction)
               : executable && typeof executable.commandType === 'string'
                 ? await this.tunnelServer.sendCommandToDevice(
                     session.deviceId,
@@ -2393,6 +2611,7 @@ export class HttpRouter {
             sessionId,
             deviceId: session.deviceId,
             action:
+              controlAction?.['type'] === 'vcs.pull_request_create' ||
               controlAction?.['type'] === 'github.pull_request_create'
                 ? 'git.pull_request_create.approval_granted'
                 : executable && typeof executable.commandType === 'string'
@@ -2923,7 +3142,7 @@ export class HttpRouter {
     res.setHeader('Access-Control-Max-Age', '86400');
   }
 
-  private async executeApprovedGitHubPullRequest(
+  private async executeApprovedVcsPullRequest(
     userId: string,
     action: Record<string, unknown>,
   ): Promise<{
@@ -2932,24 +3151,51 @@ export class HttpRouter {
     sequence: number | null;
     payload?: unknown;
   }> {
+    const provider = isVcsProvider(action['provider']) ? action['provider'] : 'github';
     const repository = typeof action['repository'] === 'string' ? action['repository'] : '';
-    const [owner, repo] = repository.split('/');
     const title = typeof action['title'] === 'string' ? action['title'] : '';
     const head = typeof action['head'] === 'string' ? action['head'] : '';
     const base = typeof action['base'] === 'string' ? action['base'] : '';
-    if (!owner || !repo || !title || !head || !base)
+    if (!repository || !title || !head || !base)
       throw new Error('Stored pull request action is invalid');
-    const token = await this.githubTokens.get(userId);
-    if (!token) throw new Error('GitHub is not connected');
-    const pullRequest = await new GitHubClient(token).createPullRequest(
-      owner,
-      repo,
+    const credential = await this.vcsCredentials.get(userId, provider);
+    if (!credential) throw new Error(provider + ' is not connected');
+    const pullRequest = await new VcsClient(provider, credential.accessToken).createPullRequest({
+      repository,
       title,
       head,
       base,
-      typeof action['description'] === 'string' ? action['description'] : undefined,
-    );
+      ...(typeof action['description'] === 'string' ? { description: action['description'] } : {}),
+    });
     return { acknowledged: true, delivered: true, sequence: null, payload: pullRequest };
+  }
+
+  /**
+   * Sends OAuth results back to the known control-centre origin. Provider
+   * callbacks never echo a caller-supplied return URL, which prevents an OAuth
+   * completion link being turned into an open redirect.
+   */
+  private redirectOAuthResult(
+    res: ServerResponse,
+    provider: VcsProvider,
+    status: 'connected' | 'failed',
+    reason?: string,
+  ): void {
+    const fallback = this.config.corsOrigins.find((origin) => origin.startsWith('https://'));
+    const base = this.config.frontendUrl ?? fallback;
+    if (!base || !isAllowedOrigin(base, this.config.corsOrigins)) {
+      return this.sendJson(res, 500, { error: 'OAuth return URL is not configured securely' });
+    }
+    const target = new URL('/integrations', base);
+    target.searchParams.set('provider', provider);
+    target.searchParams.set('connection', status);
+    if (reason) target.searchParams.set('reason', reason);
+    res.writeHead(302, {
+      Location: target.toString(),
+      'Cache-Control': 'no-store',
+      'Referrer-Policy': 'no-referrer',
+    });
+    res.end();
   }
 
   private sendJson(res: ServerResponse, status: number, data: unknown): void {

@@ -55,6 +55,11 @@ services:
       - key: CORS_ORIGINS
         sync: false
 
+      # OAuth callbacks return here after GitHub, GitLab, or Bitbucket has
+      # authenticated the user. Keep it to one canonical HTTPS origin.
+      - key: FRONTEND_URL
+        sync: false
+
       # Persistence. Without this the in-memory store is used and every
       # restart erases users, paired devices and the audit log — so the
       # production guard refuses to start.
@@ -87,4 +92,17 @@ services:
       - key: GITHUB_CLIENT_SECRET
         sync: false
       - key: GITHUB_CALLBACK_URL
+        sync: false
+
+      - key: GITLAB_CLIENT_ID
+        sync: false
+      - key: GITLAB_CLIENT_SECRET
+        sync: false
+      - key: GITLAB_CALLBACK_URL
+        sync: false
+      - key: BITBUCKET_CLIENT_ID
+        sync: false
+      - key: BITBUCKET_CLIENT_SECRET
+        sync: false
+      - key: BITBUCKET_CALLBACK_URL
         sync: false

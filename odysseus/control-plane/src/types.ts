@@ -162,7 +162,7 @@ export interface CostEventRecord {
 export interface IntegrationCredentialRecord {
   id: string;
   userId: string;
-  provider: 'github';
+  provider: 'github' | 'gitlab' | 'bitbucket';
   ciphertext: string;
   iv: string;
   authTag: string;
@@ -242,6 +242,14 @@ export interface ControlPlaneConfig {
   githubClientId?: string;
   githubClientSecret?: string;
   githubCallbackUrl?: string;
+  gitlabClientId?: string;
+  gitlabClientSecret?: string;
+  gitlabCallbackUrl?: string;
+  bitbucketClientId?: string;
+  bitbucketClientSecret?: string;
+  bitbucketCallbackUrl?: string;
+  /** Canonical control-centre origin used after a successful OAuth callback. */
+  frontendUrl?: string;
   credentialEncryptionSecret?: string;
   /**
    * Whether the refresh-token cookie gets the `Secure` attribute (§4.5 of

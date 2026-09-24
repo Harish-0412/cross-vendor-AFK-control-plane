@@ -1,7 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, FolderGit2, ExternalLink, GitBranch, Clock, Loader2 } from "lucide-react";
+import {
+  Plus,
+  FolderGit2,
+  ExternalLink,
+  GitBranch,
+  Clock,
+  Loader2,
+  HardDrive,
+} from "lucide-react";
+import Link from "next/link";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -15,69 +25,119 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiClient } from "@/lib/api-client";
-import Link from "next/link";
+
+interface RepositoryBinding {
+  provider: "github" | "gitlab" | "bitbucket";
+  fullName: string;
+  defaultBranch?: string;
+  webUrl?: string;
+}
 
 interface Project {
   id: string;
   name: string;
-  repoUrl: string;
-  defaultBranch: string;
-  lastActivity: string;
-  openPRs: number;
-  status: "active" | "idle" | "locked";
+  root: string;
+  preferences: {
+    defaultBranch?: string;
+    repository?: RepositoryBinding;
+    githubRepository?: string;
+    protectedBranches: string[];
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+function projectRepository(project: Project): RepositoryBinding | null {
+  return (
+    project.preferences.repository ??
+    (project.preferences.githubRepository
+      ? { provider: "github", fullName: project.preferences.githubRepository }
+      : null)
+  );
 }
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [registerOpen, setRegisterOpen] = useState(false);
-  const [form, setForm] = useState({ name: "", repoUrl: "", defaultBranch: "main" });
+  const [form, setForm] = useState({ name: "", root: "" });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadProjects = () => {
     setLoading(true);
-    apiClient
-      .get<{ projects: Project[] }>("/api/v1/projects")
-      .then((d) => setProjects(d.projects ?? []))
-      .catch(() => setProjects([]))
+    return apiClient
+      .get<Project[]>("/api/v1/projects")
+      .then((data) => setProjects(Array.isArray(data) ? data : []))
+      .catch(() => {
+        setProjects([]);
+        setError(
+          "We could not load your projects. Check your connection and try again.",
+        );
+      })
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    void loadProjects();
   }, []);
 
   const handleRegister = async () => {
-    if (!form.name.trim() || !form.repoUrl.trim()) return;
+    if (!form.name.trim() || !form.root.trim()) return;
     setSubmitting(true);
     setError(null);
     try {
-      const res = await apiClient.post<{ project: Project }>("/api/v1/projects", form);
-      setProjects((prev) => [res.project, ...prev]);
+      const project = await apiClient.post<Project>("/api/v1/projects", {
+        name: form.name.trim(),
+        root: form.root.trim(),
+      });
+      setProjects((previous) => [
+        project,
+        ...previous.filter((item) => item.id !== project.id),
+      ]);
       setRegisterOpen(false);
-      setForm({ name: "", repoUrl: "", defaultBranch: "main" });
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to register project");
+      setForm({ name: "", root: "" });
+    } catch (cause: unknown) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Could not register the workspace",
+      );
     } finally {
       setSubmitting(false);
     }
   };
 
-  const statusColor: Record<Project["status"], string> = {
-    active: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
-    idle: "bg-muted text-muted-foreground border-border",
-    locked: "bg-destructive/10 text-destructive border-destructive/20",
-  };
-
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Projects</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Manage git repositories and review AI-generated changes</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Register a workspace on a trusted device, then securely link its
+            source-control repository.
+          </p>
         </div>
-        <Button onClick={() => setRegisterOpen(true)} className="gap-2">
+        <Button
+          onClick={() => {
+            setError(null);
+            setRegisterOpen(true);
+          }}
+          className="gap-2"
+        >
           <Plus className="h-4 w-4" />
-          Register Project
+          Register workspace
         </Button>
       </div>
+
+      {error && (
+        <p
+          role="alert"
+          className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+        >
+          {error}
+        </p>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-16">
@@ -85,110 +145,163 @@ export default function ProjectsPage() {
         </div>
       ) : projects.length === 0 ? (
         <Card className="border-dashed">
-          <CardContent className="flex flex-col items-center justify-center py-16 gap-4">
+          <CardContent className="flex flex-col items-center justify-center gap-4 py-16">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
               <FolderGit2 className="h-6 w-6 text-muted-foreground" />
             </div>
             <div className="text-center">
-              <p className="font-medium text-foreground">No projects registered</p>
-              <p className="text-sm text-muted-foreground mt-1">Register a git repository to start reviewing AI changes</p>
+              <p className="font-medium text-foreground">
+                No workspaces registered
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Register the local folder your connected gateway is allowed to
+                use.
+              </p>
             </div>
-            <Button onClick={() => setRegisterOpen(true)} variant="outline" className="gap-2">
+            <Button
+              onClick={() => setRegisterOpen(true)}
+              variant="outline"
+              className="gap-2"
+            >
               <Plus className="h-4 w-4" />
-              Register your first project
+              Register your first workspace
             </Button>
           </CardContent>
         </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {projects.map((project) => (
-            <Link key={project.id} href={`/projects/${project.id}`}>
-              <Card className="hover:border-primary/50 transition-colors cursor-pointer h-full">
+          {projects.map((project) => {
+            const repository = projectRepository(project);
+            return (
+              <Card
+                key={project.id}
+                className="flex h-full flex-col transition-colors hover:border-primary/50"
+              >
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between gap-2">
-                    <CardTitle className="text-base font-semibold truncate">{project.name}</CardTitle>
+                    <CardTitle className="truncate text-base font-semibold">
+                      {project.name}
+                    </CardTitle>
                     <Badge
                       variant="outline"
-                      className={`text-[10px] uppercase tracking-wide shrink-0 ${statusColor[project.status]}`}
+                      className={
+                        repository
+                          ? "border-emerald-500/20 bg-emerald-500/10 text-[10px] text-emerald-600 dark:text-emerald-400"
+                          : "text-[10px] text-muted-foreground"
+                      }
                     >
-                      {project.status}
+                      {repository ? "Repository linked" : "Not linked"}
                     </Badge>
                   </div>
-                  <a
-                    href={project.repoUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground truncate mt-1"
-                  >
-                    <ExternalLink className="h-3 w-3 shrink-0" />
-                    <span className="truncate">{project.repoUrl.replace(/^https?:\/\//, "")}</span>
-                  </a>
+                  <div className="mt-2 flex items-start gap-1.5 text-xs text-muted-foreground">
+                    <HardDrive className="mt-0.5 h-3 w-3 shrink-0" />
+                    <span className="break-all font-mono">{project.root}</span>
+                  </div>
                 </CardHeader>
-                <CardContent className="pt-0 space-y-2">
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                <CardContent className="mt-auto space-y-3 pt-0">
+                  {repository ? (
+                    <div className="rounded-md bg-muted/50 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate text-sm font-medium">
+                          {repository.fullName}
+                        </p>
+                        {repository.webUrl && (
+                          <a
+                            href={repository.webUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            aria-label={"Open " + repository.fullName}
+                          >
+                            <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground hover:text-foreground" />
+                          </a>
+                        )}
+                      </div>
+                      <p className="mt-0.5 text-xs capitalize text-muted-foreground">
+                        {repository.provider} ·{" "}
+                        {repository.defaultBranch ??
+                          project.preferences.defaultBranch ??
+                          "main"}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+                      Link GitHub, GitLab, or Bitbucket in project settings to
+                      create reviewed pull requests.
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
                     <span className="flex items-center gap-1">
                       <GitBranch className="h-3 w-3" />
-                      {project.defaultBranch}
+                      {project.preferences.defaultBranch ?? "main"}
                     </span>
-                    {project.openPRs > 0 && (
-                      <span className="flex items-center gap-1 text-amber-500">
-                        <FolderGit2 className="h-3 w-3" />
-                        {project.openPRs} open PR{project.openPRs !== 1 ? "s" : ""}
-                      </span>
-                    )}
+                    <span className="flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      Updated {new Date(project.updatedAt).toLocaleDateString()}
+                    </span>
                   </div>
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <Clock className="h-3 w-3" />
-                    Last activity: {new Date(project.lastActivity).toLocaleDateString()}
-                  </div>
+                  <Link href={"/projects/" + project.id} className="block">
+                    <Button size="sm" variant="outline" className="w-full">
+                      Project settings
+                    </Button>
+                  </Link>
                 </CardContent>
               </Card>
-            </Link>
-          ))}
+            );
+          })}
         </div>
       )}
 
       <Dialog open={registerOpen} onOpenChange={setRegisterOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Register Project</DialogTitle>
+            <DialogTitle>Register a workspace</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              The path must be a real local folder on a trusted gateway.
+              Odysseus never creates a remote workspace from a repository URL.
+            </p>
             <div className="space-y-1.5">
-              <Label htmlFor="proj-name">Project name</Label>
+              <Label htmlFor="proj-name">Workspace name</Label>
               <Input
                 id="proj-name"
                 placeholder="my-agent-project"
                 value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    name: event.target.value,
+                  }))
+                }
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="proj-repo">Repository URL</Label>
+              <Label htmlFor="proj-root">Local workspace path</Label>
               <Input
-                id="proj-repo"
-                placeholder="https://github.com/org/repo"
-                value={form.repoUrl}
-                onChange={(e) => setForm((f) => ({ ...f, repoUrl: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="proj-branch">Default branch</Label>
-              <Input
-                id="proj-branch"
-                placeholder="main"
-                value={form.defaultBranch}
-                onChange={(e) => setForm((f) => ({ ...f, defaultBranch: e.target.value }))}
+                id="proj-root"
+                placeholder={"C:\\Projects\\my-agent-project"}
+                value={form.root}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    root: event.target.value,
+                  }))
+                }
               />
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRegisterOpen(false)}>Cancel</Button>
-            <Button onClick={handleRegister} disabled={submitting} className="gap-2">
+            <Button variant="outline" onClick={() => setRegisterOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleRegister}
+              disabled={submitting || !form.name.trim() || !form.root.trim()}
+              className="gap-2"
+            >
               {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-              Register
+              Register workspace
             </Button>
           </DialogFooter>
         </DialogContent>
