@@ -1,7 +1,8 @@
 "use client"
 
+import Image from "next/image"
 import { useRouter } from "next/navigation"
-import { Bot, Github, Twitter, MessageCircle, Youtube } from "lucide-react"
+import { Github, Twitter, MessageCircle, Youtube } from "lucide-react"
 import { Reveal } from "@/components/reveal"
 import { MagneticButton } from "@/components/magnetic-button"
 
@@ -51,10 +52,10 @@ export function CtaFooter() {
         <div className="grid gap-10 py-16 md:grid-cols-[1.4fr_repeat(4,1fr)]">
           <div>
             <a href="#top" className="mb-4 flex items-center gap-2.5">
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <Bot className="h-5 w-5" aria-hidden="true" />
+              <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-lg shadow-sm ring-1 ring-white/10">
+                <Image src="/ares.png" alt="Ares" width={36} height={36} className="object-contain" />
               </span>
-              <span className="font-sans text-lg font-semibold tracking-tight text-foreground">SmartConnect</span>
+              <span className="font-sans text-lg font-semibold tracking-tight text-foreground">Odysseus AFK</span>
             </a>
             <p className="max-w-xs text-sm leading-relaxed text-foreground/60">
               The vendor-neutral AFK control plane for AI coding agents.

@@ -17,33 +17,10 @@ import {
 } from "@/components/ui/command";
 import { LiveDot } from "@/components/motion";
 import { agentLabel, projectName } from "@/components/dashboard/shared";
+import { rankCommand } from "@/lib/command-rank";
 import { NAV_GROUPS } from "@/lib/navigation";
 import { useUiStore } from "@/lib/ui-store";
 import { useLiveSessions, useWorkspace } from "@/lib/workspace-store";
-
-/**
- * Rank by words, not scattered letters.
- *
- * cmdk's default is a loose subsequence match, so "bud" ranked a session
- * above Budgets by finding b, u and d spread through an id. Here a match must
- * be a real substring: the start of a word ranks highest, the start of the
- * whole label next, anywhere inside a word lowest. Every search term must
- * match, so "codex pc" narrows rather than widens.
- */
-function rank(value: string, search: string): number {
-  const haystack = value.toLowerCase();
-  const terms = search.toLowerCase().trim().split(/\s+/).filter(Boolean);
-  if (terms.length === 0) return 1;
-  let score = 0;
-  for (const term of terms) {
-    const at = haystack.indexOf(term);
-    if (at === -1) return 0;
-    if (at === 0) score += 3;
-    else if (/[\s\-_./]/.test(haystack[at - 1] ?? "")) score += 2;
-    else score += 1;
-  }
-  return score / (terms.length * 3);
-}
 
 /**
  * ⌘K / Ctrl+K: jump anywhere, or do the common things, from the keyboard.
@@ -92,7 +69,7 @@ export function CommandPalette() {
       onOpenChange={setOpen}
       title="Search Odysseus"
       description="Jump to a page, a machine or a running session"
-      filter={rank}
+      filter={rankCommand}
       className="rounded-2xl border shadow-2xl sm:max-w-xl"
     >
       <CommandInput placeholder="Search pages, machines, sessions…" />

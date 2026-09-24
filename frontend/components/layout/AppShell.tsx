@@ -176,7 +176,7 @@ function Splash({ label }: { label: string }) {
             transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
             className="relative h-16 w-16 overflow-hidden rounded-2xl shadow-xl ring-1 ring-white/10"
           >
-            <Image src="/icon-192.png" alt="Odysseus" width={64} height={64} priority />
+            <Image src="/ares.png" alt="Odysseus" width={64} height={64} priority />
           </motion.div>
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">

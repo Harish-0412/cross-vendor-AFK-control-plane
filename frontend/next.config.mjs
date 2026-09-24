@@ -6,8 +6,9 @@
  *
  * Only /api/v1 is proxied. Next.js route handlers under /api stay local.
  */
-const controlPlaneUrl = process.env.CONTROL_PLANE_URL?.replace(/\/+$/, "")
-
+const controlPlaneUrl =
+  process.env.CONTROL_PLANE_URL?.replace(/\/+$/, "") ||
+  "https://odysseus-control-plane.onrender.com";
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   transpilePackages: ['@odysseus/protocol'],

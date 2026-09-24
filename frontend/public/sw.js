@@ -90,8 +90,8 @@ self.addEventListener("push", (event) => {
     data.data && typeof data.data === "object" ? data.data : data;
   const options = {
     body: data.body || "",
-    icon: "/icon-192.png",
-    badge: "/icon-light-32x32.png",
+    icon: "/ares.png",
+    badge: "/ares.png",
     tag: data.tag || "odysseus-afk",
     data: {
       url: notificationData.url || "/approvals",

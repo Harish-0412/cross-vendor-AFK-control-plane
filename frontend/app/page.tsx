@@ -94,7 +94,7 @@ export default function Home() {
         }`}
       >
         <CardNav
-          logo=""
+          logo="/ares.png"
           logoAlt="Odysseus AFK"
           items={[
             {

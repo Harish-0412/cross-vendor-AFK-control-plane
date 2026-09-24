@@ -16,10 +16,28 @@
  * WebSockets cannot go through the proxy, and do not need to: they
  * authenticate with the access token, not a cookie. See realtime.ts.
  */
-export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_PROXY === 'true'
-    ? ''
-    : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+function resolveApiBaseUrl(): string {
+  if (process.env.NEXT_PUBLIC_API_PROXY === 'true') {
+    return '';
+  }
+  if (
+    process.env.NEXT_PUBLIC_API_URL &&
+    !process.env.NEXT_PUBLIC_API_URL.includes('localhost')
+  ) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+  if (typeof window !== 'undefined') {
+    const isLocal =
+      window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1';
+    if (!isLocal) {
+      return '';
+    }
+  }
+  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+}
+
+export const API_BASE_URL = resolveApiBaseUrl();
 
 let currentAccessToken: string | null = null;
 let refreshPromise: Promise<string | null> | null = null;

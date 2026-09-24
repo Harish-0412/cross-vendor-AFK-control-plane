@@ -30,12 +30,12 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: "#6366F1",
     categories: ["developer", "productivity", "utilities"],
     icons: [
+      { src: "/ares.png", sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: "/ares.png", sizes: "192x192", type: "image/png", purpose: "any" },
       { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
       { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
-      // Android crops icons to its own shape; the maskable variant keeps the
-      // mark inside the safe zone so it is not clipped.
       {
-        src: "/icon-maskable-512.png",
+        src: "/ares.png",
         sizes: "512x512",
         type: "image/png",
         purpose: "maskable",

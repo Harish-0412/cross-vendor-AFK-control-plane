@@ -66,6 +66,42 @@ jobs:
       - name: Test
         run: pnpm test
 
+  # The web app is its own package with its own lockfile, deployed by Vercel.
+  # Nothing tested or built it on push before, so a broken import or a
+  # failing rule reached production and was found there.
+  frontend:
+    name: Web app tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          # Matches the version that writes frontend/pnpm-lock.yaml and reads
+          # the build approvals in frontend/pnpm-workspace.yaml.
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
   docker:
     name: Control Plane image builds
     runs-on: ubuntu-latest

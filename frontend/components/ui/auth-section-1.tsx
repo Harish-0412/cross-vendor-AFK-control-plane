@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { API_BASE_URL } from "@/lib/api-client";
 import type { ReactNode } from "react";
@@ -130,6 +131,14 @@ export default function AuthSectionOne({ mode = "signup" }: AuthSectionOneProps)
         {/* Left Side: Auth Form */}
         <div className="flex min-h-[640px] items-center justify-center rounded-xl border border-border bg-card px-6 py-10 sm:px-10 lg:min-h-0 lg:px-12 xl:px-16">
           <div className="mx-auto w-full max-w-[420px]">
+            <Link href="/" className="mb-6 inline-flex items-center gap-3 group">
+              <span className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl shadow-md ring-1 ring-white/10 transition-transform group-hover:scale-105">
+                <Image src="/ares.png" alt="Odysseus AFK" width={40} height={40} priority />
+              </span>
+              <span className="font-sans text-xl font-bold tracking-tight text-foreground">
+                Odysseus AFK
+              </span>
+            </Link>
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
                 {isSignup ? "Create an account" : "Welcome back"}

@@ -23,6 +23,18 @@ export const metadata: Metadata = {
   title: "Odysseus AFK — Go AFK. Your AI Agent Keeps Working.",
   description:
     "Odysseus AFK is the vendor-neutral control plane for AI coding agents. Supervise, approve, and control your agents from anywhere — your phone, tablet, or any browser.",
+  icons: {
+    icon: [
+      { url: "/ares.png", sizes: "512x512", type: "image/png" },
+      { url: "/ares.png", sizes: "192x192", type: "image/png" },
+      { url: "/ares.png", sizes: "32x32", type: "image/png" },
+      { url: "/favicon.ico" },
+    ],
+    shortcut: "/ares.png",
+    apple: [
+      { url: "/ares.png", sizes: "180x180", type: "image/png" },
+    ],
+  },
   appleWebApp: {
     capable: true,
     title: "Odysseus",

@@ -32,7 +32,18 @@ import {
   type DeviceSummary,
   type SessionSummary,
 } from "@/lib/workspace-store";
+import {
+  agentLabel,
+  greeting,
+  projectName,
+  sessionState,
+  summary as summarise,
+} from "@/lib/dashboard-model";
 import { cn } from "@/lib/utils";
+
+// The wording rules live in lib/dashboard-model, where they are tested; the
+// dashboards import them from here alongside the components.
+export { agentLabel, greeting, projectName, sessionState };
 
 // ------------------------------------------------------------------- data
 
@@ -67,71 +78,10 @@ export function useDashboard() {
 
 export type Dashboard = ReturnType<typeof useDashboard>;
 
-export function greeting(now = new Date()): string {
-  const hour = now.getHours();
-  if (hour < 5) return "Working late";
-  if (hour < 12) return "Good morning";
-  if (hour < 18) return "Good afternoon";
-  return "Good evening";
-}
-
 /** One sentence that says how things are, before any numbers. */
-export function summary(d: Dashboard): { text: string; tone: "success" | "warning" | "danger" | "muted" } {
-  if (d.devicesError && d.devices.length === 0)
-    return { text: "The machine list could not be loaded", tone: "danger" };
-  if (d.devices.length === 0) return { text: "Pair a machine to get started", tone: "muted" };
-  if (d.approvals.length > 0)
-    return {
-      text: `${d.approvals.length} ${d.approvals.length === 1 ? "decision is" : "decisions are"} waiting for you`,
-      tone: "warning",
-    };
-  if (d.online.length === 0) return { text: "Your machines are offline", tone: "danger" };
-  if (d.live.length > 0)
-    return {
-      text: `${d.live.length} ${d.live.length === 1 ? "agent is" : "agents are"} working — nothing needs you`,
-      tone: "success",
-    };
-  return { text: "All clear. Nothing is running and nothing needs you", tone: "success" };
-}
+export const summary = (d: Dashboard) => summarise(d);
 
 // --------------------------------------------------------------- wording
-
-const AGENT_NAMES: Record<string, string> = {
-  codex: "Codex",
-  "claude-code": "Claude Code",
-  claude: "Claude Code",
-  antigravity: "Antigravity",
-  opencode: "OpenCode",
-  mock: "Mock agent",
-};
-
-export const agentLabel = (id: string) => AGENT_NAMES[id] ?? id;
-
-export function sessionState(state: string): {
-  label: string;
-  tone: "success" | "warning" | "danger" | "muted" | "primary";
-  live: boolean;
-} {
-  switch (state) {
-    case "running":
-      return { label: "Running", tone: "success", live: true };
-    case "initializing":
-      return { label: "Starting", tone: "primary", live: true };
-    case "waiting_for_approval":
-      return { label: "Needs you", tone: "warning", live: true };
-    case "paused":
-      return { label: "Paused", tone: "muted", live: false };
-    case "completed":
-      return { label: "Completed", tone: "success", live: false };
-    case "failed":
-    case "crashed":
-      return { label: "Failed", tone: "danger", live: false };
-    case "cancelled":
-      return { label: "Stopped", tone: "muted", live: false };
-    default:
-      return { label: state.replaceAll("_", " "), tone: "muted", live: false };
-  }
-}
 
 const TONE_PILL: Record<string, string> = {
   success: "border-success/25 bg-success/10 text-success",
@@ -161,12 +111,6 @@ export function PlatformIcon({ platform, className }: { platform: string; classN
   if (platform === "darwin") return <Apple className={className} />;
   if (platform === "linux") return <Terminal className={className} />;
   return <Monitor className={className} />;
-}
-
-/** "C:\\Users\\me\\projects\\app" → "app"; the last folder is the recognisable part. */
-export function projectName(root: string): string {
-  const parts = root.split(/[\\/]/).filter(Boolean);
-  return parts[parts.length - 1] ?? root;
 }
 
 export function lastSeen(device: DeviceSummary): string {

@@ -53,11 +53,20 @@ class RealtimeClient {
   private globalListeners = new Set<(message: InboundEventMessage) => void>();
 
   constructor() {
-    this.wsBaseUrl =
-      process.env.NEXT_PUBLIC_WS_URL ||
-      (typeof window !== "undefined"
-        ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.hostname}:4000`
-        : "ws://localhost:4000");
+    if (process.env.NEXT_PUBLIC_WS_URL) {
+      this.wsBaseUrl = process.env.NEXT_PUBLIC_WS_URL;
+    } else if (typeof window !== "undefined") {
+      const isLocal =
+        window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1";
+      if (!isLocal) {
+        this.wsBaseUrl = "wss://odysseus-control-plane.onrender.com";
+      } else {
+        this.wsBaseUrl = `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.hostname}:4000`;
+      }
+    } else {
+      this.wsBaseUrl = "ws://localhost:4000";
+    }
   }
 
   connect(): void {

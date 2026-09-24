@@ -125,7 +125,7 @@ function MobileHeader() {
       <div className="flex h-14 items-center justify-between gap-3 px-4">
         <Link href="/dashboard" className="flex min-w-0 items-center gap-2.5" aria-label="Overview">
           <span className="relative flex h-8 w-8 shrink-0 overflow-hidden rounded-[10px] shadow-sm ring-1 ring-white/10">
-            <Image src="/icon-192.png" alt="" width={32} height={32} priority />
+            <Image src="/ares.png" alt="Odysseus" width={32} height={32} priority />
           </span>
           <AnimatePresence mode="wait" initial={false}>
             <motion.span

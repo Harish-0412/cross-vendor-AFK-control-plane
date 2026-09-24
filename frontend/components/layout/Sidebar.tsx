@@ -51,7 +51,7 @@ export function Sidebar() {
           className="group relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl shadow-md ring-1 ring-white/10 transition-transform duration-300 hover:scale-105"
           aria-label="Odysseus overview"
         >
-          <Image src="/icon-192.png" alt="" width={40} height={40} priority />
+          <Image src="/ares.png" alt="Odysseus" width={40} height={40} priority />
         </Link>
         <AnimatePresence initial={false}>
           {!collapsed && (
