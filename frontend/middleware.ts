@@ -26,6 +26,9 @@ export function middleware(request: NextRequest) {
     // pre-cache (a redirected response cannot be stored) and send someone with
     // no connection to a sign-in page that also cannot load.
     pathname === '/offline' ||
+    // Sample-data preview of the signed-in UI, for local development only.
+    // In production it is not exempted here and the page itself 404s.
+    (process.env.NODE_ENV !== 'production' && pathname === '/dev-preview') ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api') ||
     pathname.includes('.')
