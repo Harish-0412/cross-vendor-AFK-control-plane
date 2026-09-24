@@ -43,7 +43,7 @@ type GuardState = "checking" | "allowed" | "denied" | "error";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { isAuthenticated, isInitialized, user, checkAuth } = useAuthStore();
+  const { isAuthenticated, isInitialized, user, logout } = useAuthStore();
   const [guard, setGuard] = useState<GuardState>("checking");
   const [role, setRole] = useState<string | null>(null);
 
@@ -108,11 +108,31 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <div className="w-full max-w-md rounded-2xl border border-rose-500/30 bg-rose-500/5 p-8 text-center">
           <ShieldX className="mx-auto h-10 w-10 text-rose-400" />
           <h1 className="mt-4 text-xl font-semibold">Access denied</h1>
-          <p className="mt-2 text-sm text-zinc-400">
-            {isAuthenticated
-              ? "Your account does not have admin or owner privileges on this Control Plane."
-              : "Sign in with an administrator account to open the admin console."}
-          </p>
+          {isAuthenticated ? (
+            <>
+              <p className="mt-2 text-sm text-zinc-400">
+                This account does not have administrator access on this Control Plane.
+              </p>
+              <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950/60 px-4 py-3 text-left">
+                <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Signed-in account
+                </p>
+                <p className="mt-1 truncate text-sm text-zinc-200">
+                  {user?.email ?? "Unknown account"}
+                </p>
+                <p className="mt-2 text-xs leading-5 text-zinc-500">
+                  An administrator must grant this Firebase user the{" "}
+                  <code className="text-zinc-300">odysseusRole</code> custom claim with the value{" "}
+                  <code className="text-zinc-300">admin</code> or <code className="text-zinc-300">owner</code>.
+                  {" "}Firestore document fields alone do not grant access.
+                </p>
+              </div>
+            </>
+          ) : (
+            <p className="mt-2 text-sm text-zinc-400">
+              Sign in with an administrator account to open the admin console.
+            </p>
+          )}
           <div className="mt-6 flex justify-center gap-3">
             <Link
               href="/dashboard"
@@ -127,6 +147,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               >
                 Sign in
               </Link>
+            )}
+            {isAuthenticated && (
+              <button
+                onClick={() => {
+                  void logout().then(() => {
+                    window.location.assign("/login?redirect=/admin");
+                  });
+                }}
+                className="rounded-lg bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-white"
+              >
+                Switch account
+              </button>
             )}
           </div>
         </div>
