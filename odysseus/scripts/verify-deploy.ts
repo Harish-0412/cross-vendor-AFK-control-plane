@@ -209,10 +209,18 @@ function probeSocket(
 }
 
 async function checkSockets(): Promise<void> {
-  // A browser from the real website, with a token that is not valid.
-  const badToken = await probeSocket(`${WS_BASE}/ws/client`, WEB, (socket) =>
-    socket.send(JSON.stringify({ type: 'auth', token: 'not-a-real-token' })),
+  // A browser from the real website, with a token that is not valid. The
+  // server drops the connection within a second of refusing it; Render's edge
+  // has been measured taking about twenty more to pass that on, so the wait is
+  // long enough to see the close rather than time out before it.
+  const started = Date.now();
+  const badToken = await probeSocket(
+    `${WS_BASE}/ws/client`,
+    WEB,
+    (socket) => socket.send(JSON.stringify({ type: 'auth', token: 'not-a-real-token' })),
+    35_000,
   );
+  const closedAfter = ((Date.now() - started) / 1000).toFixed(1);
   // Render's proxy has been seen to report the server's 4001 as 1006, so the
   // close code is not asserted. What is asserted: the socket was never
   // welcomed, and it was actually closed. A refused socket left open holds
@@ -226,8 +234,8 @@ async function checkSockets(): Promise<void> {
       : badToken.welcomed
         ? 'an invalid token was accepted'
         : badToken.closeCode === undefined
-          ? 'refused, but left open — rejected sockets are not being torn down'
-          : `refused and closed (code ${badToken.closeCode})`,
+          ? 'refused, but left open for 35 s — rejected sockets are not being torn down'
+          : `refused and closed after ${closedAfter} s (code ${badToken.closeCode})`,
   );
 
   // Browsers do not apply CORS to WebSockets, so the server must check Origin.

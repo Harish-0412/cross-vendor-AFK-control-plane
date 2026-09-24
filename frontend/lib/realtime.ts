@@ -42,6 +42,15 @@ class RealtimeClient {
   private opened = false;
   /** The server accepted the token and sent its 'connected' welcome. */
   private welcomed = false;
+  /**
+   * How long an opened socket may wait for the server's welcome. The server
+   * refuses a bad token at once, but the hosting proxy has been measured
+   * taking about twenty seconds to pass the resulting disconnect on — twenty
+   * seconds of "Connecting" after a token expires. Not being welcomed in time
+   * is treated the same as being refused: refresh the token and reconnect.
+   */
+  private welcomeTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly WELCOME_DEADLINE_MS = 6_000;
   private lifecycleInstalled = false;
   private lastSessionSequence = new Map<string, number>();
 
@@ -120,6 +129,14 @@ class RealtimeClient {
       // Send the bearer token inside the encrypted WebSocket rather than in
       // its URL, where hosting/proxy access logs commonly record it.
       this.send({ type: "auth", token });
+      const socket = this.ws;
+      this.clearWelcomeTimer();
+      this.welcomeTimer = setTimeout(() => {
+        if (!this.welcomed && socket && this.ws === socket) {
+          // onclose sees "opened but never welcomed" and refreshes the token.
+          socket.close(4000, "No welcome from the server");
+        }
+      }, RealtimeClient.WELCOME_DEADLINE_MS);
     };
 
     this.ws.onmessage = (event) => {
@@ -127,6 +144,7 @@ class RealtimeClient {
         const msg = JSON.parse(event.data) as Record<string, unknown>;
         if (msg.type === "connected") {
           this.welcomed = true;
+          this.clearWelcomeTimer();
           // Backoff resets only once the server has accepted us, so a socket
           // that is repeatedly rejected keeps backing off.
           this.reconnectAttempts = 0;
@@ -214,6 +232,7 @@ class RealtimeClient {
 
     this.ws.onclose = (event: CloseEvent) => {
       this.ws = null;
+      this.clearWelcomeTimer();
       if (event.code === 4004) {
         this.isIntentionallyClosed = true;
         useRealtimeStore.getState().setStatus("offline");
@@ -248,6 +267,11 @@ class RealtimeClient {
     this.ws.onerror = () => {
       // ws.onclose will fire after onerror
     };
+  }
+
+  private clearWelcomeTimer(): void {
+    if (this.welcomeTimer) clearTimeout(this.welcomeTimer);
+    this.welcomeTimer = null;
   }
 
   private scheduleReconnect(): void {
