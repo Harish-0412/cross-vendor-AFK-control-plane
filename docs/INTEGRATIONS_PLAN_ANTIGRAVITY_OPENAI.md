@@ -7,6 +7,15 @@ workstation**, where the data lives, so the web app alone cannot bypass it.
 
 **Status:** P0–P7 are implemented and tested. P4 adds phone-launched, resumable Codex CLI sessions; P5 adds local ChatGPT export import; P6 adds encrypted local Admin-key storage and provider-reported OpenAI organization spend/usage; P7 adds consent-gated, sandboxed, multi-turn Antigravity sessions over the verified `agy` stream-json interface.
 
+> **24 September 2026.** Since these phases landed, History gained server-side
+> search across synced message text and per-conversation Markdown/JSON export,
+> and a plan window crossing 80% now raises an in-app and push warning. Two
+> caveats worth knowing: none of P0–P7 is live yet, because the deployed
+> Control Plane is behind `main`; and `agy` is no longer on this machine's
+> `PATH`, so P7's live sessions cannot run here until it is reinstalled
+> (reading Antigravity history does not need it). See
+> `docs/PROJECT_STATUS_AND_REMAINING_WORK.md`.
+
 **Decisions (confirmed):** sync titles and metadata by default, with content per
 conversation; delete synced history on revoke; approve in the running gateway
 or with `pnpm grants`; OpenAI organisation spend (P6) is in scope, and the

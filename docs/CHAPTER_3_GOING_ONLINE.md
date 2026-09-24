@@ -8,6 +8,14 @@ over a link that survives a screen lock, a tunnel change, and a cell handover.
 only works on `localhost`. Nothing in this repository is deployed, deployable, or
 safe to expose. This document is the gap list between those two states.
 
+> **Progress note, 24 September 2026.** This document is a point-in-time gap
+> analysis and is kept as written. Since then: **N0–N5 are done**, and N4.2's
+> heartbeat, replay-from-sequence and lifecycle handling and N4.3's server-side
+> ping/pong are implemented. **N6 is half done** — the PWA manifest, icons,
+> offline page and service-worker registration exist; Web Push still needs
+> VAPID keys set on Render and Vercel. **N7 has not been started.**
+> `docs/PROJECT_STATUS_AND_REMAINING_WORK.md` has the current picture.
+
 ---
 
 ## 0. The good news, stated first
