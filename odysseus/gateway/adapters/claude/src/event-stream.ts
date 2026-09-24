@@ -3,7 +3,8 @@ import type { EventEnvelope, EventSubscriber, EventStream } from '@odysseus/prot
 export class AdapterEventStream implements EventStream {
   private readonly listeners = new Set<Partial<EventSubscriber>>();
   private readonly buffered: EventEnvelope[] = [];
-  private readonly waiting: Array<(result: IteratorResult<EventEnvelope>) => void> = [];
+  /** Iterators parked on an empty buffer; each is woken to read the buffer again. */
+  private readonly waiting: Array<() => void> = [];
   closed = false;
 
   publish(event: EventEnvelope): void {
@@ -16,7 +17,7 @@ export class AdapterEventStream implements EventStream {
         listener.onError?.(error instanceof Error ? error : new Error(String(error)));
       }
     }
-    this.waiting.shift()?.({ value: event, done: false });
+    this.wake();
   }
 
   subscribe(listener: Partial<EventSubscriber>): void {
@@ -29,19 +30,26 @@ export class AdapterEventStream implements EventStream {
     if (this.closed) return;
     this.closed = true;
     for (const listener of this.listeners) listener.onClose?.();
-    while (this.waiting.length) this.waiting.shift()?.({ value: undefined, done: true });
+    this.wake();
     this.listeners.clear();
   }
 
+  private wake(): void {
+    while (this.waiting.length) this.waiting.shift()?.();
+  }
+
   [Symbol.asyncIterator](): AsyncIterator<EventEnvelope> {
+    // Every read goes through the index. Handing a parked iterator the new
+    // event directly, as this used to, left the index behind, so the next
+    // read returned the same event again: every event that arrived while the
+    // consumer was waiting was delivered twice.
     let index = 0;
-    return {
-      next: () => {
-        if (index < this.buffered.length)
-          return Promise.resolve({ value: this.buffered[index++]!, done: false });
-        if (this.closed) return Promise.resolve({ value: undefined, done: true });
-        return new Promise<IteratorResult<EventEnvelope>>((resolve) => this.waiting.push(resolve));
-      },
+    const next = (): Promise<IteratorResult<EventEnvelope>> => {
+      if (index < this.buffered.length)
+        return Promise.resolve({ value: this.buffered[index++]!, done: false });
+      if (this.closed) return Promise.resolve({ value: undefined, done: true });
+      return new Promise<void>((resolve) => this.waiting.push(resolve)).then(next);
     };
+    return { next };
   }
 }
