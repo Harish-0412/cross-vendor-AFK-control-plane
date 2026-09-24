@@ -10,6 +10,7 @@ import type { IDatabase } from '../db/types';
 import type { StoredEvent } from '../types';
 
 import type { ClientConnection, ConnectionRegistry } from './connection-registry';
+import { rejectSocket } from './reject-socket';
 
 interface InboundClientMessage {
   type?: string;
@@ -60,7 +61,7 @@ export class ClientServer {
       this.alive.set(socket, true);
 
       const authTimer = setTimeout(() => {
-        if (!clientConn) socket.close(4001, 'Authentication timed out');
+        if (!clientConn) rejectSocket(socket, 4001, 'Authentication timed out');
       }, AUTH_TIMEOUT_MS);
       authTimer.unref?.();
 
@@ -88,7 +89,7 @@ export class ClientServer {
           this.notifyPresence(clientConn.userId);
           return true;
         } catch {
-          socket.close(4001, 'Unauthorized: invalid token');
+          rejectSocket(socket, 4001, 'Unauthorized: invalid token');
           return false;
         }
       };
@@ -209,7 +210,7 @@ export class ClientServer {
     for (const client of clients) {
       this.send(client.socket, { type: 'disconnected', source: 'workstation', reason });
       try {
-        client.socket.close(4004, reason.slice(0, 120));
+        rejectSocket(client.socket, 4004, reason.slice(0, 120));
       } catch {
         /* registry removal below is authoritative */
       }

@@ -11,8 +11,8 @@ import type {
 } from '@odysseus/protocol';
 import { CreatePolicyVersionSchema } from '@odysseus/schemas';
 
-import { SummaryGenerator } from '../afk/summary-generator';
 import { AdminActionError, AdminService } from '../admin/admin-service';
+import { SummaryGenerator } from '../afk/summary-generator';
 import { isUsablePublicKeyJwk } from '../auth/device-signature';
 import { verifyFirebaseIdToken } from '../auth/firebase-admin';
 import { signJwt, verifyJwt } from '../auth/jwt';
@@ -2649,11 +2649,7 @@ export class HttpRouter {
           }
 
           // GET /api/v1/admin/users/:id — one user's full admin summary
-          if (
-            segments.length === 5 &&
-            segments[3] === 'users' &&
-            method === 'GET'
-          ) {
+          if (segments.length === 5 && segments[3] === 'users' && method === 'GET') {
             return this.sendJson(res, 200, await this.adminService.getUser(segments[4] ?? ''));
           }
 
@@ -2697,11 +2693,7 @@ export class HttpRouter {
 
           // DELETE /api/v1/admin/users/:id — hard-delete the account. Requires
           // the user's email in the body as a two-step confirmation.
-          if (
-            segments.length === 5 &&
-            segments[3] === 'users' &&
-            method === 'DELETE'
-          ) {
+          if (segments.length === 5 && segments[3] === 'users' && method === 'DELETE') {
             const confirmEmail =
               typeof body['confirmEmail'] === 'string' ? body['confirmEmail'] : '';
             return this.sendJson(

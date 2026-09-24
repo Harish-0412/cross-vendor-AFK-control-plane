@@ -447,12 +447,7 @@ export class MemoryAuditRepository implements IAuditRepository {
       // was assigned its id and sequence, so re-hashing with them included
       // made every intact chain verify as broken (firstBrokenIndex 0) the
       // moment the log held any event at all.
-      const {
-        hash: _hash,
-        id: _id,
-        sequence: _sequence,
-        ...rest
-      } = evt;
+      const { hash: _hash, id: _id, sequence: _sequence, ...rest } = evt;
       const canonical = this.canonicalize(rest);
       const recomputed = this.computeHash(canonical);
       if (recomputed !== evt.hash) {

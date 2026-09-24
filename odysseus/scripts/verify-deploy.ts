@@ -214,15 +214,20 @@ async function checkSockets(): Promise<void> {
     socket.send(JSON.stringify({ type: 'auth', token: 'not-a-real-token' })),
   );
   // Render's proxy has been seen to report the server's 4001 as 1006, so the
-  // assertion is on what matters: the socket was never welcomed.
+  // close code is not asserted. What is asserted: the socket was never
+  // welcomed, and it was actually closed. A refused socket left open holds
+  // server resources for as long as the client likes, and that is what
+  // production did before refused sockets were torn down.
   record(
     'Live-updates socket refuses an invalid token',
-    badToken.opened && !badToken.welcomed,
+    badToken.opened && !badToken.welcomed && badToken.closeCode !== undefined,
     !badToken.opened
       ? `could not open (${badToken.rejectedStatus ?? 'no response'})`
       : badToken.welcomed
         ? 'an invalid token was accepted'
-        : `closed without a welcome (code ${badToken.closeCode ?? 'n/a'})`,
+        : badToken.closeCode === undefined
+          ? 'refused, but left open — rejected sockets are not being torn down'
+          : `refused and closed (code ${badToken.closeCode})`,
   );
 
   // Browsers do not apply CORS to WebSockets, so the server must check Origin.

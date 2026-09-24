@@ -15,8 +15,7 @@
  *    sends: the last admin/owner can never be deleted, and an admin can
  *    never delete another admin (owner only).
  */
-import type { IntegrationGrantRecord } from '../db/types';
-import type { IDatabase } from '../db/types';
+import type { IDatabase, IntegrationGrantRecord } from '../db/types';
 import type { AuditLog } from '../policy/audit-log';
 import type { ConnectionRegistry } from '../tunnel/connection-registry';
 import type { TunnelServer } from '../tunnel/tunnel-server';
@@ -260,9 +259,7 @@ export class AdminService {
             const grants = allGrants.filter((g) => (g.integration as string) === integration);
             const best = grants
               .slice()
-              .sort(
-                (a, b) => (STATUS_RANK[b.status] ?? 0) - (STATUS_RANK[a.status] ?? 0),
-              )[0];
+              .sort((a, b) => (STATUS_RANK[b.status] ?? 0) - (STATUS_RANK[a.status] ?? 0))[0];
             return {
               integration,
               status: best?.status ?? 'none',
@@ -363,7 +360,11 @@ export class AdminService {
    * active sessions cancelled, pending approvals superseded — without
    * touching the account itself. Reversible: they can pair again.
    */
-  async terminateUser(adminId: string, userId: string, reason?: string): Promise<{
+  async terminateUser(
+    adminId: string,
+    userId: string,
+    reason?: string,
+  ): Promise<{
     devicesDisconnected: string[];
     sessionsCancelled: number;
     approvalsSuperseded: number;
@@ -416,7 +417,10 @@ export class AdminService {
         (u) => u.role === 'admin' || u.role === 'owner',
       );
       if (admins.length <= 1) {
-        throw new AdminActionError(409, 'Cannot delete the last admin — promote another user first');
+        throw new AdminActionError(
+          409,
+          'Cannot delete the last admin — promote another user first',
+        );
       }
     }
 
@@ -466,7 +470,11 @@ export class AdminService {
    * every other power in this service, so an admin cannot promote themselves
    * or others — only an owner can. The last owner can never be demoted.
    */
-  async setUserRole(adminId: string, userId: string, role: User['role']): Promise<AdminUserSummary> {
+  async setUserRole(
+    adminId: string,
+    userId: string,
+    role: User['role'],
+  ): Promise<AdminUserSummary> {
     await this.requireAdmin(adminId);
     const caller = await this.db.users.findById(adminId);
     if (caller?.role !== 'owner') {
@@ -486,7 +494,10 @@ export class AdminService {
         (u) => u.role === 'admin' || u.role === 'owner',
       );
       if (admins.length <= 1) {
-        throw new AdminActionError(409, 'Cannot demote the last admin — promote another user first');
+        throw new AdminActionError(
+          409,
+          'Cannot demote the last admin — promote another user first',
+        );
       }
     }
     if (!['user', 'admin', 'owner'].includes(role)) {
@@ -517,7 +528,10 @@ export class AdminService {
     if (!session) throw new AdminActionError(404, 'Session not found');
 
     let delivered = false;
-    if (ACTIVE_SESSION_STATES.has(session.state) && this.registry.isDeviceOnline(session.deviceId)) {
+    if (
+      ACTIVE_SESSION_STATES.has(session.state) &&
+      this.registry.isDeviceOnline(session.deviceId)
+    ) {
       try {
         const result = await this.tunnelServer.sendCommandToDevice(
           session.deviceId,
@@ -692,7 +706,9 @@ export class AdminService {
 
   private async listAllIntegrationGrants() {
     const devices = await this.listAllDevices();
-    const lists = await Promise.all(devices.map((d) => this.db.integrationGrants.listByDevice(d.id)));
+    const lists = await Promise.all(
+      devices.map((d) => this.db.integrationGrants.listByDevice(d.id)),
+    );
     return lists.flat();
   }
 }

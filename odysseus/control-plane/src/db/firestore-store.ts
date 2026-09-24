@@ -83,7 +83,7 @@ function cleanUndefined<T>(obj: T): T {
     return obj;
   }
   if (Array.isArray(obj)) {
-    return obj
+    return (obj as unknown[])
       .filter((item) => item !== undefined)
       .map((item) => cleanUndefined(item)) as unknown as T;
   }

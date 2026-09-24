@@ -44,7 +44,8 @@
     "pair": "tsx scripts/pair.ts",
     "grants": "tsx scripts/grants.ts",
     "import": "tsx scripts/import.ts",
-    "openai-org": "tsx scripts/openai-org.ts"
+    "openai-org": "tsx scripts/openai-org.ts",
+    "verify:deploy": "tsx scripts/verify-deploy.ts"
   },
   "devDependencies": {
     "@types/node": "^20.12.0",

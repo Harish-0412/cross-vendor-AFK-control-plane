@@ -17,6 +17,7 @@ import type { ApprovalRecord, DeviceRecord, StoredEvent } from '../types';
 
 import type { ConnectionRegistry, GatewayAdmissionPhase } from './connection-registry';
 import { DeviceAuthenticator, type AuthDenial, type PendingChallenge } from './device-auth';
+import { rejectSocket } from './reject-socket';
 
 export interface TunnelServerOptions {
   heartbeatTimeoutMs?: number;
@@ -453,7 +454,7 @@ export class TunnelServer {
       },
     });
     if (denial.fatal) {
-      socket.close(denial.code === 'DEVICE_REVOKED' ? 4003 : 4001, 'Authentication failed');
+      rejectSocket(socket, denial.code === 'DEVICE_REVOKED' ? 4003 : 4001, 'Authentication failed');
     }
   }
 
@@ -478,7 +479,7 @@ export class TunnelServer {
 
       const authedId = getAuthDevId();
       if (!authedId) {
-        socket.close(4001, 'Unauthenticated');
+        rejectSocket(socket, 4001, 'Unauthenticated');
         return;
       }
 
@@ -544,25 +545,34 @@ export class TunnelServer {
                 typeof resources['activeProcesses'] === 'number' ||
                 typeof resources['diskFreeMb'] === 'number'
               ) {
-                const usageUpdates: Record<string, unknown> = {};
-                if (typeof resources['cpuPercent'] === 'number') usageUpdates['cpuPercent'] = resources['cpuPercent'];
-                if (typeof resources['memoryMb'] === 'number') usageUpdates['memoryMb'] = resources['memoryMb'];
-                if (typeof resources['memoryPeakMb'] === 'number') usageUpdates['memoryPeakMb'] = resources['memoryPeakMb'];
-                if (typeof resources['activeProcesses'] === 'number') usageUpdates['activeProcesses'] = resources['activeProcesses'];
-                if (typeof resources['diskFreeMb'] === 'number') usageUpdates['diskFreeMb'] = resources['diskFreeMb'];
+                const usageUpdates: NonNullable<DeviceRecord['resourceUsage']> = {};
+                if (typeof resources['cpuPercent'] === 'number')
+                  usageUpdates['cpuPercent'] = resources['cpuPercent'];
+                if (typeof resources['memoryMb'] === 'number')
+                  usageUpdates['memoryMb'] = resources['memoryMb'];
+                if (typeof resources['memoryPeakMb'] === 'number')
+                  usageUpdates['memoryPeakMb'] = resources['memoryPeakMb'];
+                if (typeof resources['activeProcesses'] === 'number')
+                  usageUpdates['activeProcesses'] = resources['activeProcesses'];
+                if (typeof resources['diskFreeMb'] === 'number')
+                  usageUpdates['diskFreeMb'] = resources['diskFreeMb'];
 
-                await this.db.devices.updateResourceUsage(authedId, usageUpdates as any);
+                await this.db.devices.updateResourceUsage(authedId, usageUpdates);
               }
 
               const rawSystem = p['systemInfo'];
               if (rawSystem && typeof rawSystem === 'object') {
                 const system = rawSystem as Record<string, unknown>;
                 const platform = system['platform'];
-                const sysInfoUpdates: Record<string, string> = {};
-                if (typeof system['hostname'] === 'string') sysInfoUpdates['hostname'] = system['hostname'].slice(0, 120);
-                if (typeof system['arch'] === 'string') sysInfoUpdates['arch'] = system['arch'].slice(0, 40);
-                if (typeof system['nodeVersion'] === 'string') sysInfoUpdates['nodeVersion'] = system['nodeVersion'].slice(0, 40);
-                if (typeof system['gatewayVersion'] === 'string') sysInfoUpdates['gatewayVersion'] = system['gatewayVersion'].slice(0, 40);
+                const sysInfoUpdates: NonNullable<DeviceRecord['systemInfo']> = {};
+                if (typeof system['hostname'] === 'string')
+                  sysInfoUpdates['hostname'] = system['hostname'].slice(0, 120);
+                if (typeof system['arch'] === 'string')
+                  sysInfoUpdates['arch'] = system['arch'].slice(0, 40);
+                if (typeof system['nodeVersion'] === 'string')
+                  sysInfoUpdates['nodeVersion'] = system['nodeVersion'].slice(0, 40);
+                if (typeof system['gatewayVersion'] === 'string')
+                  sysInfoUpdates['gatewayVersion'] = system['gatewayVersion'].slice(0, 40);
 
                 await this.db.devices.update(authedId, {
                   ...(platform === 'windows' ||
@@ -571,7 +581,7 @@ export class TunnelServer {
                   platform === 'unknown'
                     ? { platform }
                     : {}),
-                  ...(Object.keys(sysInfoUpdates).length > 0 ? { systemInfo: sysInfoUpdates as any } : {}),
+                  ...(Object.keys(sysInfoUpdates).length > 0 ? { systemInfo: sysInfoUpdates } : {}),
                 });
               }
             }
@@ -863,7 +873,7 @@ export class TunnelServer {
 
     // Close the WebSocket with a protocol-specific code
     try {
-      conn.socket.close(4003, reason);
+      rejectSocket(conn.socket, 4003, reason);
     } catch {
       /* already closed */
     }
