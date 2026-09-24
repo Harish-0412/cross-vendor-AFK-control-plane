@@ -256,8 +256,8 @@ export interface ExternalConversationRecord extends Omit<
   /** Tokens already passed to the CostGovernor, so a re-sync records only the difference. */
   tokensRecorded: number;
   /**
-   * Lowercased message text, capped at HISTORY_LIMITS.searchTextChars, built
-   * when content is synced. Searching reads this instead of every item, which
+   * Message text, capped at HISTORY_LIMITS.searchTextChars, built when content
+   * is synced. Searching reads this instead of every item, which
    * keeps a search one read per conversation rather than one per chunk.
    * Absent until content has been synced — those conversations are searchable
    * by title only, and the API says how many there are.

@@ -238,11 +238,12 @@ function validSnapshot(value: unknown): ProviderUsageSnapshot | null {
 /**
  * The searchable form of a conversation's messages.
  *
- * Lowercased so a search can be a plain substring test, and capped so one very
- * long conversation cannot turn into a very large document. Tool arguments and
- * results are included: "which session ran that migration" is exactly the kind
- * of question this is for. The text is already redacted — it was redacted on
- * the workstation before it was ever sent.
+ * Capped so one very long conversation cannot turn into a very large document.
+ * Tool arguments and results are included: "which session ran that migration"
+ * is exactly the kind of question this is for. Casing is retained so the
+ * excerpt shown to the user is faithful; matching normalizes a temporary copy
+ * on the server. The text is already redacted — it was redacted on the
+ * workstation before it was ever sent.
  */
 export function buildSearchText(items: HistoryItem[]): string {
   let text = '';
@@ -251,10 +252,18 @@ export function buildSearchText(items: HistoryItem[]): string {
     const piece = item.toolName ? `${item.toolName} ${item.text}` : item.text;
     text += `${piece}\n`;
   }
-  return text.slice(0, HISTORY_LIMITS.searchTextChars).toLowerCase();
+  return text.slice(0, HISTORY_LIMITS.searchTextChars);
 }
 
 export class HistoryIngest {
+  /**
+   * Gateway WebSocket callbacks are intentionally non-blocking, so two usage
+   * readings can otherwise race through the read/compare/write sequence. Keep
+   * one short queue per device+integration to make "once per window" true even
+   * when a gateway reports several readings back-to-back.
+   */
+  private readonly usageIngestions = new Map<string, Promise<string | null>>();
+
   constructor(
     private readonly db: IDatabase,
     private readonly costGovernor?: CostGovernor,
@@ -277,7 +286,7 @@ export class HistoryIngest {
       case 'history_content':
         return this.ingestContent(device, integration, update);
       case 'usage_snapshot':
-        return this.ingestUsage(device, integration, update);
+        return this.queueUsageIngest(device, integration, update);
       case 'sync_failed':
         return `sync failed: ${String(update['reason'] ?? '').slice(0, 200)}`;
       default:
@@ -311,7 +320,7 @@ export class HistoryIngest {
         ...(existing?.contentTruncated ? { contentTruncated: true } : {}),
         // The stored items are untouched by a metadata rescan, so the index
         // built from them stays valid and must not be dropped here.
-        ...(existing?.searchText ? { searchText: existing.searchText } : {}),
+        ...(typeof existing?.searchText === 'string' ? { searchText: existing.searchText } : {}),
         tokensRecorded: existing?.tokensRecorded ?? 0,
         lastScanId: scanId,
         updatedRecordAt: new Date(),
@@ -410,6 +419,25 @@ export class HistoryIngest {
     return alerts.length ? `usage (${alerts.length} limit warning)` : 'usage';
   }
 
+  private async queueUsageIngest(
+    device: DeviceRecord,
+    integration: IntegrationId,
+    update: Record<string, unknown>,
+  ): Promise<string | null> {
+    const key = `${device.id}:${integration}`;
+    const previous = this.usageIngestions.get(key);
+    const current = (previous ?? Promise.resolve(null))
+      // A failed earlier reading must not permanently block later readings.
+      .catch(() => null)
+      .then(() => this.ingestUsage(device, integration, update));
+    this.usageIngestions.set(key, current);
+    try {
+      return await current;
+    } finally {
+      if (this.usageIngestions.get(key) === current) this.usageIngestions.delete(key);
+    }
+  }
+
   /**
    * Which windows have newly crossed the threshold, and the dedupe state to
    * store with them.
@@ -426,7 +454,13 @@ export class HistoryIngest {
     snapshot: ProviderUsageSnapshot,
     previous: Record<string, string> | undefined,
   ): { alertedWindows: Record<string, string>; alerts: UsageAlert[] } {
+    // Keep a remembered window when a provider temporarily omits it from one
+    // snapshot. Otherwise the next reading of that same window would look new
+    // and nag the user again. Only the two protocol-defined keys are retained.
     const alertedWindows: Record<string, string> = {};
+    for (const name of ['primary', 'secondary'] as const) {
+      if (previous?.[name]) alertedWindows[name] = previous[name];
+    }
     const alerts: UsageAlert[] = [];
     const now = Date.now();
 

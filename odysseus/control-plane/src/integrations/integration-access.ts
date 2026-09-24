@@ -129,8 +129,10 @@ export class IntegrationAccessService {
       conversations: matched.sort(byNewest),
       search: {
         query: needle,
-        searchableConversations: records.filter((record) => record.searchText).length,
-        titleOnlyConversations: records.filter((record) => !record.searchText).length,
+        searchableConversations: records.filter((record) => typeof record.searchText === 'string')
+          .length,
+        titleOnlyConversations: records.filter((record) => typeof record.searchText !== 'string')
+          .length,
       } satisfies HistorySearchInfo,
     };
   }
@@ -151,7 +153,7 @@ export class IntegrationAccessService {
     // Conversations whose content was synced before the search index existed
     // have items but no index. Opening one is already a read of every item, so
     // the index is built here rather than by a migration or a re-sync.
-    if (record.contentSynced && !record.searchText && items.length > 0) {
+    if (record.contentSynced && typeof record.searchText !== 'string') {
       await this.db.externalConversations.upsert({ ...record, searchText: buildSearchText(items) });
     }
     return { conversation, items };
@@ -461,10 +463,15 @@ function findMatch(
   }
 
   const text = record.searchText;
-  if (!text) return null;
-  const at = text.indexOf(needle);
+  if (typeof text !== 'string') return null;
+  const normalizedText = text.toLowerCase();
+  const at = normalizedText.indexOf(needle);
   if (at === -1) return null;
-  return { field: 'messages', excerpt: excerptAround(text, at), hits: countHits(text, needle) };
+  return {
+    field: 'messages',
+    excerpt: excerptAround(text, at),
+    hits: countHits(normalizedText, needle),
+  };
 }
 
 /** Bounded: a needle of one character in a 40 KB index must not be counted 40 000 times. */

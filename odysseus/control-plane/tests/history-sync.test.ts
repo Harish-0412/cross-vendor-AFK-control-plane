@@ -37,7 +37,14 @@ describe('imported history and usage', () => {
 
   const send = (payload: unknown) =>
     gw?.readyState === 1 &&
-    gw.send(JSON.stringify({ id: `u_${Math.random()}`, type: 'integration_update', sequence: 9, payload }));
+    gw.send(
+      JSON.stringify({
+        id: `u_${Math.random()}`,
+        type: 'integration_update',
+        sequence: 9,
+        payload,
+      }),
+    );
 
   async function register(email: string) {
     const res = await fetch(`${base}/api/v1/auth/register`, {
@@ -67,17 +74,31 @@ describe('imported history and usage', () => {
         const { commandType, payload } = msg.payload;
         let reply: { success: boolean; result?: unknown; error?: string };
         try {
-          if (commandType === 'integration.grant_request') reply = { success: true, result: await manager.receiveRequest(payload) };
-          else if (commandType === 'integration.revoke') reply = { success: true, result: await manager.revoke(payload.integration, 'web') };
+          if (commandType === 'integration.grant_request')
+            reply = { success: true, result: await manager.receiveRequest(payload) };
+          else if (commandType === 'integration.revoke')
+            reply = { success: true, result: await manager.revoke(payload.integration, 'web') };
           else if (commandType === 'integration.sync') {
             void history.syncAll(payload.integration).catch(() => undefined);
             reply = { success: true, result: { started: true } };
-          } else if (commandType === 'integration.sync_content') reply = { success: true, result: await history.syncContent(payload.integration, payload.externalId) };
+          } else if (commandType === 'integration.sync_content')
+            reply = {
+              success: true,
+              result: await history.syncContent(payload.integration, payload.externalId),
+            };
           else reply = { success: false, error: 'unsupported' };
         } catch (error) {
           reply = { success: false, error: (error as Error).message };
         }
-        socket.send(JSON.stringify({ id: `ack_${msg.id}`, type: 'ack', sequence: 5, correlationId: msg.id, payload: reply }));
+        socket.send(
+          JSON.stringify({
+            id: `ack_${msg.id}`,
+            type: 'ack',
+            sequence: 5,
+            correlationId: msg.id,
+            payload: reply,
+          }),
+        );
       })();
     });
     const handshake = await performHandshake(socket, identity);
@@ -96,12 +117,25 @@ describe('imported history and usage', () => {
   }
 
   async function connectCodex(scopes = ['history.read', 'usage.read']) {
-    const created = await api('POST', `/api/v1/devices/${identity.deviceId}/integrations/codex/requests`, ownerToken, { scopes });
+    const created = await api(
+      'POST',
+      `/api/v1/devices/${identity.deviceId}/integrations/codex/requests`,
+      ownerToken,
+      { scopes },
+    );
     expect(created.status).toBe(201);
     const [pending] = await manager.pendingRequests();
-    expect((await manager.approve(pending!.requestId, created.body.confirmationCode, { interactive: true })).ok).toBe(true);
+    expect(
+      (
+        await manager.approve(pending!.requestId, created.body.confirmationCode, {
+          interactive: true,
+        })
+      ).ok,
+    ).toBe(true);
     await waitFor(async () =>
-      (await cp.db.integrationGrants.find(identity.deviceId, 'codex'))?.status === 'active' ? true : undefined,
+      (await cp.db.integrationGrants.find(identity.deviceId, 'codex'))?.status === 'active'
+        ? true
+        : undefined,
     );
   }
 
@@ -125,10 +159,43 @@ describe('imported history and usage', () => {
     writeFileSync(
       join(dir, `rollout-2026-09-10T10-00-00-${SESSION}.jsonl`),
       [
-        j({ timestamp: '2026-09-10T10:00:00Z', type: 'session_meta', payload: { id: SESSION, timestamp: '2026-09-10T10:00:00Z', cwd: join(home, 'project') } }),
-        j({ timestamp: '2026-09-10T10:00:03Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: `Fix login ${KEY}` }] } }),
-        j({ timestamp: '2026-09-10T10:00:05Z', type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Done' }] } }),
-        j({ timestamp: '2026-09-10T10:00:08Z', type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: { input_tokens: 900, output_tokens: 100, total_tokens: 1000 } }, rate_limits: { primary: { used_percent: 14, window_minutes: 300, resets_at: 1789990846 }, plan_type: 'plus' } } }),
+        j({
+          timestamp: '2026-09-10T10:00:00Z',
+          type: 'session_meta',
+          payload: { id: SESSION, timestamp: '2026-09-10T10:00:00Z', cwd: join(home, 'project') },
+        }),
+        j({
+          timestamp: '2026-09-10T10:00:03Z',
+          type: 'response_item',
+          payload: {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: `Fix login ${KEY}` }],
+          },
+        }),
+        j({
+          timestamp: '2026-09-10T10:00:05Z',
+          type: 'response_item',
+          payload: {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'Done' }],
+          },
+        }),
+        j({
+          timestamp: '2026-09-10T10:00:08Z',
+          type: 'event_msg',
+          payload: {
+            type: 'token_count',
+            info: {
+              total_token_usage: { input_tokens: 900, output_tokens: 100, total_tokens: 1000 },
+            },
+            rate_limits: {
+              primary: { used_percent: 14, window_minutes: 300, resets_at: 1789990846 },
+              plan_type: 'plus',
+            },
+          },
+        }),
         '',
       ].join('\n'),
     );
@@ -142,7 +209,11 @@ describe('imported history and usage', () => {
     const publicKey = createPublicKey({ key: identity.publicKeyJwk as never, format: 'jwk' });
     const ctx = { home, odysseusHome: join(home, '.odysseus') };
     manager = new IntegrationManager({
-      signer: { deviceId: identity.deviceId, sign: identity.sign, verify: (d, s) => verify(null, Buffer.from(d), publicKey, Buffer.from(s, 'base64')) },
+      signer: {
+        deviceId: identity.deviceId,
+        sign: identity.sign,
+        verify: (d, s) => verify(null, Buffer.from(d), publicKey, Buffer.from(s, 'base64')),
+      },
       ctx,
       onUpdate: (update) => {
         send(update);
@@ -168,7 +239,12 @@ describe('imported history and usage', () => {
       const list = await listHistory();
       return list.length ? list : undefined;
     });
-    expect(conversations[0]).toMatchObject({ integration: 'codex', externalId: SESSION, contentSynced: false, workspace: '~/project' });
+    expect(conversations[0]).toMatchObject({
+      integration: 'codex',
+      externalId: SESSION,
+      contentSynced: false,
+      workspace: '~/project',
+    });
     // The title is redacted on the workstation; the key never reached the cloud.
     expect(conversations[0].title).toContain('Fix login');
     expect(JSON.stringify(conversations)).not.toContain(KEY);
@@ -177,9 +253,11 @@ describe('imported history and usage', () => {
     expect(detail.body.items).toEqual([]);
   });
 
-  it('syncs one conversation\'s content only when asked', async () => {
+  it("syncs one conversation's content only when asked", async () => {
     await connectCodex();
-    const [conversation] = await waitFor(async () => ((await listHistory()).length ? listHistory() : undefined));
+    const [conversation] = await waitFor(async () =>
+      (await listHistory()).length ? listHistory() : undefined,
+    );
     const asked = await api('POST', `/api/v1/history/${conversation.id}/content`, ownerToken);
     expect(asked.status).toBe(202);
     const detail = await waitFor(async () => {
@@ -197,7 +275,11 @@ describe('imported history and usage', () => {
       return res.body.length ? res.body : undefined;
     });
     expect(usage[0].snapshot).toMatchObject({ provider: 'codex', planType: 'plus' });
-    expect(usage[0].snapshot.windows[0]).toMatchObject({ name: 'primary', usedPercent: 14, windowMinutes: 300 });
+    expect(usage[0].snapshot.windows[0]).toMatchObject({
+      name: 'primary',
+      usedPercent: 14,
+      windowMinutes: 300,
+    });
 
     // A second sync of the same unchanged session must not count its tokens again.
     await api('POST', `/api/v1/devices/${identity.deviceId}/integrations/codex/sync`, ownerToken);
@@ -208,12 +290,16 @@ describe('imported history and usage', () => {
     expect(costs.every((cost) => cost.costUsd === 0 && cost.billing === 'subscription')).toBe(true);
   });
 
-  it('keeps one user\'s history from another', async () => {
+  it("keeps one user's history from another", async () => {
     await connectCodex();
-    const [conversation] = await waitFor(async () => ((await listHistory()).length ? listHistory() : undefined));
+    const [conversation] = await waitFor(async () =>
+      (await listHistory()).length ? listHistory() : undefined,
+    );
     expect(await listHistory(otherToken)).toEqual([]);
     expect((await api('GET', `/api/v1/history/${conversation.id}`, otherToken)).status).toBe(404);
-    expect((await api('POST', `/api/v1/history/${conversation.id}/content`, otherToken)).status).toBe(404);
+    expect(
+      (await api('POST', `/api/v1/history/${conversation.id}/content`, otherToken)).status,
+    ).toBe(404);
     expect((await api('GET', '/api/v1/usage/providers', otherToken)).body).toEqual([]);
   });
 
@@ -221,7 +307,11 @@ describe('imported history and usage', () => {
     await connectCodex();
     await waitFor(async () => ((await listHistory()).length ? true : undefined));
 
-    const revoked = await api('DELETE', `/api/v1/devices/${identity.deviceId}/integrations/codex`, ownerToken);
+    const revoked = await api(
+      'DELETE',
+      `/api/v1/devices/${identity.deviceId}/integrations/codex`,
+      ownerToken,
+    );
     expect(revoked.status).toBe(200);
     expect(await listHistory()).toEqual([]);
     expect((await api('GET', '/api/v1/usage/providers', ownerToken)).body).toEqual([]);
@@ -230,7 +320,18 @@ describe('imported history and usage', () => {
     send({
       kind: 'history_summaries',
       integration: 'codex',
-      conversations: [{ externalId: SESSION, integration: 'codex', title: 'late', startedAt: '2026-09-10T10:00:00Z', updatedAt: '2026-09-10T10:00:00Z', messageCount: 1, toolCallCount: 0, hasTranscript: true }],
+      conversations: [
+        {
+          externalId: SESSION,
+          integration: 'codex',
+          title: 'late',
+          startedAt: '2026-09-10T10:00:00Z',
+          updatedAt: '2026-09-10T10:00:00Z',
+          messageCount: 1,
+          toolCallCount: 0,
+          hasTranscript: true,
+        },
+      ],
       complete: true,
       scanId: 'scan_late',
     });
@@ -239,13 +340,19 @@ describe('imported history and usage', () => {
   });
 
   it('refuses a sync for an integration that is not connected', async () => {
-    const res = await api('POST', `/api/v1/devices/${identity.deviceId}/integrations/codex/sync`, ownerToken);
+    const res = await api(
+      'POST',
+      `/api/v1/devices/${identity.deviceId}/integrations/codex/sync`,
+      ownerToken,
+    );
     expect(res.status).toBe(409);
   });
 
   it('drops malformed or oversized data from the gateway instead of storing it', async () => {
     await connectCodex();
-    const [conversation] = await waitFor(async () => ((await listHistory()).length ? listHistory() : undefined));
+    const [conversation] = await waitFor(async () =>
+      (await listHistory()).length ? listHistory() : undefined,
+    );
     send({
       kind: 'history_content',
       integration: 'codex',
@@ -303,8 +410,65 @@ describe('imported history and usage', () => {
       const found = await searchHistory('done');
       expect(found.conversations).toHaveLength(1);
       expect(found.conversations[0].match).toMatchObject({ field: 'messages', hits: 1 });
-      expect(found.conversations[0].match.excerpt).toContain('done');
+      expect(found.conversations[0].match.excerpt).toContain('Done');
       expect(found.search).toMatchObject({ searchableConversations: 1, titleOnlyConversations: 0 });
+    });
+
+    it('indexes tool names, arguments and output while preserving readable excerpts', async () => {
+      await connectCodex();
+      const [conversation] = await waitFor(async () =>
+        (await listHistory()).length ? await listHistory() : undefined,
+      );
+
+      send({
+        kind: 'history_content',
+        integration: 'codex',
+        externalId: SESSION,
+        part: 0,
+        final: true,
+        truncated: false,
+        items: [
+          { seq: 0, kind: 'tool_call', toolName: 'safeGitExec', text: 'diff --stat' },
+          { seq: 1, kind: 'tool_result', text: 'PairingHandshake.ts | 14 +++++++++' },
+        ],
+      });
+      await waitFor(async () => {
+        const detail = await api('GET', `/api/v1/history/${conversation.id}`, ownerToken);
+        return detail.body.conversation?.contentSynced ? true : undefined;
+      });
+
+      const byTool = await searchHistory('safegitexec');
+      expect(byTool.conversations[0].match).toMatchObject({ field: 'messages', hits: 1 });
+      expect(byTool.conversations[0].match.excerpt).toContain('safeGitExec');
+
+      const byOutput = await searchHistory('pairinghandshake');
+      expect(byOutput.conversations[0].match.excerpt).toContain('PairingHandshake.ts');
+    });
+
+    it('counts a loaded empty transcript as message-searchable', async () => {
+      await connectCodex();
+      const [conversation] = await waitFor(async () =>
+        (await listHistory()).length ? await listHistory() : undefined,
+      );
+
+      send({
+        kind: 'history_content',
+        integration: 'codex',
+        externalId: SESSION,
+        part: 0,
+        final: true,
+        truncated: false,
+        items: [],
+      });
+      await waitFor(async () => {
+        const detail = await api('GET', `/api/v1/history/${conversation.id}`, ownerToken);
+        return detail.body.conversation?.contentSynced ? true : undefined;
+      });
+
+      expect((await searchHistory('not present')).search).toMatchObject({
+        searchableConversations: 1,
+        titleOnlyConversations: 0,
+      });
     });
 
     it('never returns the search index or a redacted secret', async () => {
@@ -344,8 +508,7 @@ describe('imported history and usage', () => {
       },
     });
 
-    const hoursFromNow = (hours: number) =>
-      new Date(Date.now() + hours * 3_600_000).toISOString();
+    const hoursFromNow = (hours: number) => new Date(Date.now() + hours * 3_600_000).toISOString();
 
     /** Alerts the Control Plane pushed to this user, newest last. */
     function collectAlerts() {
@@ -363,17 +526,17 @@ describe('imported history and usage', () => {
       const alerts = collectAlerts();
       const resetsAt = hoursFromNow(3);
 
+      // These arrive back-to-back, as they can when a gateway catches up after
+      // reconnecting. The async read/compare/write path must still claim the
+      // window only once.
       send(usageSnapshot(85, resetsAt));
-      await waitFor(async () => (alerts.length ? true : undefined));
-      expect(alerts[0].title).toContain('85%');
-      expect(alerts[0].body).toContain('15% left');
-
-      // The gateway re-reports the same reading every few minutes. That must
-      // not produce a notification every few minutes.
       send(usageSnapshot(87, resetsAt));
       send(usageSnapshot(91, resetsAt));
+      await waitFor(async () => (alerts.length ? true : undefined));
       await new Promise((resolve) => setTimeout(resolve, 400));
       expect(alerts).toHaveLength(1);
+      expect(alerts[0].title).toContain('85%');
+      expect(alerts[0].body).toContain('15% left');
     });
 
     it('warns again once the window has reset', async () => {
@@ -398,6 +561,31 @@ describe('imported history and usage', () => {
       send(usageSnapshot(95, hoursFromNow(-1)));
       await new Promise((resolve) => setTimeout(resolve, 400));
       expect(alerts).toEqual([]);
+    });
+
+    it('does not forget an alerted window when an interim snapshot omits it', async () => {
+      await connectCodex();
+      const alerts = collectAlerts();
+      const resetsAt = hoursFromNow(3);
+
+      send(usageSnapshot(85, resetsAt));
+      await waitFor(async () => (alerts.length ? true : undefined));
+
+      send({
+        kind: 'usage_snapshot',
+        integration: 'codex',
+        snapshot: {
+          provider: 'codex',
+          source: 'codex-rate-limits',
+          observedAt: new Date().toISOString(),
+          planType: 'plus',
+          windows: [],
+        },
+      });
+      send(usageSnapshot(90, resetsAt));
+      await new Promise((resolve) => setTimeout(resolve, 400));
+
+      expect(alerts).toHaveLength(1);
     });
   });
 });

@@ -38,7 +38,9 @@ self.addEventListener("activate", (event) => {
     (async () => {
       const names = await caches.keys();
       await Promise.all(
-        names.filter((name) => name !== CACHE).map((name) => caches.delete(name)),
+        names
+          .filter((name) => name !== CACHE)
+          .map((name) => caches.delete(name)),
       );
       await self.clients.claim();
     })(),
@@ -80,15 +82,24 @@ self.addEventListener("push", (event) => {
   }
 
   const title = data.title || "Odysseus AFK";
+  // PushSender sends the navigation fields in the notification's `data`
+  // object. Older payloads placed them at the top level, so accept both while
+  // preferring the typed, nested shape. Without this, a usage warning renders
+  // correctly but opens the generic Approvals page instead of Budgets.
+  const notificationData =
+    data.data && typeof data.data === "object" ? data.data : data;
   const options = {
     body: data.body || "",
     icon: "/icon-192.png",
     badge: "/icon-light-32x32.png",
     tag: data.tag || "odysseus-afk",
     data: {
-      url: data.url || "/approvals",
-      sessionId: data.sessionId,
-      approvalId: data.approvalId,
+      url: notificationData.url || "/approvals",
+      eventId: notificationData.eventId,
+      eventType: notificationData.eventType,
+      sessionId: notificationData.sessionId,
+      deviceId: notificationData.deviceId,
+      approvalId: notificationData.approvalId,
     },
     renotify: Boolean(data.renotify),
     requireInteraction: Boolean(data.requireInteraction),
@@ -101,14 +112,16 @@ self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const targetUrl = event.notification.data?.url || "/approvals";
   event.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
-      for (const client of clientList) {
-        if ("focus" in client) {
-          client.navigate(targetUrl);
-          return client.focus();
+    self.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((clientList) => {
+        for (const client of clientList) {
+          if ("focus" in client) {
+            client.navigate(targetUrl);
+            return client.focus();
+          }
         }
-      }
-      return self.clients.openWindow(targetUrl);
-    }),
+        return self.clients.openWindow(targetUrl);
+      }),
   );
 });
