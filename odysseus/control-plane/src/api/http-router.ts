@@ -14,7 +14,12 @@ import { CreatePolicyVersionSchema } from '@odysseus/schemas';
 
 import { AdminActionError, AdminService } from '../admin/admin-service';
 import { SummaryGenerator } from '../afk/summary-generator';
-import { isUsablePublicKeyJwk } from '../auth/device-signature';
+import {
+  isSameDeviceKey,
+  isUsablePublicKeyJwk,
+  pairingSignatureBase,
+  verifyDeviceSignature,
+} from '../auth/device-signature';
 import { verifyFirebaseIdToken } from '../auth/firebase-admin';
 import { signJwt, verifyJwt } from '../auth/jwt';
 import { hashPassword, verifyPassword } from '../auth/password';
@@ -83,6 +88,9 @@ function parseRepositoryBinding(value: unknown): RepositoryBinding | null {
     ...(webUrl ? { webUrl } : {}),
   };
 }
+
+/** How old a signed pairing registration may be. */
+const PAIRING_SIGNATURE_MAX_SKEW_MS = 5 * 60_000;
 
 export class HttpRouter {
   private db: IDatabase;
@@ -283,10 +291,17 @@ export class HttpRouter {
       }
 
       // Status check
+      // Status check. Scoped to the caller: this used to answer anyone with
+      // the id of every online device across every account.
       if (path === '/api/v1/status' || path === '/status') {
+        if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+        const own = await this.db.devices.listByUser(authUser.id);
+        const connectedDevices = own
+          .map((device) => device.id)
+          .filter((id) => this.registry.isDeviceOnline(id));
         return this.sendJson(res, 200, {
-          connectedDevices: this.registry.listConnectedDevices(),
-          onlineDeviceCount: this.registry.listConnectedDevices().length,
+          connectedDevices,
+          onlineDeviceCount: connectedDevices.length,
           timestamp: new Date().toISOString(),
         });
       }
@@ -552,10 +567,44 @@ export class HttpRouter {
               'pairing now registers the device key used to verify its tunnel signatures.',
           });
         }
+        // Proof of possession: a gateway that signs the registration with the
+        // device key shows it is the machine, not someone who read its id.
+        const timestamp = typeof body['timestamp'] === 'string' ? body['timestamp'] : '';
+        const signature = typeof body['signature'] === 'string' ? body['signature'] : '';
+        const signedAt = Date.parse(timestamp);
+        const keyProven =
+          signature.length > 0 &&
+          Number.isFinite(signedAt) &&
+          Math.abs(Date.now() - signedAt) <= PAIRING_SIGNATURE_MAX_SKEW_MS &&
+          verifyDeviceSignature(
+            pairingSignatureBase({ code, deviceId, gatewayId, timestamp }),
+            signature,
+            publicKeyJwk,
+          );
+        if (signature && !keyProven) {
+          return this.sendJson(res, 400, {
+            error:
+              'The pairing signature did not verify. Check the clock on this machine and run pairing again.',
+          });
+        }
+
+        // An existing device keeps the key it was first registered with. A
+        // different key under the same id is either a reinstall that lost its
+        // key (which must pair as a new device) or an impersonation attempt.
+        const existingDevice = await this.db.devices.findById(deviceId);
+        if (existingDevice && !isSameDeviceKey(existingDevice.publicKeyJwk, publicKeyJwk)) {
+          return this.sendJson(res, 409, {
+            error:
+              'This device id is already registered with a different key. ' +
+              'Delete ~/.odysseus/device-keys.json to create a new device identity, then pair again.',
+          });
+        }
+
         const pairing = await this.db.pairings.create({
           code,
           deviceId,
           gatewayId,
+          keyProven,
           ...(reportedName ? { deviceName: reportedName } : {}),
           ...(platform ? { platform } : {}),
           fingerprintHex,
@@ -790,20 +839,35 @@ export class HttpRouter {
           return this.sendJson(res, 200, { status: 'rejected' });
         }
 
-        await this.db.pairings.update(pairing.id, {
-          status: 'confirmed',
-          confirmedAt: new Date(),
-        });
-
-        // Record pairing in audit log (§8.2)
-        await this.auditLog.record({
-          actor: { type: 'user', id: authUser.id },
-          deviceId: pairing.deviceId,
-          action: 'device.paired',
-          decision: 'allow',
-        });
+        if (pairing.status === 'rejected') {
+          return this.sendJson(res, 409, { error: `This pairing is already ${pairing.status}` });
+        }
+        if (pairing.expiresAt < new Date()) {
+          await this.db.pairings.update(pairing.id, { status: 'expired' });
+          return this.sendJson(res, 400, { error: 'Pairing code has expired' });
+        }
 
         let device = await this.db.devices.findById(pairing.deviceId);
+        let previousOwnerId: string | undefined;
+
+        if (device && device.userId !== authUser.id) {
+          // Re-pairing a machine to a different account. Before this check the
+          // device silently stayed with its first owner: the gateway connected
+          // (its key still matched) while the account that had just paired it
+          // saw "No devices paired". Moving it is safe only when the
+          // registration was signed by the device key, because device ids are
+          // not secret.
+          if (!pairing.keyProven || !isSameDeviceKey(device.publicKeyJwk, pairing.publicKeyJwk)) {
+            return this.sendJson(res, 409, {
+              error:
+                'This machine is paired to another account. Update the gateway ' +
+                '(git pull, then pnpm install) and run `pnpm pair` again to move it to this account.',
+              code: 'DEVICE_OWNED_BY_ANOTHER_ACCOUNT',
+            });
+          }
+          previousOwnerId = device.userId;
+        }
+
         if (!device) {
           if (!isUsablePublicKeyJwk(pairing.publicKeyJwk)) {
             // Refusing here keeps a device that cannot authenticate out of the
@@ -831,10 +895,43 @@ export class HttpRouter {
         } else {
           device =
             (await this.db.devices.update(device.id, {
+              userId: authUser.id,
               status: 'trusted',
               ...(friendlyName ? { friendlyName } : {}),
               ...(pairing.platform ? { platform: pairing.platform } : {}),
             })) ?? device;
+        }
+
+        // Marked confirmed only once the device exists and belongs to this
+        // account. Confirming first let `pnpm pair` report success, and a
+        // retrying gateway authenticate, against a pairing whose device write
+        // had not happened (or had failed).
+        await this.db.pairings.update(pairing.id, {
+          status: 'confirmed',
+          confirmedAt: new Date(),
+        });
+
+        // Record pairing in audit log (§8.2)
+        await this.auditLog.record({
+          actor: { type: 'user', id: authUser.id },
+          deviceId: pairing.deviceId,
+          action: 'device.paired',
+          decision: 'allow',
+        });
+
+        if (previousOwnerId) {
+          await this.auditLog.record({
+            actor: { type: 'user', id: authUser.id },
+            deviceId: pairing.deviceId,
+            action: 'device.ownership_transferred',
+            decision: 'allow',
+          });
+          console.info(
+            `[pairing] device ${device.id} moved from ${previousOwnerId} to ${authUser.id} (key-signed re-pair)`,
+          );
+          // The live tunnel was bound to the old account. Drop it; the gateway
+          // reconnects under the new owner within seconds.
+          this.tunnelServer.requestReconnect(device.id, 'Device moved to another account');
         }
 
         return this.sendJson(res, 200, {

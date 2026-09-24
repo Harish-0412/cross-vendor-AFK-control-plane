@@ -379,7 +379,10 @@ export class TunnelServer {
 
     if (!device) {
       const pairing = await this.db.pairings.findByDeviceId(deviceId);
-      if (!pairing || pairing.status !== 'confirmed') {
+      // A confirmed pairing always names the account that confirmed it. One
+      // that does not must not become a device: it used to be created under
+      // 'usr_anonymous', where no account could ever see or revoke it.
+      if (!pairing || pairing.status !== 'confirmed' || !pairing.userId) {
         return {
           denial: {
             ok: false,
@@ -408,7 +411,7 @@ export class TunnelServer {
       device = await this.db.devices.create({
         id: deviceId,
         gatewayId,
-        userId: pairing.userId || 'usr_anonymous',
+        userId: pairing.userId,
         friendlyName: `Device ${deviceId.slice(-6)}`,
         platform: 'unknown',
         publicKeyPem: pairing.publicKeyPem ?? '',
@@ -879,6 +882,29 @@ export class TunnelServer {
     }
 
     // Remove from registry
+    this.registry.removeGateway(deviceId);
+  }
+
+  /**
+   * Close a device's tunnel and ask the gateway to reconnect straight away.
+   *
+   * Used when the device record changes underneath a live connection — it
+   * moved to another account — so the next connection is bound to the new
+   * record. Unlike `forceDisconnectDevice` this must not say DEVICE_REVOKED:
+   * the gateway treats that as permanent and exits.
+   */
+  requestReconnect(deviceId: string, reason: string): void {
+    const conn = this.registry.getGateway(deviceId);
+    if (!conn) return;
+
+    this.send(conn.socket, {
+      id: randomUUID(),
+      type: 'disconnect',
+      sequence: 0,
+      timestamp: new Date(),
+      payload: { reason, code: 1012, willReconnect: true },
+    });
+    rejectSocket(conn.socket, 1012, reason);
     this.registry.removeGateway(deviceId);
   }
 

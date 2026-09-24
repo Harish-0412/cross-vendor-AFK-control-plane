@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiError, apiClient } from "@/lib/api-client";
+import { useWorkspace } from "@/lib/workspace-store";
 
 interface PairingSessionResponse {
   pairingId: string;
@@ -259,6 +260,9 @@ export default function PairDevicePage() {
       setConnectedDevice(device);
       setStep(3);
       toast.success(`${device.friendlyName} is now trusted`);
+      // The dashboard and navigation read the shared store; refresh it now
+      // rather than leaving them on "no machines" until the next poll.
+      void useWorkspace.getState().refresh();
     } catch (problem) {
       const message =
         problem instanceof ApiError

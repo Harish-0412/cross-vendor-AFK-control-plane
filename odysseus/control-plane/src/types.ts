@@ -89,6 +89,12 @@ export interface PairingSession {
    */
   publicKeyJwk?: Record<string, unknown> | undefined;
   publicKeyPem?: string | undefined;
+  /**
+   * True when the registration was signed with the private half of
+   * `publicKeyJwk`. Only a key-proven pairing may move an existing device to
+   * a different account.
+   */
+  keyProven?: boolean | undefined;
   status: PairingSessionStatus;
   expiresAt: Date;
   createdAt: Date;

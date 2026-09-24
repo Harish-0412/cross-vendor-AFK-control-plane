@@ -70,6 +70,25 @@ const execFileAsync = promisify(execFile);
 class PairingError extends Error {}
 
 /**
+ * Must match `pairingSignatureBase` in control-plane/src/auth/device-signature.ts
+ * byte for byte: both sides sign a JSON string, so key order is the contract.
+ */
+function signedRegistration(
+  identityManager: DeviceIdentityManager,
+  session: { code: string; deviceId: string; gatewayId: string },
+): { timestamp: string; signature: string } {
+  const timestamp = new Date().toISOString();
+  const base = JSON.stringify({
+    purpose: 'odysseus.pairing.v1',
+    code: session.code,
+    deviceId: session.deviceId,
+    gatewayId: session.gatewayId,
+    timestamp,
+  });
+  return { timestamp, signature: identityManager.sign(base) };
+}
+
+/**
  * Register the pairing code, retrying through a cold start.
  *
  * Free hosting sleeps when idle and takes about a minute to wake; the first
@@ -218,6 +237,10 @@ async function main(): Promise<void> {
           // this gateway produces. Without it, the device can never connect.
           publicKeyJwk: identity.publicKeyJwk,
           publicKeyPem: identity.publicKeyPem,
+          // Signed with the device key, so the Control Plane knows this
+          // request comes from the machine itself. That proof is what allows
+          // re-pairing to move this machine to the account that confirms it.
+          ...signedRegistration(identityManager, session),
         },
         () =>
           handle.update(`Waking ${host} ${dim('— free hosting sleeps when idle, up to a minute')}`),

@@ -285,6 +285,7 @@ describe('gateway tunnel authentication', () => {
       code: 'NOKEY-1234',
       deviceId: 'dev_nokey',
       gatewayId: 'gw_nokey',
+      userId: 'usr_nokey',
       fingerprintHex: 'NOKEY',
       fingerprintWords: ['nokey'],
       status: 'confirmed',

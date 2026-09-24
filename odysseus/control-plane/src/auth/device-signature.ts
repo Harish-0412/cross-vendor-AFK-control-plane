@@ -120,3 +120,37 @@ export function challengeSignatureBase(input: {
     issuedAt: input.issuedAt,
   });
 }
+
+/**
+ * The exact string `pnpm pair` signs when it registers a pairing code.
+ *
+ * Registering a code proves nothing on its own: device ids are shown in the
+ * UI, so anyone could register a code naming someone else's device. Signing
+ * the registration with the device key is what lets a re-pair move an existing
+ * device to a new account — only the machine that holds the key can ask for it.
+ */
+export function pairingSignatureBase(input: {
+  code: string;
+  deviceId: string;
+  gatewayId: string;
+  timestamp: string;
+}): string {
+  return JSON.stringify({
+    purpose: 'odysseus.pairing.v1',
+    code: input.code,
+    deviceId: input.deviceId,
+    gatewayId: input.gatewayId,
+    timestamp: input.timestamp,
+  });
+}
+
+/**
+ * Whether two public JWKs are the same key. Compares only the members that
+ * define the key, so optional metadata (`kid`, `use`, `alg`) cannot make a
+ * different key look equal, or the same key look different.
+ */
+export function isSameDeviceKey(a: unknown, b: unknown): boolean {
+  if (!isUsablePublicKeyJwk(a) || !isUsablePublicKeyJwk(b)) return false;
+  const members = ['kty', 'crv', 'x', 'y', 'n', 'e'] as const;
+  return members.every((member) => a[member] === b[member]) && typeof a['kty'] === 'string';
+}
