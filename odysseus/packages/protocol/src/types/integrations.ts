@@ -187,6 +187,14 @@ export const HISTORY_LIMITS = {
   itemsPerConversation: 3000,
   itemsPerMessage: 200,
   summariesPerMessage: 100,
+  /**
+   * Message text kept per conversation so it can be searched. A conversation
+   * can be far longer than this; searching reads the index, not the messages,
+   * so the cap bounds both the stored document and the work a search does.
+   */
+  searchTextChars: 40_000,
+  /** Characters of context shown either side of a search hit. */
+  searchExcerptContext: 70,
 } as const;
 
 export interface TokenTotals {
@@ -246,6 +254,33 @@ export interface HistoryItem {
   truncated?: boolean | undefined;
 }
 
+// ---------------------------------------------------------------- search
+
+/**
+ * Why a conversation came back from a search.
+ *
+ * Titles are always searchable, because every conversation has one. Message
+ * text is searchable only for conversations whose content has been synced —
+ * the rest of a conversation never left the workstation, so there is nothing
+ * here to search. The UI says so rather than implying an empty result means
+ * "not found".
+ */
+export interface ConversationSearchMatch {
+  field: 'title' | 'workspace' | 'messages';
+  /** Text around the first hit, for the result list. Already redacted. */
+  excerpt: string;
+  /** Hits in the searchable text, capped. */
+  hits: number;
+}
+
+export interface HistorySearchInfo {
+  query: string;
+  /** Conversations whose message text could be searched. */
+  searchableConversations: number;
+  /** Conversations where only the title could be searched. */
+  titleOnlyConversations: number;
+}
+
 // ----------------------------------------------------------------- usage
 
 export interface UsageWindow {
@@ -268,6 +303,47 @@ export interface ProviderUsageSnapshot {
   credits?: { hasCredits: boolean; unlimited: boolean; balance?: string | undefined } | undefined;
   /** Present only for the organization Usage/Costs APIs. Values are provider-reported, never estimated. */
   organization?: OpenAiOrgUsage | undefined;
+}
+
+/**
+ * The share of a usage window that has to be spent before the user is told.
+ * The point of the warning is to arrive while there is still enough left to
+ * finish what a agent is doing, which is why it is not 95.
+ */
+export const USAGE_ALERT_PERCENT = 80;
+
+/**
+ * A plan window crossing the alert threshold.
+ *
+ * Raised once per window per reset: a window that has already been alerted on
+ * stays quiet until it resets, so a gateway that re-reports the same figure
+ * every five minutes does not produce a notification every five minutes.
+ */
+export interface UsageAlert {
+  integration: IntegrationId;
+  deviceId: string;
+  window: 'primary' | 'secondary';
+  /** Human label, e.g. "5-hour limit". */
+  windowLabel: string;
+  usedPercent: number;
+  resetsAt: string;
+  observedAt: string;
+  planType?: string | undefined;
+}
+
+/** "5-hour limit" / "Weekly limit" / "3-day limit" from a window length. */
+export function usageWindowLabel(windowMinutes: number): string {
+  if (windowMinutes >= 40_320) return 'Monthly limit';
+  if (windowMinutes >= 10_080) return 'Weekly limit';
+  if (windowMinutes >= 1_440) {
+    const days = Math.round(windowMinutes / 1_440);
+    return days === 1 ? 'Daily limit' : `${days}-day limit`;
+  }
+  if (windowMinutes >= 60) {
+    const hours = Math.round(windowMinutes / 60);
+    return hours === 1 ? 'Hourly limit' : `${hours}-hour limit`;
+  }
+  return `${Math.max(1, Math.round(windowMinutes))}-minute limit`;
 }
 
 export interface OpenAiOrgUsage {

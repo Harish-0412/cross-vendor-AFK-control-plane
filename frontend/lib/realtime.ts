@@ -183,7 +183,10 @@ class RealtimeClient {
         // polling interval.
         if (
           msg.type === "integration_update" ||
-          msg.type === "integration_data"
+          msg.type === "integration_data" ||
+          // A plan window has crossed its warning threshold. It is not tied to
+          // a session, so it goes to the global listeners like the others.
+          msg.type === "usage_alert"
         ) {
           for (const listener of this.globalListeners) {
             listener(msg as unknown as InboundEventMessage);

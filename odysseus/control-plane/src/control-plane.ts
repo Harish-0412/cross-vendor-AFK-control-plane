@@ -1,8 +1,11 @@
 import * as http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
+import type { UsageAlert } from '@odysseus/protocol';
+
 import { AfkOrchestrator } from './afk/afk-orchestrator';
 import { EscalationScheduler } from './afk/escalation-scheduler';
+import { notificationForUsageAlert } from './afk/notification-templates';
 import { PushSender } from './afk/push-sender';
 import { HttpRouter } from './api/http-router';
 import { getFirebaseFirestore, isFirebaseAdminConfigured } from './auth/firebase-admin';
@@ -189,7 +192,9 @@ export class ControlPlane {
       this.tunnelServer,
       this.auditLog,
       (userId, message) => this.clientServer.sendToUser(userId, message),
-      new HistoryIngest(this.db, this.costGovernor),
+      new HistoryIngest(this.db, this.costGovernor, (userId, alert) =>
+        this.announceUsageAlert(userId, alert),
+      ),
     );
     this.router.setIntegrationAccess(this.integrationAccess);
     this.tunnelServer.setOnIntegrationUpdate((deviceId, payload) => {
@@ -252,6 +257,25 @@ export class ControlPlane {
         console.warn('[Odysseus Control Plane] Workstation disconnect failed:', error);
       });
     });
+  }
+
+  /**
+   * Tell the user a plan limit is nearly spent, on whatever is listening.
+   *
+   * Both paths are attempted: the open website gets it immediately, and the
+   * phone gets it even with nothing open — which is the case that matters,
+   * since the whole point is to hear about it while away from the desk. A
+   * failure to push must never fail the sync that produced the reading, so it
+   * is logged and swallowed.
+   */
+  private async announceUsageAlert(userId: string, alert: UsageAlert): Promise<void> {
+    this.clientServer.sendToUser(userId, { type: 'usage_alert', alert });
+    try {
+      await this.pushSender.sendToUser(userId, notificationForUsageAlert(alert));
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn('[Odysseus Control Plane] Usage alert push failed:', error);
+    }
   }
 
   async start(): Promise<{ url: string; port: number }> {

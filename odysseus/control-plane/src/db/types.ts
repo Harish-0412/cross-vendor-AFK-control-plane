@@ -255,6 +255,14 @@ export interface ExternalConversationRecord extends Omit<
   contentTruncated?: boolean | undefined;
   /** Tokens already passed to the CostGovernor, so a re-sync records only the difference. */
   tokensRecorded: number;
+  /**
+   * Lowercased message text, capped at HISTORY_LIMITS.searchTextChars, built
+   * when content is synced. Searching reads this instead of every item, which
+   * keeps a search one read per conversation rather than one per chunk.
+   * Absent until content has been synced — those conversations are searchable
+   * by title only, and the API says how many there are.
+   */
+  searchText?: string | undefined;
   /** The scan that last saw this conversation; older ones are removed on a complete scan. */
   lastScanId: string;
   updatedRecordAt: Date;
@@ -287,10 +295,19 @@ export interface ProviderUsageRecord {
   integration: IntegrationId;
   snapshot: ProviderUsageSnapshot;
   receivedAt: Date;
+  /**
+   * Window name → the `resetsAt` of the window already alerted on. A window is
+   * alerted once per reset; when it resets, `resetsAt` changes and the next
+   * crossing alerts again. Keeping it on the record means the dedupe survives
+   * a restart, unlike an in-memory set.
+   */
+  alertedWindows?: Record<string, string> | undefined;
 }
 
 export interface IProviderUsageRepository {
   upsert(record: ProviderUsageRecord): Promise<void>;
   listByUser(userId: string): Promise<ProviderUsageRecord[]>;
+  /** The stored record for one device+integration, or null. */
+  find(deviceId: string, integration: IntegrationId): Promise<ProviderUsageRecord | null>;
   delete(deviceId: string, integration: IntegrationId): Promise<void>;
 }

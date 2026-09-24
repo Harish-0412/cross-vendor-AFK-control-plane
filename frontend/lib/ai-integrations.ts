@@ -6,22 +6,28 @@
 // revoke and read — nothing here can approve.
 
 import type {
+  ConversationSearchMatch,
   ExternalConversationSummary,
   HistoryItem,
+  HistorySearchInfo,
   IntegrationDefinition,
   IntegrationGrantState,
   IntegrationId,
   IntegrationScope,
   ProviderUsageSnapshot,
+  UsageAlert,
 } from "@odysseus/protocol";
 
 import { apiClient } from "./api-client";
 
 export type {
+  ConversationSearchMatch,
   HistoryItem,
+  HistorySearchInfo,
   IntegrationId,
   IntegrationScope,
   ProviderUsageSnapshot,
+  UsageAlert,
 };
 
 export interface DeviceOption {
@@ -59,6 +65,14 @@ export interface ImportedConversation extends ExternalConversationSummary {
   contentSynced: boolean;
   contentSyncedAt?: string;
   contentTruncated?: boolean;
+  /** Present only in search results: why this conversation matched. */
+  match?: ConversationSearchMatch;
+}
+
+export interface HistoryPage {
+  conversations: ImportedConversation[];
+  /** Present only when a search was made. */
+  search?: HistorySearchInfo;
 }
 
 export interface ProviderUsageEntry {
@@ -110,14 +124,27 @@ export const aiIntegrations = {
       {},
     ),
 
+  /**
+   * Imported conversations, newest first.
+   *
+   * `query` is matched on the server, against titles, folders and — for
+   * conversations whose content has been loaded — the messages themselves.
+   * Doing it on the server is the point: the browser only ever holds the list,
+   * never the message text of every conversation.
+   */
   history: (
-    filter: { integration?: IntegrationId; deviceId?: string } = {},
+    filter: {
+      integration?: IntegrationId;
+      deviceId?: string;
+      query?: string;
+    } = {},
   ) => {
     const params = new URLSearchParams();
     if (filter.integration) params.set("integration", filter.integration);
     if (filter.deviceId) params.set("deviceId", filter.deviceId);
+    if (filter.query?.trim()) params.set("q", filter.query.trim());
     const query = params.toString();
-    return apiClient.get<ImportedConversation[]>(
+    return apiClient.get<HistoryPage>(
       `/api/v1/history${query ? `?${query}` : ""}`,
     );
   },

@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Bot,
-  BrainCircuit,
   FileX,
   History as HistoryIcon,
+  Info,
   Loader2,
   Search,
   Sparkles,
@@ -24,73 +24,86 @@ import {
   aiIntegrations,
   formatRelative,
   formatTokens,
+  type HistorySearchInfo,
   type ImportedConversation,
   type IntegrationId,
 } from "@/lib/ai-integrations";
-import { realtimeClient } from "@/lib/realtime";
 
-const TOOL_META: Partial<
-  Record<IntegrationId, { name: string; icon: typeof Bot }>
-> = {
+const TOOL_META: Partial<Record<IntegrationId, { name: string; icon: typeof Bot }>> = {
   codex: { name: "Codex", icon: Bot },
   antigravity: { name: "Antigravity", icon: Sparkles },
-  claude: { name: "Claude Code", icon: BrainCircuit },
+  claude: { name: "Claude Code", icon: Bot },
+  "chatgpt-export": { name: "ChatGPT", icon: Bot },
 };
+
+/** Long enough that a stray keystroke does not cost a request. */
+const SEARCH_DEBOUNCE_MS = 300;
 
 function HistoryList() {
   const params = useSearchParams();
   const initial = params?.get("integration");
   const [filter, setFilter] = useState<string>(
-    initial === "codex" || initial === "antigravity" || initial === "claude"
-      ? initial
-      : "all",
+    initial === "codex" || initial === "antigravity" ? initial : "all",
   );
   const [query, setQuery] = useState("");
-  const [conversations, setConversations] = useState<
-    ImportedConversation[] | null
-  >(null);
+  const [debounced, setDebounced] = useState("");
+  const [conversations, setConversations] = useState<ImportedConversation[] | null>(null);
+  const [search, setSearch] = useState<HistorySearchInfo | undefined>();
+  const [searching, setSearching] = useState(false);
   const [now] = useState(() => Date.now());
+  // Guards against an earlier request landing after a later one and showing
+  // results for a query the user has already moved on from.
+  const requestSeq = useRef(0);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(query.trim()), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [query]);
 
   useEffect(() => {
     let cancelled = false;
-    const load = () =>
-      aiIntegrations
-        .history()
-        .then((list) => !cancelled && setConversations(list))
-        .catch(() => !cancelled && setConversations([]));
+    const load = () => {
+      const seq = (requestSeq.current += 1);
+      if (debounced) setSearching(true);
+      return aiIntegrations
+        .history(debounced ? { query: debounced } : {})
+        .then((page) => {
+          if (cancelled || seq !== requestSeq.current) return;
+          setConversations(page.conversations);
+          setSearch(page.search);
+          setSearching(false);
+        })
+        .catch(() => {
+          if (cancelled || seq !== requestSeq.current) return;
+          setConversations([]);
+          setSearching(false);
+        });
+    };
     void load();
     // A fresh connection imports in the background; keep the list current.
+    // Polling pauses during a search so results do not shuffle underfoot.
+    if (debounced) return () => {
+      cancelled = true;
+    };
     const timer = setInterval(() => void load(), 15_000);
-    const unsubscribe = realtimeClient.subscribeAllEvents((message) => {
-      if (
-        message.type === "integration_data" ||
-        message.type === "integration_update"
-      )
-        void load();
-    });
     return () => {
       cancelled = true;
       clearInterval(timer);
-      unsubscribe();
     };
-  }, []);
+  }, [debounced]);
 
-  const visible = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return (conversations ?? []).filter(
-      (conversation) =>
-        (filter === "all" || conversation.integration === filter) &&
-        (!needle ||
-          conversation.title.toLowerCase().includes(needle) ||
-          (conversation.workspace ?? "").toLowerCase().includes(needle)),
-    );
-  }, [conversations, filter, query]);
+  const visible = useMemo(
+    () =>
+      (conversations ?? []).filter(
+        (conversation) => filter === "all" || conversation.integration === filter,
+      ),
+    [conversations, filter],
+  );
 
   const counts = useMemo(() => {
     const result: Record<string, number> = { all: conversations?.length ?? 0 };
     for (const conversation of conversations ?? []) {
-      result[conversation.integration] =
-        (result[conversation.integration] ?? 0) + 1;
+      result[conversation.integration] = (result[conversation.integration] ?? 0) + 1;
     }
     return result;
   }, [conversations]);
@@ -102,8 +115,7 @@ function HistoryList() {
           <HistoryIcon className="h-6 w-6" /> History
         </h1>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          Past conversations from the AI coding tools you connected, imported
-          from your workstation.
+          Past conversations from the AI coding tools you connected, imported from your workstation.
         </p>
       </div>
 
@@ -113,48 +125,43 @@ function HistoryList() {
             <Tabs value={filter} onValueChange={setFilter}>
               <TabsList>
                 <TabsTrigger value="all">All ({counts.all ?? 0})</TabsTrigger>
-                <TabsTrigger value="codex">
-                  Codex ({counts.codex ?? 0})
-                </TabsTrigger>
-                <TabsTrigger value="antigravity">
-                  Antigravity ({counts.antigravity ?? 0})
-                </TabsTrigger>
-                <TabsTrigger value="claude">
-                  Claude ({counts.claude ?? 0})
-                </TabsTrigger>
+                <TabsTrigger value="codex">Codex ({counts.codex ?? 0})</TabsTrigger>
+                <TabsTrigger value="antigravity">Antigravity ({counts.antigravity ?? 0})</TabsTrigger>
               </TabsList>
             </Tabs>
-            <div className="relative min-w-[200px] flex-1">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <div className="relative min-w-[220px] flex-1">
+              {searching ? (
+                <Loader2 className="absolute left-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
+              ) : (
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              )}
               <Input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search titles and folders"
+                placeholder="Search titles, folders and loaded messages"
                 className="h-9 pl-8"
               />
             </div>
           </div>
 
+          {search && <SearchCoverage search={search} results={visible.length} />}
+
           {conversations === null ? (
             <div className="flex items-center gap-2 py-10 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading history…
             </div>
-          ) : conversations.length === 0 ? (
+          ) : conversations.length === 0 && !debounced ? (
             <Card>
               <CardContent className="space-y-3 py-10 text-center">
-                <p className="text-sm text-muted-foreground">
-                  No imported conversations yet.
-                </p>
+                <p className="text-sm text-muted-foreground">No imported conversations yet.</p>
                 <Button asChild size="sm" variant="outline">
-                  <Link href="/integrations">
-                    Connect Codex, Antigravity, or Claude Code
-                  </Link>
+                  <Link href="/integrations">Connect Codex or Antigravity</Link>
                 </Button>
               </CardContent>
             </Card>
           ) : visible.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
-              Nothing matches.
+              {debounced ? `Nothing matches “${debounced}”.` : "Nothing matches."}
             </p>
           ) : (
             <div className="divide-y rounded-lg border">
@@ -174,56 +181,43 @@ function HistoryList() {
                       <div className="flex items-center gap-2">
                         <span className="truncate font-medium">
                           {conversation.title || (
-                            <span className="text-muted-foreground">
-                              Untitled conversation
-                            </span>
+                            <span className="text-muted-foreground">Untitled conversation</span>
                           )}
                         </span>
                         {!conversation.hasTranscript && (
-                          <Badge
-                            variant="outline"
-                            className="shrink-0 gap-1 text-[10px]"
-                          >
+                          <Badge variant="outline" className="shrink-0 gap-1 text-[10px]">
                             <FileX className="h-3 w-3" /> No transcript
                           </Badge>
                         )}
                         {conversation.contentSynced && (
-                          <Badge
-                            variant="secondary"
-                            className="shrink-0 text-[10px]"
-                          >
+                          <Badge variant="secondary" className="shrink-0 text-[10px]">
                             Content synced
                           </Badge>
                         )}
                       </div>
                       <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
                         <span>{tool?.name ?? conversation.integration}</span>
-                        <span>
-                          {formatRelative(conversation.updatedAt, now)}
-                        </span>
-                        {conversation.hasTranscript && (
-                          <span>{conversation.messageCount} messages</span>
-                        )}
+                        <span>{formatRelative(conversation.updatedAt, now)}</span>
+                        {conversation.hasTranscript && <span>{conversation.messageCount} messages</span>}
                         {conversation.toolCallCount > 0 && (
                           <span className="inline-flex items-center gap-1">
-                            <Wrench className="h-3 w-3" />{" "}
-                            {conversation.toolCallCount}
+                            <Wrench className="h-3 w-3" /> {conversation.toolCallCount}
                           </span>
                         )}
-                        {conversation.tokens && (
-                          <span title="Exact total recorded by the provider; no dollar estimate">
-                            {formatTokens(conversation.tokens.total)} tokens
-                          </span>
-                        )}
-                        {conversation.model && (
-                          <span>{conversation.model}</span>
-                        )}
-                        {conversation.workspace && (
-                          <span className="truncate">
-                            {conversation.workspace}
-                          </span>
-                        )}
+                        {conversation.tokens && <span>{formatTokens(conversation.tokens.total)} tokens</span>}
+                        {conversation.model && <span>{conversation.model}</span>}
+                        {conversation.workspace && <span className="truncate">{conversation.workspace}</span>}
                       </div>
+                      {conversation.match?.field === "messages" && (
+                        <p className="mt-1.5 line-clamp-2 rounded bg-muted/60 px-2 py-1 text-xs text-muted-foreground">
+                          <Highlighted text={conversation.match.excerpt} needle={debounced} />
+                          {conversation.match.hits > 1 && (
+                            <span className="ml-1 opacity-70">
+                              · {conversation.match.hits >= 99 ? "99+" : conversation.match.hits} matches
+                            </span>
+                          )}
+                        </p>
+                      )}
                     </div>
                   </Link>
                 );
@@ -233,9 +227,7 @@ function HistoryList() {
         </div>
 
         <aside className="space-y-3">
-          <h2 className="text-sm font-semibold text-foreground">
-            Remaining usage
-          </h2>
+          <h2 className="text-sm font-semibold text-foreground">Remaining usage</h2>
           <ProviderLimits compact />
         </aside>
       </div>
@@ -243,13 +235,60 @@ function HistoryList() {
   );
 }
 
+/**
+ * What the search could actually look at.
+ *
+ * Without this, "no results" is ambiguous: a conversation whose content has
+ * never been loaded has only a title on this side, so its messages genuinely
+ * were not searched. Saying so is the difference between a useful empty result
+ * and a misleading one.
+ */
+function SearchCoverage({
+  search,
+  results,
+}: {
+  search: HistorySearchInfo;
+  results: number;
+}) {
+  const { searchableConversations, titleOnlyConversations } = search;
+  return (
+    <p className="flex items-start gap-2 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <span>
+        {results} {results === 1 ? "result" : "results"}. Searched the messages of{" "}
+        {searchableConversations}{" "}
+        {searchableConversations === 1 ? "conversation" : "conversations"} you have loaded
+        {titleOnlyConversations > 0 && (
+          <>
+            , and the titles of {titleOnlyConversations} more. Open a conversation and choose{" "}
+            <span className="font-medium">Load conversation</span> to make its messages searchable
+          </>
+        )}
+        .
+      </span>
+    </p>
+  );
+}
+
+/** Marks the matched text inside an excerpt. Plain text only — never HTML. */
+function Highlighted({ text, needle }: { text: string; needle: string }) {
+  if (!needle) return <>{text}</>;
+  const at = text.toLowerCase().indexOf(needle.toLowerCase());
+  if (at === -1) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, at)}
+      <mark className="rounded bg-primary/20 px-0.5 text-foreground">
+        {text.slice(at, at + needle.length)}
+      </mark>
+      {text.slice(at + needle.length)}
+    </>
+  );
+}
+
 export default function HistoryPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="py-10 text-sm text-muted-foreground">Loading…</div>
-      }
-    >
+    <Suspense fallback={<div className="py-10 text-sm text-muted-foreground">Loading…</div>}>
       <HistoryList />
     </Suspense>
   );

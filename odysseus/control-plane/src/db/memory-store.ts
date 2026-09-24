@@ -763,6 +763,13 @@ export class MemoryProviderUsageRepository implements IProviderUsageRepository {
     return [...this.records.values()].filter((record) => record.userId === userId);
   }
 
+  async find(
+    deviceId: string,
+    integration: ProviderUsageRecord['integration'],
+  ): Promise<ProviderUsageRecord | null> {
+    return this.records.get(`${deviceId}:${integration}`) ?? null;
+  }
+
   async delete(deviceId: string, integration: ProviderUsageRecord['integration']): Promise<void> {
     this.records.delete(`${deviceId}:${integration}`);
   }

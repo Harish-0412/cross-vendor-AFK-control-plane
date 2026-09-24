@@ -7,7 +7,10 @@ import { MobileNav } from "./MobileNav";
 import { Header } from "./Header";
 import { useAuthStore } from "@/lib/auth";
 import { realtimeClient } from "@/lib/realtime";
+import { formatRelative, type UsageAlert } from "@/lib/ai-integrations";
+import { ensureServiceWorker } from "@/lib/push";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -40,6 +43,37 @@ export function AppShell({ children }: { children: ReactNode }) {
       }
     }
   }, [isInitialized, isLoading, isAuthenticated, router]);
+
+  // Registering the service worker is what makes the app installable on a
+  // phone and gives it an offline page. It is also a prerequisite for Web
+  // Push on iOS, so it must not wait until push is configured.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    void ensureServiceWorker();
+  }, [isAuthenticated]);
+
+  // A plan limit running low is worth interrupting for wherever you are in the
+  // app: the point of knowing is to stop an agent before the limit does. The
+  // same warning is pushed to the phone, so this is the desk half of it.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    return realtimeClient.subscribeAllEvents((message) => {
+      if (message.type !== "usage_alert") return;
+      const alert = (message as { alert?: UsageAlert }).alert;
+      if (!alert) return;
+      toast.warning(
+        `${alert.usedPercent}% of your ${alert.windowLabel.toLowerCase()} is used`,
+        {
+          description: `${Math.max(0, 100 - alert.usedPercent)}% left. Resets ${formatRelative(alert.resetsAt)}.`,
+          action: {
+            label: "View limits",
+            onClick: () => router.push("/budgets"),
+          },
+          duration: 12_000,
+        },
+      );
+    });
+  }, [isAuthenticated, router]);
 
   if (!isInitialized || (isLoading && !isAuthenticated)) {
     return (

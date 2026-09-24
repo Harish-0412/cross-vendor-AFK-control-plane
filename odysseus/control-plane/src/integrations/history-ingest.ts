@@ -8,13 +8,16 @@
  */
 import {
   HISTORY_LIMITS,
+  USAGE_ALERT_PERCENT,
   isIntegrationId,
+  usageWindowLabel,
   type ExternalConversationSummary,
   type HistoryItem,
   type HistoryItemKind,
   type IntegrationId,
   type ProviderUsageSnapshot,
   type TokenTotals,
+  type UsageAlert,
 } from '@odysseus/protocol';
 
 import type { ExternalConversationRecord, IDatabase } from '../db/types';
@@ -232,10 +235,35 @@ function validSnapshot(value: unknown): ProviderUsageSnapshot | null {
   };
 }
 
+/**
+ * The searchable form of a conversation's messages.
+ *
+ * Lowercased so a search can be a plain substring test, and capped so one very
+ * long conversation cannot turn into a very large document. Tool arguments and
+ * results are included: "which session ran that migration" is exactly the kind
+ * of question this is for. The text is already redacted — it was redacted on
+ * the workstation before it was ever sent.
+ */
+export function buildSearchText(items: HistoryItem[]): string {
+  let text = '';
+  for (const item of items) {
+    if (text.length >= HISTORY_LIMITS.searchTextChars) break;
+    const piece = item.toolName ? `${item.toolName} ${item.text}` : item.text;
+    text += `${piece}\n`;
+  }
+  return text.slice(0, HISTORY_LIMITS.searchTextChars).toLowerCase();
+}
+
 export class HistoryIngest {
   constructor(
     private readonly db: IDatabase,
     private readonly costGovernor?: CostGovernor,
+    /**
+     * Called when a plan window crosses the alert threshold. Raised here
+     * rather than at read time so the user is told while it matters, even if
+     * nobody has the page open.
+     */
+    private readonly onUsageAlert?: (userId: string, alert: UsageAlert) => void | Promise<void>,
   ) {}
 
   /** Returns a short description of what changed, for the live notification. */
@@ -281,6 +309,9 @@ export class HistoryIngest {
         contentSynced: Boolean(existing?.contentSynced),
         ...(existing?.contentSyncedAt ? { contentSyncedAt: existing.contentSyncedAt } : {}),
         ...(existing?.contentTruncated ? { contentTruncated: true } : {}),
+        // The stored items are untouched by a metadata rescan, so the index
+        // built from them stays valid and must not be dropped here.
+        ...(existing?.searchText ? { searchText: existing.searchText } : {}),
         tokensRecorded: existing?.tokensRecorded ?? 0,
         lastScanId: scanId,
         updatedRecordAt: new Date(),
@@ -336,11 +367,15 @@ export class HistoryIngest {
 
     await this.db.externalConversations.writeItems(id, part, items);
     if (update['final'] === true) {
+      // Built from what was stored rather than from this last batch, so the
+      // index covers every part of the conversation, in order.
+      const stored = await this.db.externalConversations.readItems(id);
       await this.db.externalConversations.upsert({
         ...record,
         contentSynced: true,
         contentSyncedAt: new Date().toISOString(),
         contentTruncated: update['truncated'] === true,
+        searchText: buildSearchText(stored),
         updatedRecordAt: new Date(),
       });
     }
@@ -354,14 +389,69 @@ export class HistoryIngest {
   ): Promise<string | null> {
     const snapshot = validSnapshot(update['snapshot']);
     if (!snapshot) return null;
+    const previous = await this.db.providerUsage.find(device.id, integration);
+    const { alertedWindows, alerts } = this.alertsFor(
+      device.id,
+      integration,
+      snapshot,
+      previous?.alertedWindows,
+    );
+
     await this.db.providerUsage.upsert({
       deviceId: device.id,
       userId: device.userId,
       integration,
       snapshot,
       receivedAt: new Date(),
+      ...(Object.keys(alertedWindows).length ? { alertedWindows } : {}),
     });
-    return 'usage';
+
+    for (const alert of alerts) await this.onUsageAlert?.(device.userId, alert);
+    return alerts.length ? `usage (${alerts.length} limit warning)` : 'usage';
+  }
+
+  /**
+   * Which windows have newly crossed the threshold, and the dedupe state to
+   * store with them.
+   *
+   * A window is identified by its reset time. That is what makes "once per
+   * window" work without a timer: the same window keeps the same `resetsAt`
+   * however often it is re-reported, and gets a new one when it resets. A
+   * window that has already reset by the time we see it is skipped entirely —
+   * its percentage describes a period that is over.
+   */
+  private alertsFor(
+    deviceId: string,
+    integration: IntegrationId,
+    snapshot: ProviderUsageSnapshot,
+    previous: Record<string, string> | undefined,
+  ): { alertedWindows: Record<string, string>; alerts: UsageAlert[] } {
+    const alertedWindows: Record<string, string> = {};
+    const alerts: UsageAlert[] = [];
+    const now = Date.now();
+
+    for (const window of snapshot.windows ?? []) {
+      const alreadyAlerted = previous?.[window.name] === window.resetsAt;
+      if (alreadyAlerted) alertedWindows[window.name] = window.resetsAt;
+      if (window.usedPercent < USAGE_ALERT_PERCENT) continue;
+      // Stale reading: this window has since reset, so the figure is not a
+      // description of anything current and must not raise a warning.
+      if (Date.parse(window.resetsAt) <= now) continue;
+      if (alreadyAlerted) continue;
+
+      alertedWindows[window.name] = window.resetsAt;
+      alerts.push({
+        integration,
+        deviceId,
+        window: window.name,
+        windowLabel: usageWindowLabel(window.windowMinutes),
+        usedPercent: window.usedPercent,
+        resetsAt: window.resetsAt,
+        observedAt: snapshot.observedAt,
+        ...(snapshot.planType ? { planType: snapshot.planType } : {}),
+      });
+    }
+    return { alertedWindows, alerts };
   }
 
   /** Delete everything synced for one integration on one device (on revoke). */

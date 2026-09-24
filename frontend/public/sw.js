@@ -1,13 +1,74 @@
-/* Odysseus AFK — Web Push service worker (Phase 7.3).
- * Minimal, dependency-free: shows notifications, opens the right page on click.
+/* Odysseus AFK service worker.
+ *
+ * Two jobs, both small and dependency-free:
+ *
+ *  1. Web Push — show the notification and open the right page when it is
+ *     tapped. This is what reaches you when nothing is open.
+ *  2. An offline fallback for page loads, so losing signal shows the app's own
+ *     "you are offline" page instead of the browser's error. It is also what
+ *     makes the app installable on desktop Chrome, which requires a fetch
+ *     handler that can answer a failed navigation.
+ *
+ * Deliberately NOT a cache of the app or its data. Session state, approvals
+ * and conversations are private and change constantly; serving a stale copy of
+ * them would be worse than showing that the connection is down. Only the
+ * offline page and the icons are cached.
  */
 
-self.addEventListener("install", () => {
-  self.skipWaiting();
+const CACHE = "odysseus-shell-v1";
+const OFFLINE_URL = "/offline";
+const PRECACHE = [OFFLINE_URL, "/icon-192.png", "/icon-512.png"];
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    (async () => {
+      const cache = await caches.open(CACHE);
+      // One missing file must not fail the whole install, so they are added
+      // individually and failures are ignored.
+      await Promise.all(
+        PRECACHE.map((url) => cache.add(url).catch(() => undefined)),
+      );
+      await self.skipWaiting();
+    })(),
+  );
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async () => {
+      const names = await caches.keys();
+      await Promise.all(
+        names.filter((name) => name !== CACHE).map((name) => caches.delete(name)),
+      );
+      await self.clients.claim();
+    })(),
+  );
+});
+
+self.addEventListener("fetch", (event) => {
+  const request = event.request;
+
+  // Only page loads. API calls and WebSockets must always go to the network:
+  // an answer from a cache would be stale state presented as current.
+  if (request.mode !== "navigate" || request.method !== "GET") return;
+  if (new URL(request.url).pathname.startsWith("/api/")) return;
+
+  event.respondWith(
+    (async () => {
+      try {
+        return await fetch(request);
+      } catch {
+        const cached = await caches.match(OFFLINE_URL);
+        return (
+          cached ??
+          new Response("You are offline.", {
+            status: 503,
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+          })
+        );
+      }
+    })(),
+  );
 });
 
 self.addEventListener("push", (event) => {
@@ -21,7 +82,7 @@ self.addEventListener("push", (event) => {
   const title = data.title || "Odysseus AFK";
   const options = {
     body: data.body || "",
-    icon: "/icon-light-32x32.png",
+    icon: "/icon-192.png",
     badge: "/icon-light-32x32.png",
     tag: data.tag || "odysseus-afk",
     data: {

@@ -1223,6 +1223,16 @@ export class FirestoreProviderUsageRepository implements IProviderUsageRepositor
     });
   }
 
+  async find(
+    deviceId: string,
+    integration: ProviderUsageRecord['integration'],
+  ): Promise<ProviderUsageRecord | null> {
+    const doc = await this.col().doc(`${deviceId}__${integration}`).get();
+    if (!doc.exists) return null;
+    const data = doc.data() ?? {};
+    return { ...data, receivedAt: toDate(data['receivedAt']) } as ProviderUsageRecord;
+  }
+
   async delete(deviceId: string, integration: ProviderUsageRecord['integration']): Promise<void> {
     await this.col().doc(`${deviceId}__${integration}`).delete();
   }

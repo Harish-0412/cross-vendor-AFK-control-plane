@@ -583,6 +583,10 @@ export class HttpRouter {
               await this.integrationAccess.listHistory(authUser, {
                 integration: url.searchParams.get('integration') ?? undefined,
                 deviceId: url.searchParams.get('deviceId') ?? undefined,
+                // Bounded before it reaches the matcher: the query is used as
+                // a plain substring, never as a pattern, and a huge one would
+                // only waste work.
+                query: (url.searchParams.get('q') ?? '').slice(0, 200) || undefined,
               }),
             );
           }

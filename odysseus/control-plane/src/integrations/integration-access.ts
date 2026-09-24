@@ -10,10 +10,13 @@ import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 
 import {
   GRANT_REQUEST_TTL_MS,
+  HISTORY_LIMITS,
   INTEGRATIONS,
   isIntegrationId,
   isIntegrationScope,
+  type ConversationSearchMatch,
   type GrantRequestCommand,
+  type HistorySearchInfo,
   type IntegrationGrantState,
   type IntegrationScope,
 } from '@odysseus/protocol';
@@ -23,7 +26,7 @@ import type { AuditLog } from '../policy/audit-log';
 import type { TunnelServer } from '../tunnel/tunnel-server';
 import type { DeviceRecord } from '../types';
 
-import type { HistoryIngest } from './history-ingest';
+import { buildSearchText, type HistoryIngest } from './history-ingest';
 
 /** No 0/O, 1/I/L: the code is read off one screen and typed into another. */
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -79,25 +82,78 @@ export class IntegrationAccessService {
     });
   }
 
+  /**
+   * The user's imported conversations, newest first, optionally filtered by a
+   * search.
+   *
+   * A search looks at titles, folders and — for conversations whose content
+   * has been synced — the messages themselves. The response says how many of
+   * each there were, because "no results" means something different when most
+   * conversations only have a title here.
+   */
   async listHistory(
     user: { id: string },
-    filter: { integration?: string | undefined; deviceId?: string | undefined },
+    filter: {
+      integration?: string | undefined;
+      deviceId?: string | undefined;
+      query?: string | undefined;
+    },
   ) {
     const records = await this.db.externalConversations.listByUser(user.id, {
       ...(isIntegrationId(filter.integration) ? { integration: filter.integration } : {}),
       ...(filter.deviceId ? { deviceId: filter.deviceId } : {}),
     });
-    return records
-      .map(({ lastScanId: _scan, tokensRecorded: _t, updatedRecordAt: _u, ...rest }) => rest)
-      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+
+    const strip = ({
+      lastScanId: _scan,
+      tokensRecorded: _t,
+      updatedRecordAt: _u,
+      // The index is an implementation detail and can be 40 KB; it is never
+      // sent to the browser, only searched here.
+      searchText: _s,
+      ...rest
+    }: (typeof records)[number]) => rest;
+
+    const needle = (filter.query ?? '').trim().toLowerCase();
+    const byNewest = (a: { updatedAt: string }, b: { updatedAt: string }) =>
+      Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
+
+    if (!needle) return { conversations: records.map(strip).sort(byNewest) };
+
+    const matched = records.flatMap((record) => {
+      const match = findMatch(record, needle);
+      return match ? [{ ...strip(record), match }] : [];
+    });
+
+    return {
+      conversations: matched.sort(byNewest),
+      search: {
+        query: needle,
+        searchableConversations: records.filter((record) => record.searchText).length,
+        titleOnlyConversations: records.filter((record) => !record.searchText).length,
+      } satisfies HistorySearchInfo,
+    };
   }
 
   async getConversation(user: { id: string }, id: string) {
     const record = await this.db.externalConversations.find(id);
     if (!record || record.userId !== user.id)
       throw new IntegrationAccessError(404, 'Conversation not found');
-    const { lastScanId: _scan, tokensRecorded: _t, updatedRecordAt: _u, ...conversation } = record;
+    const {
+      lastScanId: _scan,
+      tokensRecorded: _t,
+      updatedRecordAt: _u,
+      searchText: _s,
+      ...conversation
+    } = record;
     const items = record.contentSynced ? await this.db.externalConversations.readItems(id) : [];
+
+    // Conversations whose content was synced before the search index existed
+    // have items but no index. Opening one is already a read of every item, so
+    // the index is built here rather than by a migration or a re-sync.
+    if (record.contentSynced && !record.searchText && items.length > 0) {
+      await this.db.externalConversations.upsert({ ...record, searchText: buildSearchText(items) });
+    }
     return { conversation, items };
   }
 
@@ -376,6 +432,60 @@ export class IntegrationAccessService {
       });
     }
   }
+}
+
+/**
+ * Where a lowercased needle first appears in one conversation.
+ *
+ * Title and folder are checked before the message index so that a result list
+ * shows the most recognisable reason for the match. Nothing is scored or
+ * ranked: results stay in time order, because "the one I was working on
+ * yesterday" is how people actually look for a session.
+ */
+function findMatch(
+  record: { title: string; workspace?: string | undefined; searchText?: string | undefined },
+  needle: string,
+): ConversationSearchMatch | null {
+  const title = record.title.toLowerCase();
+  if (title.includes(needle)) {
+    return { field: 'title', excerpt: excerptAround(record.title, title.indexOf(needle)), hits: 1 };
+  }
+
+  const workspace = record.workspace?.toLowerCase();
+  if (workspace?.includes(needle)) {
+    return {
+      field: 'workspace',
+      excerpt: record.workspace ?? '',
+      hits: 1,
+    };
+  }
+
+  const text = record.searchText;
+  if (!text) return null;
+  const at = text.indexOf(needle);
+  if (at === -1) return null;
+  return { field: 'messages', excerpt: excerptAround(text, at), hits: countHits(text, needle) };
+}
+
+/** Bounded: a needle of one character in a 40 KB index must not be counted 40 000 times. */
+function countHits(text: string, needle: string): number {
+  let hits = 0;
+  let from = 0;
+  while (hits < 99) {
+    const at = text.indexOf(needle, from);
+    if (at === -1) break;
+    hits += 1;
+    from = at + needle.length;
+  }
+  return hits;
+}
+
+function excerptAround(text: string, at: number): string {
+  const context = HISTORY_LIMITS.searchExcerptContext;
+  const start = Math.max(0, at - context);
+  const end = Math.min(text.length, at + context * 2);
+  const body = text.slice(start, end).replace(/\s+/g, ' ').trim();
+  return `${start > 0 ? '…' : ''}${body}${end < text.length ? '…' : ''}`;
 }
 
 const REVOKE_PENDING = 'Revoke waiting for the workstation to come online';

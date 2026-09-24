@@ -1,4 +1,9 @@
-import type { AttentionLevel, EventEnvelope } from '@odysseus/protocol';
+import {
+  INTEGRATIONS,
+  type AttentionLevel,
+  type EventEnvelope,
+  type UsageAlert,
+} from '@odysseus/protocol';
 
 import type { ApprovalRecord } from '../types';
 
@@ -10,11 +15,55 @@ export interface PushNotification {
   data: {
     eventId: string;
     eventType: string;
-    sessionId: string;
+    /** Absent for notifications that are not about one session, such as a plan-limit warning. */
+    sessionId?: string;
     deviceId?: string;
     attentionLevel: AttentionLevel;
     url: string;
   };
+}
+
+/**
+ * "You have nearly used up a plan limit."
+ *
+ * The tag is keyed to the window's reset time, so a repeat for the same window
+ * replaces the earlier notification instead of stacking another one up. Every
+ * number in the body is one the provider reported; nothing is extrapolated.
+ */
+export function notificationForUsageAlert(alert: UsageAlert): PushNotification {
+  const tool = INTEGRATIONS[alert.integration]?.name ?? alert.integration;
+  const resetsIn = describeGapTo(alert.resetsAt);
+  return {
+    title: `${tool}: ${alert.usedPercent}% of your ${alert.windowLabel.toLowerCase()} used`,
+    body: `${Math.max(0, 100 - alert.usedPercent)}% left${resetsIn ? `, resets ${resetsIn}` : ''}.`,
+    tag: `odysseus:usage:${alert.integration}:${alert.window}:${alert.resetsAt}`,
+    urgency: 'normal',
+    data: {
+      eventId: `usage_${alert.integration}_${alert.window}_${alert.resetsAt}`,
+      eventType: 'usage.limit_warning',
+      deviceId: alert.deviceId,
+      attentionLevel: 'notify',
+      url: '/budgets',
+    },
+  };
+}
+
+/** "in 3 hours" / "in 2 days", or '' when the reset time has already passed. */
+function describeGapTo(iso: string, now = Date.now()): string {
+  const ms = Date.parse(iso) - now;
+  if (!Number.isFinite(ms) || ms <= 0) return '';
+  const units: [number, string][] = [
+    [86_400_000, 'day'],
+    [3_600_000, 'hour'],
+    [60_000, 'minute'],
+  ];
+  for (const [size, unit] of units) {
+    if (ms >= size) {
+      const n = Math.round(ms / size);
+      return `in ${n} ${unit}${n === 1 ? '' : 's'}`;
+    }
+  }
+  return 'shortly';
 }
 
 export function notificationForEvent(

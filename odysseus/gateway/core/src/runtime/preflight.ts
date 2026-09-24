@@ -235,6 +235,66 @@ export function adaptersCheck(registeredCount: number, installedCount: number): 
 }
 
 /**
+ * What the sandbox on this machine actually enforces.
+ *
+ * The whole proposition of this project is leaving an agent running while you
+ * are not at the keyboard, so "how contained is it" is not a detail — it is
+ * the thing the user is trusting. The capability flags are reported by the
+ * platform sandbox; this states them in one line at startup instead of leaving
+ * them to be discovered from source.
+ *
+ * A machine with no enforcement still starts. It warns, because refusing to
+ * run would not make anyone safer — it would just move the work somewhere with
+ * no warning at all.
+ */
+export function sandboxIsolationCheck(
+  platform: string,
+  capabilities: {
+    filesystemIsolation: boolean;
+    networkIsolation: boolean;
+    processLimits: boolean;
+    memoryLimits: boolean;
+  },
+): PreflightCheck {
+  return {
+    name: 'sandbox',
+    run: async () => {
+      const enforced = (
+        [
+          ['filesystem', capabilities.filesystemIsolation],
+          ['network', capabilities.networkIsolation],
+          ['process limits', capabilities.processLimits],
+          ['memory limits', capabilities.memoryLimits],
+        ] as const
+      )
+        .filter(([, on]) => on)
+        .map(([name]) => name);
+
+      if (enforced.length === 0) {
+        return {
+          status: 'warn' as const,
+          message: `No sandbox enforcement on ${platform}: an agent runs with your own file and network access`,
+          remedy:
+            platform === 'win32'
+              ? 'Windows has no enforcing sandbox here. Give sessions a project root that ' +
+                'contains nothing you would mind an agent reading, and keep approval mode on ' +
+                'for anything that writes.'
+              : 'Install Docker (Linux) so sessions run in a container, or restrict the project root.',
+        };
+      }
+      if (!capabilities.filesystemIsolation) {
+        return {
+          status: 'warn' as const,
+          message: `Partial sandbox on ${platform}: ${enforced.join(', ')} enforced, filesystem not`,
+          remedy: 'An agent can read any file you can. Choose the project root accordingly.',
+        };
+      }
+      return { status: 'pass' as const, message: `Sandbox enforces ${enforced.join(', ')}` };
+    },
+  };
+}
+
+/**
  * Clock skew between this machine and the Control Plane.
  *
  * Signed handshakes carry timestamps and certificates carry validity windows,

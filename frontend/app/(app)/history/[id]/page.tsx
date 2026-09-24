@@ -7,6 +7,8 @@ import {
   ArrowLeft,
   Brain,
   Download,
+  FileDown,
+  FileJson,
   FileX,
   Loader2,
   Scissors,
@@ -32,6 +34,12 @@ import {
   type HistoryItem,
   type ImportedConversation,
 } from "@/lib/ai-integrations";
+import {
+  downloadText,
+  exportFilename,
+  toJson,
+  toMarkdown,
+} from "@/lib/conversation-export";
 
 /**
  * One imported conversation. Only its title and metadata are synced by
@@ -77,6 +85,24 @@ export default function ConversationPage({
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, [load]);
+
+  /**
+   * Save what is on screen. Built in the browser from the conversation already
+   * loaded, so exporting is not a request and sends nothing anywhere.
+   */
+  const saveAs = (format: "md" | "json") => {
+    if (!conversation) return;
+    const contents =
+      format === "md"
+        ? toMarkdown(conversation, items)
+        : toJson(conversation, items);
+    downloadText(
+      exportFilename(conversation, format),
+      contents,
+      format === "md" ? "text/markdown;charset=utf-8" : "application/json",
+    );
+    toast.success(`Saved as ${format === "md" ? "Markdown" : "JSON"}`);
+  };
 
   const requestContent = async () => {
     setLoadingContent(true);
@@ -245,17 +271,37 @@ export default function ConversationPage({
                 : ""}{" "}
               · {items.length} items
             </span>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => void requestContent()}
-              disabled={loadingContent}
-            >
-              {loadingContent && (
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              )}
-              Refresh from workstation
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => saveAs("md")}
+                title="Save this conversation as a Markdown file"
+              >
+                <FileDown className="mr-1.5 h-3.5 w-3.5" />
+                Markdown
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => saveAs("json")}
+                title="Save this conversation as JSON"
+              >
+                <FileJson className="mr-1.5 h-3.5 w-3.5" />
+                JSON
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void requestContent()}
+                disabled={loadingContent}
+              >
+                {loadingContent && (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                )}
+                Refresh from workstation
+              </Button>
+            </div>
           </div>
           {conversation.contentTruncated && (
             <p className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs">

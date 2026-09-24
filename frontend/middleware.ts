@@ -21,6 +21,11 @@ export function middleware(request: NextRequest) {
   if (
     pathname === '/' ||
     pathname === '/health' ||
+    // The service worker pre-caches this to show when a page load fails. It
+    // holds no data, and a redirect to /login here would both defeat the
+    // pre-cache (a redirected response cannot be stored) and send someone with
+    // no connection to a sign-in page that also cannot load.
+    pathname === '/offline' ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api') ||
     pathname.includes('.')

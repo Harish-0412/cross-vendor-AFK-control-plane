@@ -32,9 +32,11 @@ import {
   loadGatewayConfig,
   nodeVersionCheck,
   projectRootsCheck,
+  sandboxIsolationCheck,
   type PreflightCheck,
 } from '../gateway/core/src/index';
 import { DeviceIdentityManager } from '../gateway/identity/src/device-identity';
+import { SandboxManager } from '../gateway/sandbox/src/sandbox-manager';
 import {
   HistorySync,
   IntegrationManager,
@@ -298,6 +300,10 @@ async function main(): Promise<void> {
     projectRootsCheck(options.projectRoots ?? []),
     adaptersCheck(agents.length, agents.filter((agent) => agent.installed).length),
     clockSkewCheck(() => fetchControlPlaneTime(controlPlaneUrl)),
+    // States what the sandbox on this machine really enforces. On
+    // Windows that is nothing, and the user should read it before
+    // leaving an agent running unattended.
+    sandboxIsolationCheck(process.platform, new SandboxManager().getCapabilities()),
   ];
 
   const runtime = createGatewayRuntime({

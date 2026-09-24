@@ -105,7 +105,14 @@ describe('imported history and usage', () => {
     );
   }
 
-  const listHistory = async (token = ownerToken) => (await api('GET', '/api/v1/history', token)).body as any[];
+  const listHistory = async (token = ownerToken) =>
+    (await api('GET', '/api/v1/history', token)).body.conversations as any[];
+
+  const searchHistory = async (query: string, token = ownerToken) =>
+    (await api('GET', `/api/v1/history?q=${encodeURIComponent(query)}`, token)).body as {
+      conversations: any[];
+      search: { query: string; searchableConversations: number; titleOnlyConversations: number };
+    };
 
   beforeEach(async () => {
     cp = new ControlPlane({ port: 0 });
@@ -259,5 +266,138 @@ describe('imported history and usage', () => {
     });
     expect(detail.items.map((item: any) => item.kind)).toEqual(['user', 'assistant']);
     expect(detail.items[1].text.length).toBeLessThanOrEqual(4001);
+  });
+
+  describe('search', () => {
+    /** Sync this conversation's content, which is what makes it searchable. */
+    async function loadContent(id: string) {
+      await api('POST', `/api/v1/history/${id}/content`, ownerToken);
+      await waitFor(async () => {
+        const res = await api('GET', `/api/v1/history/${id}`, ownerToken);
+        return res.body.conversation?.contentSynced ? true : undefined;
+      });
+    }
+
+    it('finds a conversation by its title before any content is synced', async () => {
+      await connectCodex();
+      await waitFor(async () => ((await listHistory()).length ? true : undefined));
+
+      const found = await searchHistory('fix login');
+      expect(found.conversations).toHaveLength(1);
+      expect(found.conversations[0].match).toMatchObject({ field: 'title' });
+      // Nothing has been loaded, so the search could only look at titles, and
+      // the response says so rather than implying the messages were searched.
+      expect(found.search).toMatchObject({ searchableConversations: 0, titleOnlyConversations: 1 });
+    });
+
+    it('finds a word that appears only in the messages, once they are synced', async () => {
+      await connectCodex();
+      const [conversation] = await waitFor(async () =>
+        (await listHistory()).length ? await listHistory() : undefined,
+      );
+
+      // 'Done' is the assistant's reply; it is in no title.
+      expect((await searchHistory('done')).conversations).toHaveLength(0);
+
+      await loadContent(conversation.id);
+      const found = await searchHistory('done');
+      expect(found.conversations).toHaveLength(1);
+      expect(found.conversations[0].match).toMatchObject({ field: 'messages', hits: 1 });
+      expect(found.conversations[0].match.excerpt).toContain('done');
+      expect(found.search).toMatchObject({ searchableConversations: 1, titleOnlyConversations: 0 });
+    });
+
+    it('never returns the search index or a redacted secret', async () => {
+      await connectCodex();
+      const [conversation] = await waitFor(async () =>
+        (await listHistory()).length ? await listHistory() : undefined,
+      );
+      await loadContent(conversation.id);
+
+      const found = await searchHistory('fix');
+      expect(found.conversations[0]).not.toHaveProperty('searchText');
+      expect(JSON.stringify(found)).not.toContain(KEY);
+
+      // The secret was redacted on the workstation, so it is not in the index
+      // either — searching for it finds nothing.
+      expect((await searchHistory(KEY)).conversations).toHaveLength(0);
+    });
+
+    it('matches nothing for a query that is not there, and keeps searches per-user', async () => {
+      await connectCodex();
+      await waitFor(async () => ((await listHistory()).length ? true : undefined));
+      expect((await searchHistory('kubernetes')).conversations).toEqual([]);
+      expect((await searchHistory('fix login', otherToken)).conversations).toEqual([]);
+    });
+  });
+
+  describe('plan limit warnings', () => {
+    const usageSnapshot = (usedPercent: number, resetsAt: string) => ({
+      kind: 'usage_snapshot',
+      integration: 'codex',
+      snapshot: {
+        provider: 'codex',
+        source: 'codex-rate-limits',
+        observedAt: new Date().toISOString(),
+        planType: 'plus',
+        windows: [{ name: 'primary', usedPercent, windowMinutes: 300, resetsAt }],
+      },
+    });
+
+    const hoursFromNow = (hours: number) =>
+      new Date(Date.now() + hours * 3_600_000).toISOString();
+
+    /** Alerts the Control Plane pushed to this user, newest last. */
+    function collectAlerts() {
+      const alerts: any[] = [];
+      const original = cp.pushSender.sendToUser.bind(cp.pushSender);
+      cp.pushSender.sendToUser = async (userId: string, notification: any) => {
+        if (notification.data?.eventType === 'usage.limit_warning') alerts.push(notification);
+        return original(userId, notification);
+      };
+      return alerts;
+    }
+
+    it('warns once when a window crosses the threshold, and not again for the same window', async () => {
+      await connectCodex();
+      const alerts = collectAlerts();
+      const resetsAt = hoursFromNow(3);
+
+      send(usageSnapshot(85, resetsAt));
+      await waitFor(async () => (alerts.length ? true : undefined));
+      expect(alerts[0].title).toContain('85%');
+      expect(alerts[0].body).toContain('15% left');
+
+      // The gateway re-reports the same reading every few minutes. That must
+      // not produce a notification every few minutes.
+      send(usageSnapshot(87, resetsAt));
+      send(usageSnapshot(91, resetsAt));
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(alerts).toHaveLength(1);
+    });
+
+    it('warns again once the window has reset', async () => {
+      await connectCodex();
+      const alerts = collectAlerts();
+
+      send(usageSnapshot(85, hoursFromNow(3)));
+      await waitFor(async () => (alerts.length ? true : undefined));
+
+      // A new window: a different reset time, and usage climbing again.
+      send(usageSnapshot(82, hoursFromNow(8)));
+      await waitFor(async () => (alerts.length === 2 ? true : undefined));
+    });
+
+    it('stays quiet below the threshold and for a reading whose window has already reset', async () => {
+      await connectCodex();
+      const alerts = collectAlerts();
+
+      send(usageSnapshot(40, hoursFromNow(3)));
+      // 95% used, but of a window that ended an hour ago — it describes a
+      // period that is over, so there is nothing to warn about.
+      send(usageSnapshot(95, hoursFromNow(-1)));
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(alerts).toEqual([]);
+    });
   });
 });
