@@ -259,7 +259,10 @@ export function pairingCheck(
       };
 
       if (!target) {
-        return { status: 'pass' as const, message: 'Local-only gateway; no Control Plane to pair with' };
+        return {
+          status: 'pass' as const,
+          message: 'Local-only gateway; no Control Plane to pair with',
+        };
       }
       if (!record) {
         return {
