@@ -10,7 +10,7 @@ assumed; where something was not verified, it says so.
 | Check | Result |
 |---|---|
 | Typecheck (24 packages) | clean |
-| Backend tests (`pnpm -r test` in `odysseus/`) | **856 pass, 0 fail** |
+| Backend tests (`pnpm -r test` in `odysseus/`) | **860 pass, 0 fail** |
 | Web app tests (`pnpm test` in `frontend/`) | **31 pass, 0 fail** |
 | Lint, whole workspace | **0 errors, 0 warnings** |
 | End-to-end smoke (`scripts/smoke-core-loop.ts`) | **11/11** |
