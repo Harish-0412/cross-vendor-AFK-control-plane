@@ -6,6 +6,13 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--dir", "frontend", "dev", "--port", "3100"],
       "port": 3100
+    },
+    {
+      "name": "control-plane",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "odysseus", "exec", "tsx", "control-plane/src/server.ts"],
+      "env": { "USE_FIRESTORE": "false", "CORS_ORIGINS": "http://localhost:3100,http://localhost:3000" },
+      "port": 4000
     }
   ]
 }

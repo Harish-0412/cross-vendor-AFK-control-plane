@@ -19,6 +19,26 @@ import type { ConnectionRegistry, GatewayAdmissionPhase } from './connection-reg
 import { DeviceAuthenticator, type AuthDenial, type PendingChallenge } from './device-auth';
 import { rejectSocket } from './reject-socket';
 
+const TERMINAL_EVENT_STATES: Record<string, SessionState | undefined> = {
+  'session.completed': 'completed',
+  'session.failed': 'failed',
+  'session.crashed': 'crashed',
+  'session.cancelled': 'cancelled',
+};
+const TERMINAL_SESSION_STATES = new Set<SessionState>([
+  'completed',
+  'failed',
+  'crashed',
+  'cancelled',
+]);
+
+/** Adapters name the reason differently: `error`, `errorMessage` (OpenCode) or `reason`. */
+function failureReason(payload: unknown): string | undefined {
+  const p = (payload ?? {}) as { error?: unknown; errorMessage?: unknown; reason?: unknown };
+  const reason = p.error ?? p.errorMessage ?? p.reason;
+  return typeof reason === 'string' && reason ? reason.slice(0, 500) : undefined;
+}
+
 export interface TunnelServerOptions {
   heartbeatTimeoutMs?: number;
   /** Overrides for the device authentication exchange; see device-auth.ts. */
@@ -652,6 +672,26 @@ export class TunnelServer {
                   error: 'Gateway reported the session as failed',
                 });
               }
+            }
+          }
+
+          // The terminal events are authoritative on their own. Only some
+          // adapters also send `session.status_changed`, so relying on it
+          // left OpenCode sessions "running" forever after they finished —
+          // and anything waiting on them, such as an orchestration, waited too.
+          const terminal = TERMINAL_EVENT_STATES[envelope.eventType];
+          if (terminal) {
+            const session = await this.db.sessions.findById(envelope.sessionId);
+            if (session && !TERMINAL_SESSION_STATES.has(session.state)) {
+              await this.db.sessions.update(envelope.sessionId, {
+                state: terminal,
+                completedAt: new Date(),
+                ...(terminal !== 'completed'
+                  ? {
+                      error: failureReason(envelope.payload) ?? `Session ${terminal}`,
+                    }
+                  : {}),
+              });
             }
           }
 

@@ -68,6 +68,30 @@ export type OrchestrationStepState =
 export type OrchestrationRunState =
   'planned' | 'running' | 'waiting_for_approval' | 'completed' | 'failed' | 'cancelled';
 
+/** A problem the reviewer agent found in a step's changes. */
+export interface ReviewFinding {
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  summary: string;
+  file?: string;
+  line?: number;
+}
+
+/**
+ * What a finished step produced, extracted from its session's events. This is
+ * what later steps are told about, so each agent builds on the work before it
+ * instead of starting cold.
+ */
+export interface StepOutcome {
+  /** The agent's final words, trimmed to a bounded size. */
+  summary: string;
+  filesChanged: string[];
+  /** Test steps: whether the test agent reported PASS. */
+  testsPassed?: boolean;
+  /** Review steps: the reviewer's verdict and findings. */
+  verdict?: 'approve' | 'changes_requested';
+  findings?: ReviewFinding[];
+}
+
 export interface OrchestrationStep {
   id: string;
   title: string;
@@ -80,6 +104,21 @@ export interface OrchestrationStep {
   routingDecision?: RoutingDecision;
   risk?: RiskAssessment;
   error?: string;
+  outcome?: StepOutcome;
+  /**
+   * Why the orchestrator added this step itself: the planner's plan, a fix
+   * for failing tests, or a fix for review findings. Absent for steps the
+   * user wrote.
+   */
+  origin?: 'planner' | 'test_fix' | 'review_fix' | 'guarantee';
+  /** For fix loops: which attempt this is, starting at 1. */
+  attempt?: number;
+  /** The agent that ran the step, once it has been dispatched. */
+  agentId?: string;
+  /** Imported conversations the context agent put in this step's prompt. */
+  contextConversationIds?: string[];
+  startedAt?: Date;
+  finishedAt?: Date;
 }
 
 export interface OrchestrationPlan {
@@ -94,6 +133,12 @@ export interface OrchestrationRun {
   id: string;
   organizationId: string;
   userId: string;
+  /** Planned runs: the goal the planner agent turned into steps. */
+  goal?: string;
+  /** How many times a failing test or review may send work back to a builder. */
+  maxFixAttempts?: number;
+  /** Set when the run stopped, in words a person can act on. */
+  error?: string;
   plan: OrchestrationPlan;
   state: OrchestrationRunState;
   createdAt: Date;

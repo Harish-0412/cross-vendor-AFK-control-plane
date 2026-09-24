@@ -1675,35 +1675,79 @@ export class HttpRouter {
         }
         return this.sendJson(res, 200, await this.costGovernor.usage(scope, scopeId));
       }
+      if (path === '/api/v1/orchestrations' && method === 'GET') {
+        if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+        const projectId = url.searchParams.get('projectId') ?? undefined;
+        const organizations = await this.db.organizations.listByUser(authUser.id);
+        const runs = (
+          await Promise.all(
+            organizations.map((org) => this.db.orchestration.listRuns(org.id, projectId)),
+          )
+        )
+          .flat()
+          .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
+          .slice(0, 50);
+        return this.sendJson(res, 200, runs);
+      }
       if (path === '/api/v1/orchestrations' && method === 'POST') {
         if (!authUser || !this.multiAgentOrchestrator)
           return this.sendJson(res, authUser ? 503 : 401, {
             error: authUser ? 'Orchestration service unavailable' : 'Unauthorized',
           });
-        const organizationId =
-          typeof body['organizationId'] === 'string' ? body['organizationId'] : '';
         const projectId = typeof body['projectId'] === 'string' ? body['projectId'] : '';
-        const title = typeof body['title'] === 'string' ? body['title'] : '';
-        const steps = Array.isArray(body['steps']) ? body['steps'] : [];
-        if (
-          !organizationId ||
-          !projectId ||
-          !title ||
-          !steps.every((step) => typeof step === 'object' && step !== null)
-        )
-          return this.sendJson(res, 400, {
-            error: 'organizationId, projectId, title, and valid steps are required',
-          });
+        const goal = typeof body['goal'] === 'string' ? body['goal'].trim() : '';
+        const steps = Array.isArray(body['steps']) ? body['steps'] : undefined;
+        const maxFixAttempts =
+          typeof body['maxFixAttempts'] === 'number' ? body['maxFixAttempts'] : undefined;
+        if (!projectId) return this.sendJson(res, 400, { error: 'projectId is required' });
+        if (!goal && !steps)
+          return this.sendJson(res, 400, { error: 'Either a goal or a list of steps is required' });
+        const project = await this.db.projects.findById(projectId);
+        if (!project || project.userId !== authUser.id)
+          return this.sendJson(res, 404, { error: 'Project not found' });
+
+        // A run belongs to an organization. Someone working alone should not
+        // have to create one first, so their projects go into a personal one.
+        let organizationId =
+          typeof body['organizationId'] === 'string' ? body['organizationId'] : '';
+        if (!organizationId) {
+          organizationId =
+            project.organizationId ?? (await this.personalOrganization(authUser.id)).id;
+          if (!project.organizationId)
+            await this.db.projects.update(project.id, { organizationId });
+        }
+
         try {
+          if (steps) {
+            const title = typeof body['title'] === 'string' ? body['title'].trim() : '';
+            if (!title || !steps.every((step) => typeof step === 'object' && step !== null))
+              return this.sendJson(res, 400, { error: 'A title and valid steps are required' });
+            return this.sendJson(
+              res,
+              201,
+              await this.multiAgentOrchestrator.createRun({
+                organizationId,
+                userId: authUser.id,
+                projectId,
+                title,
+                ...(goal ? { goal } : {}),
+                ...(maxFixAttempts !== undefined ? { maxFixAttempts } : {}),
+                steps: steps.map(parseStepInput),
+              }),
+            );
+          }
+          const plannerAgentId =
+            typeof body['plannerAgentId'] === 'string' ? body['plannerAgentId'] : undefined;
           return this.sendJson(
             res,
             201,
-            await this.multiAgentOrchestrator.createRun({
+            await this.multiAgentOrchestrator.createPlannedRun({
               organizationId,
               userId: authUser.id,
               projectId,
-              title,
-              steps: steps as never,
+              goal,
+              ...(plannerAgentId ? { plannerAgentId } : {}),
+              ...(maxFixAttempts !== undefined ? { maxFixAttempts } : {}),
             }),
           );
         } catch (error) {
@@ -1728,6 +1772,16 @@ export class HttpRouter {
         if (segments.length === 4 && method === 'GET') return this.sendJson(res, 200, run);
         if (segments[4] === 'advance' && method === 'POST')
           return this.sendJson(res, 200, await this.multiAgentOrchestrator.advance(run.id));
+        if (segments[4] === 'cancel' && method === 'POST') {
+          // Only the person who started a run may stop it; other members of
+          // the organization can watch it.
+          if (run.userId !== authUser.id)
+            return this.sendJson(res, 403, {
+              error: 'Only the person who started this run can cancel it',
+            });
+          return this.sendJson(res, 200, await this.multiAgentOrchestrator.cancel(run.id));
+        }
+        return this.sendJson(res, 405, { error: 'Method not allowed' });
       }
       if (path === '/api/v1/projects' && method === 'GET') {
         if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
@@ -2681,9 +2735,30 @@ export class HttpRouter {
 
           // An orchestration approval deliberately carries the deferred session.start
           // command. Keep the durable session state aligned before advancing its DAG.
+          const orchestrationRunId = result.record?.details?.['orchestrationRunId'];
+          const deferredStart =
+            (result.record?.details?.['pendingCommand'] as { commandType?: unknown } | undefined)
+              ?.commandType === 'session.start';
+          // A denied step never starts. Ending its session is what lets the
+          // run notice, instead of waiting on an approval that is settled.
+          if (!approved && deferredStart && typeof orchestrationRunId === 'string') {
+            await this.db.sessions.update(sessionId, {
+              state: 'cancelled',
+              error: reason ? `Approval denied: ${reason}` : 'Approval denied',
+              completedAt: new Date(),
+            });
+            void this.multiAgentOrchestrator
+              ?.advance(orchestrationRunId)
+              .catch((error: unknown) =>
+                console.warn(
+                  '[Odysseus Control Plane] Could not advance denied orchestration:',
+                  error,
+                ),
+              );
+          }
           if (approved && executable?.commandType === 'session.start' && tunnelResult.delivered) {
             await this.db.sessions.update(sessionId, { state: 'running' });
-            const runId = result.record?.details?.['orchestrationRunId'];
+            const runId = orchestrationRunId;
             if (typeof runId === 'string' && this.multiAgentOrchestrator) {
               void this.multiAgentOrchestrator
                 .advance(runId)
@@ -3368,6 +3443,19 @@ export class HttpRouter {
     res.end();
   }
 
+  /** The user's own organization, created the first time they need one. */
+  private async personalOrganization(userId: string) {
+    const owned = (await this.db.organizations.listByUser(userId)).find(
+      (org) => org.ownerId === userId,
+    );
+    if (owned) return owned;
+    return this.db.organizations.create({
+      id: `org_${randomUUID().replace(/-/g, '').slice(0, 24)}`,
+      name: 'Personal',
+      ownerId: userId,
+    });
+  }
+
   private sendJson(res: ServerResponse, status: number, data: unknown): void {
     if (res.headersSent) return;
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -3549,4 +3637,39 @@ export class HttpRouter {
       });
     });
   }
+}
+
+/** A hand-written orchestration step, reduced to the fields a client may set. */
+function parseStepInput(value: unknown): {
+  id: string;
+  title: string;
+  taskKind: TaskKind;
+  prompt: string;
+  dependsOn: string[];
+  requiredAgentId?: string;
+} {
+  const raw = value as Record<string, unknown>;
+  const taskKind = raw['taskKind'];
+  if (
+    typeof taskKind !== 'string' ||
+    !['implementation', 'test', 'security_review', 'planning', 'general'].includes(taskKind)
+  )
+    throw new Error('Every step needs a valid taskKind');
+  const text = (key: string, max: number) =>
+    typeof raw[key] === 'string' ? raw[key].trim().slice(0, max) : '';
+  const step = {
+    id: text('id', 40),
+    title: text('title', 120),
+    taskKind: taskKind as TaskKind,
+    prompt: text('prompt', 4_000),
+    dependsOn: Array.isArray(raw['dependsOn'])
+      ? raw['dependsOn'].filter((dep): dep is string => typeof dep === 'string')
+      : [],
+    ...(typeof raw['requiredAgentId'] === 'string'
+      ? { requiredAgentId: raw['requiredAgentId'] }
+      : {}),
+  };
+  if (!step.id || !step.title || !step.prompt)
+    throw new Error('Every step needs an id, a title and a prompt');
+  return step;
 }

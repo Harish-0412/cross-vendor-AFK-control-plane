@@ -7,6 +7,7 @@
  */
 import {
   Activity,
+  Bot,
   Building2,
   FileCode2,
   FolderGit2,
@@ -64,6 +65,14 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: Activity,
         hint: "Agents running right now",
         keywords: ["agents", "running", "tasks"],
+      },
+      {
+        name: "Agent team",
+        short: "Team",
+        href: "/orchestrations",
+        icon: Bot,
+        hint: "Give a goal to a planner, builders, a tester and a reviewer",
+        keywords: ["orchestration", "planner", "goal", "multi-agent", "build", "freebuff"],
       },
       {
         name: "Approvals",

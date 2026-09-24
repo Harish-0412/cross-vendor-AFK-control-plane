@@ -9,15 +9,73 @@ assumed; where something was not verified, it says so.
 
 | Check | Result |
 |---|---|
-| Typecheck (23 packages) | clean |
-| Backend tests (`pnpm -r test` in `odysseus/`) | **826 pass, 0 fail** |
-| Web app tests (`pnpm test` in `frontend/`) | **29 pass, 0 fail** |
+| Typecheck (24 packages) | clean |
+| Backend tests (`pnpm -r test` in `odysseus/`) | **856 pass, 0 fail** |
+| Web app tests (`pnpm test` in `frontend/`) | **31 pass, 0 fail** |
 | Lint, whole workspace | **0 errors, 0 warnings** |
-| Web app build | clean |
+| End-to-end smoke (`scripts/smoke-core-loop.ts`) | **11/11** |
 | `pnpm verify:deploy` against production | see §2 |
 
 Integrations P0–P7 are implemented and tested. The signed-in web app has been
-redesigned, with separate desktop and phone layouts (§4).
+redesigned, with separate desktop and phone layouts (§4). The agent team
+(planner, builders, tester, reviewer, context) and the Freebuff adapter are
+described in §0.
+
+---
+
+## 0. This round: re-pairing, the agent team, Freebuff
+
+### "No devices paired" while the PC was connected
+
+A workstation keeps one device identity on disk. Confirming a pairing for a
+device that already existed only reset its status, so it stayed owned by the
+account that first paired it: the tunnel accepted it, and the account that
+had just paired it saw an empty list. `pnpm pair` now signs its registration
+with the device key, and a key-signed re-pair moves the device to the
+confirming account. An unsigned registration naming someone else's device is
+refused. **Run `git pull`, then `pnpm pair` once, to move an existing PC.**
+
+Also: `/api/v1/status` no longer lists every account's online devices to
+anyone; the tunnel no longer creates devices owned by `usr_anonymous`.
+
+### The agent team (Agent team page, `/orchestrations`)
+
+Give a goal; the run is a DAG of ordinary sessions on your own machines, each
+through the usual router, risk score, policy, approval and budget checks.
+
+| Agent | What it does |
+|---|---|
+| Planner | First step, read-only, prefers Claude Code then Codex. Its `odysseus-plan` block becomes the rest of the run (max 12 steps, strictly validated). |
+| Builders | Implementation steps. They take turns, because they share one working tree. |
+| Tester | Must end with `ODYSSEUS_TEST_RESULT: PASS/FAIL`. A FAIL adds a fix step and a re-test, and whatever waited on the test now waits on the re-test. |
+| Reviewer | Gets the builders' diff; returns an `odysseus-review` block. High/critical findings send the work back the same way. |
+| Context | Ranks your imported conversations (yours only) against each planning/building step and adds the best few, bounded, to its prompt. Deterministic — no model call. |
+
+A plan that changes code always gets a test and a review, even if the planner
+forgot. Fix loops stop after the run's fix-attempt limit (default 2) and the
+run fails with the reason. Runs advance by themselves whenever a step's
+session finishes; a denied approval ends that step.
+
+Fixed on the way: sessions of adapters that only send `session.completed`
+(OpenCode) were never marked finished; orchestration runs were written to
+Firestore with `undefined` fields (rejected in production) and read back with
+raw Timestamps.
+
+### Freebuff (`gateway/adapters/freebuff`)
+
+Freebuff's CLI has no prompt argument and no headless mode, and requires a
+TTY (Codebuff issue #947). The adapter drives its terminal through a
+pseudo-terminal (`@lydell/node-pty`, prebuilt binaries — no build tools) and a
+headless xterm: paste the prompt, treat a screen that has not changed for 20 s
+(`FREEBUFF_DONE_QUIET_MS`) as the end of the turn, report the new screen text
+and the files `git status` shows changed. Approval interception is
+unsupported and it runs outside the sandbox; its capabilities say so, so the
+router keeps high-risk steps away from it. **Needs `npm install -g freebuff`
+and one interactive `freebuff` run to sign in.** Tested against a stand-in
+TUI, not the real Freebuff, which is not installed here.
+
+Also fixed in every adapter: the event stream's async iterator delivered each
+event that arrived while the gateway was waiting twice.
 
 ---
 

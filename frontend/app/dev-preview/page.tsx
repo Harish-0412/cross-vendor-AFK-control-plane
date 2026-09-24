@@ -12,6 +12,7 @@
  *   /dev-preview?state=offline   machines paired but none reachable
  *   /dev-preview?state=empty     first run, nothing paired
  *   /dev-preview?state=error     the machine list failed to load
+ *   /dev-preview?view=team       an agent-team run midway through a fix loop
  *
  * Nothing here talks to a server. In a production build the page renders a
  * 404 and the middleware does not exempt it from sign-in, so it cannot be
@@ -22,9 +23,11 @@ import { notFound, useSearchParams } from "next/navigation";
 
 import { DesktopDashboard } from "@/components/dashboard/DesktopDashboard";
 import { MobileDashboard } from "@/components/dashboard/MobileDashboard";
+import { RunDetail } from "@/components/orchestrations/RunDetail";
 import { ShellFrame } from "@/components/layout/AppShell";
 import { useAuthStore } from "@/lib/auth";
 import { useRealtimeStore } from "@/lib/realtime";
+import type { OrchestrationRun } from "@/lib/orchestrations";
 import { useIsDesktop } from "@/lib/use-device";
 import { useWorkspace } from "@/lib/workspace-store";
 
@@ -168,7 +171,110 @@ function Preview() {
   }, [state]);
 
   if (!ready) return null;
+  if (params?.get("view") === "team")
+    return (
+      <ShellFrame>
+        <RunDetail run={sampleRun()} busy={false} onAct={() => undefined} />
+      </ShellFrame>
+    );
   return <ShellFrame>{isDesktop ? <DesktopDashboard /> : <MobileDashboard />}</ShellFrame>;
+}
+
+/** An agent-team run midway: planned, built, tests failed once and were fixed, review running. */
+function sampleRun(): OrchestrationRun {
+  const base = { dependsOn: [] as string[], prompt: "" };
+  return {
+    id: "orch_preview",
+    goal: "Add rate limiting to the login endpoint and cover it with tests",
+    state: "running",
+    maxFixAttempts: 2,
+    createdAt: minutesAgo(18),
+    updatedAt: minutesAgo(0),
+    plan: {
+      title: "Add rate limiting",
+      projectId: "proj_preview",
+      steps: [
+        {
+          ...base,
+          id: "plan",
+          title: "Plan the work",
+          taskKind: "planning",
+          prompt: "Plan how to achieve this goal in this repository.",
+          state: "completed",
+          agentId: "claude",
+          contextConversationIds: ["codex_1", "claude_2"],
+          outcome: { summary: "Three steps: add a limiter, wire it into /login, test it.", filesChanged: [] },
+        },
+        {
+          ...base,
+          id: "limiter",
+          title: "Add a per-account rate limiter",
+          taskKind: "implementation",
+          dependsOn: ["plan"],
+          prompt: "Create src/auth/limiter.ts with a sliding-window limiter keyed by account.",
+          state: "completed",
+          agentId: "freebuff",
+          origin: "planner",
+          outcome: {
+            summary: "Added SlidingWindowLimiter with a 5-per-minute default.",
+            filesChanged: ["src/auth/limiter.ts", "src/auth/index.ts"],
+          },
+        },
+        {
+          ...base,
+          id: "test",
+          title: "Run the auth tests",
+          taskKind: "test",
+          dependsOn: ["limiter"],
+          prompt: "Run the auth test suite.",
+          state: "completed",
+          agentId: "codex",
+          origin: "guarantee",
+          outcome: {
+            summary: "login.spec.ts › locks after 5 attempts: expected 429, got 200",
+            filesChanged: [],
+            testsPassed: false,
+          },
+        },
+        {
+          ...base,
+          id: "test-fix-1",
+          title: "Fix failing tests (attempt 1)",
+          taskKind: "implementation",
+          dependsOn: ["test"],
+          prompt: "Fix the code so the tests pass.",
+          state: "completed",
+          agentId: "claude",
+          origin: "test_fix",
+          attempt: 1,
+          outcome: { summary: "The limiter was never called from the route.", filesChanged: ["src/routes/login.ts"] },
+        },
+        {
+          ...base,
+          id: "test-recheck-1",
+          title: "Run the auth tests (re-check 1)",
+          taskKind: "test",
+          dependsOn: ["test-fix-1"],
+          prompt: "Run the auth test suite.",
+          state: "completed",
+          agentId: "codex",
+          origin: "test_fix",
+          outcome: { summary: "42 passed", filesChanged: [], testsPassed: true },
+        },
+        {
+          ...base,
+          id: "review",
+          title: "Review the changes",
+          taskKind: "security_review",
+          dependsOn: ["test-recheck-1"],
+          prompt: "Review all the code changes for bugs and security problems.",
+          state: "running",
+          agentId: "claude",
+          origin: "guarantee",
+        },
+      ],
+    },
+  };
 }
 
 export default function DevPreviewPage() {

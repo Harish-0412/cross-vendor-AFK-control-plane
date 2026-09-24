@@ -75,6 +75,26 @@ function toDate(val: unknown): Date {
   return new Date(val as string | number);
 }
 
+/**
+ * Firestore hands nested dates back as Timestamps. A run's steps carry dates
+ * several levels down (routing decisions, outcomes), so they are converted
+ * back everywhere rather than field by field.
+ */
+function reviveTimestamps<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value;
+  if (value instanceof Date) return value;
+  if (typeof (value as { toDate?: () => Date }).toDate === 'function') {
+    return (value as unknown as { toDate: () => Date }).toDate() as unknown as T;
+  }
+  if (Array.isArray(value))
+    return (value as unknown[]).map((item) => reviveTimestamps(item)) as unknown as T;
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    out[key] = reviveTimestamps(item);
+  }
+  return out as T;
+}
+
 function cleanUndefined<T>(obj: T): T {
   if (obj === null || obj === undefined || typeof obj !== 'object') {
     return obj;
@@ -987,28 +1007,35 @@ export class FirestoreOrchestrationRepository implements IOrchestrationRepositor
   private budgets = () => this.db.collection('budgets');
   private costs = () => this.db.collection('costEvents');
   async createRun(run: OrchestrationRun): Promise<OrchestrationRun> {
-    await this.runs().doc(run.id).set(run);
+    // Optional step fields are often unset; Firestore rejects `undefined`.
+    await this.runs()
+      .doc(run.id)
+      .set(cleanUndefined(run) as unknown as Record<string, unknown>);
     return run;
   }
   async findRun(id: string): Promise<OrchestrationRun | null> {
     const doc = await this.runs().doc(id).get();
     if (!doc.exists) return null;
-    return docData(doc) as unknown as OrchestrationRun;
+    return reviveTimestamps(docData(doc)) as unknown as OrchestrationRun;
   }
   async listRuns(organizationId: string, projectId?: string): Promise<OrchestrationRun[]> {
     const snap = await this.runs().where('organizationId', '==', organizationId).get();
     return snap.docs
-      .map((doc) => docData(doc) as unknown as OrchestrationRun)
+      .map((doc) => reviveTimestamps(docData(doc)) as unknown as OrchestrationRun)
       .filter((run) => !projectId || run.plan.projectId === projectId);
   }
   async updateRun(id: string, update: Partial<OrchestrationRun>): Promise<OrchestrationRun | null> {
     await this.runs()
       .doc(id)
-      .set({ ...update, updatedAt: new Date() }, { merge: true });
+      .set(cleanUndefined({ ...update, updatedAt: new Date() }) as Record<string, unknown>, {
+        merge: true,
+      });
     return this.findRun(id);
   }
   async appendRoutingDecision(decision: RoutingDecision): Promise<RoutingDecision> {
-    await this.decisions().doc(decision.id).set(decision);
+    await this.decisions()
+      .doc(decision.id)
+      .set(cleanUndefined(decision) as unknown as Record<string, unknown>);
     return decision;
   }
   async listRoutingDecisions(projectId: string, limit = 100): Promise<RoutingDecision[]> {
@@ -1016,7 +1043,7 @@ export class FirestoreOrchestrationRepository implements IOrchestrationRepositor
       .where('request.projectId', '==', projectId)
       .limit(limit)
       .get();
-    return snap.docs.map((doc) => docData(doc) as unknown as RoutingDecision);
+    return snap.docs.map((doc) => reviveTimestamps(docData(doc)) as unknown as RoutingDecision);
   }
   async upsertBudget(budget: BudgetLimit): Promise<BudgetLimit> {
     await this.budgets().doc(budget.id).set(budget);

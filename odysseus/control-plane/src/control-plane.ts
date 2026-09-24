@@ -16,6 +16,7 @@ import type { IDatabase } from './db/types';
 import { HistoryIngest } from './integrations/history-ingest';
 import { IntegrationAccessService } from './integrations/integration-access';
 import { AgentRouter } from './orchestration/agent-router';
+import { ContextAgent } from './orchestration/context-agent';
 import { CostGovernor } from './orchestration/cost-governor';
 import { MultiAgentOrchestrator } from './orchestration/multi-agent-orchestrator';
 import { RiskEngine } from './orchestration/risk-engine';
@@ -24,7 +25,7 @@ import { ReviewOrchestrator } from './review/review-orchestrator';
 import { ClientServer } from './tunnel/client-server';
 import { ConnectionRegistry } from './tunnel/connection-registry';
 import { TunnelServer } from './tunnel/tunnel-server';
-import type { ControlPlaneConfig } from './types';
+import type { ControlPlaneConfig, StoredEvent } from './types';
 
 export class ControlPlane {
   public db: IDatabase;
@@ -123,11 +124,21 @@ export class ControlPlane {
       this.agentRouter,
       this.riskEngine,
       this.costGovernor,
+      { context: new ContextAgent(this.db) },
     );
 
     // Wire real-time event forwarding and the automatic completion review.
     this.tunnelServer.setOnEventBroadcast((storedEvent) => {
       this.clientServer.broadcastEvent(storedEvent);
+      // A finished session may be an orchestration step; its run moves on now
+      // rather than when someone next presses "advance".
+      if (endsSession(storedEvent)) {
+        void this.multiAgentOrchestrator
+          .onSessionFinished(storedEvent.sessionId)
+          .catch((error: unknown) =>
+            console.warn('[Odysseus Control Plane] Orchestration advance failed:', error),
+          );
+      }
       void this.afkOrchestrator.handleEvent(storedEvent).catch((error: unknown) => {
         console.warn('[Odysseus Control Plane] AFK notification pipeline failed:', error);
       });
@@ -429,4 +440,20 @@ function logAccess(req: http.IncomingMessage, res: http.ServerResponse): void {
     // eslint-disable-next-line no-console
     console.info(`[http] ${req.method ?? '?'} ${path} ${res.statusCode} ${ms.toFixed(0)}ms`);
   });
+}
+
+const FINAL_STATES = new Set(['completed', 'failed', 'cancelled', 'crashed']);
+
+/** Whether this event means its session has reached a final state. */
+function endsSession(event: StoredEvent): boolean {
+  if (
+    event.eventType === 'session.completed' ||
+    event.eventType === 'session.failed' ||
+    event.eventType === 'session.cancelled' ||
+    event.eventType === 'session.crashed'
+  )
+    return true;
+  if (event.eventType !== 'session.status_changed') return false;
+  const state = (event.envelope.payload as { state?: unknown } | undefined)?.state;
+  return typeof state === 'string' && FINAL_STATES.has(state);
 }
