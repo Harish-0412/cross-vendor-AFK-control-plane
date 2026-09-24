@@ -93,6 +93,10 @@ export class MemoryUserRepository implements IUserRepository {
     Object.assign(user, updates, { updatedAt: new Date() });
     return user;
   }
+
+  async delete(id: string): Promise<boolean> {
+    return this.users.delete(id);
+  }
 }
 
 export class MemoryDeviceRepository implements IDeviceRepository {
@@ -437,7 +441,18 @@ export class MemoryAuditRepository implements IAuditRepository {
       // before re-hashing) and never read directly — `evt.hash` is used
       // below instead — hence the `_`-prefixed name to tell the linter this
       // binding is intentionally unused, not a forgotten one.
-      const { hash: _hash, ...rest } = evt;
+      //
+      // `id` and `sequence` are stripped for the same reason: append()
+      // computed the hash over `{...data, previousHash}` BEFORE the record
+      // was assigned its id and sequence, so re-hashing with them included
+      // made every intact chain verify as broken (firstBrokenIndex 0) the
+      // moment the log held any event at all.
+      const {
+        hash: _hash,
+        id: _id,
+        sequence: _sequence,
+        ...rest
+      } = evt;
       const canonical = this.canonicalize(rest);
       const recomputed = this.computeHash(canonical);
       if (recomputed !== evt.hash) {

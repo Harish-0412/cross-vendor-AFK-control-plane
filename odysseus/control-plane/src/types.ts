@@ -16,6 +16,15 @@ export interface User {
   passwordHash: string;
   name: string;
   role: 'user' | 'admin' | 'owner';
+  /**
+   * Account lifecycle. `suspended` accounts fail login, token refresh, and
+   * pairing — but their records stay, so an admin can restore them. The
+   * field is optional only for backward compatibility with records written
+   * before it existed; every read treats an absent value as 'active'.
+   */
+  status?: 'active' | 'suspended';
+  /** Set by the admin who suspended the account; shown in the admin UI. */
+  suspendedReason?: string | undefined;
   metadata?: Record<string, unknown>;
   notificationPreferences?: NotificationPreferences;
   createdAt: Date;

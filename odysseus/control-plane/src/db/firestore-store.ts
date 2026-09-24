@@ -75,14 +75,25 @@ function toDate(val: unknown): Date {
   return new Date(val as string | number);
 }
 
-function cleanUndefined<T extends Record<string, unknown>>(obj: T): Record<string, unknown> {
+function cleanUndefined<T>(obj: T): T {
+  if (obj === null || obj === undefined || typeof obj !== 'object') {
+    return obj;
+  }
+  if (obj instanceof Date) {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj
+      .filter((item) => item !== undefined)
+      .map((item) => cleanUndefined(item)) as unknown as T;
+  }
   const res: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(obj)) {
+  for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
     if (v !== undefined) {
-      res[k] = v;
+      res[k] = cleanUndefined(v);
     }
   }
-  return res;
+  return res as T;
 }
 
 // -------------------------------------------------------------------------
@@ -172,6 +183,11 @@ export class FirestoreUserRepository implements IUserRepository {
         merge: true,
       });
     return this.findById(id);
+  }
+
+  async delete(id: string): Promise<boolean> {
+    await this.col().doc(id).delete();
+    return true;
   }
 }
 

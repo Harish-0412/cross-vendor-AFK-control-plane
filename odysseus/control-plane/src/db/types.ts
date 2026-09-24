@@ -37,6 +37,12 @@ export interface IUserRepository {
   findByEmail(email: string): Promise<User | null>;
   list(): Promise<User[]>;
   update(id: string, updates: Partial<User>): Promise<User | null>;
+  /**
+   * Hard-delete a user record. Used only by the admin destroy action, which
+   * is audited and refuses to run on the last admin/owner. Returns whether
+   * a record was actually removed.
+   */
+  delete(id: string): Promise<boolean>;
 }
 
 export type CreateDeviceRecord = Omit<

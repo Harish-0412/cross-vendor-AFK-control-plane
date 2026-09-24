@@ -114,6 +114,7 @@ export interface GatewayOptions {
     autoConnect?: boolean;
     authToken?: string;
     heartbeatIntervalMs?: number;
+    heartbeatTimeoutMs?: number;
     reconnectBaseMs?: number;
     reconnectMaxMs?: number;
     maxReconnectAttempts?: number;

@@ -138,6 +138,7 @@ export class GatewayImpl implements GatewayCore {
       gatewayId: this.gatewayId,
       ...(cp?.authToken ? { authToken: cp.authToken } : {}),
       ...(cp?.heartbeatIntervalMs ? { heartbeatIntervalMs: cp.heartbeatIntervalMs } : {}),
+      ...(cp?.heartbeatTimeoutMs ? { heartbeatTimeoutMs: cp.heartbeatTimeoutMs } : {}),
       ...(cp?.reconnectBaseMs ? { reconnectBaseMs: cp.reconnectBaseMs } : {}),
       ...(cp?.reconnectMaxMs ? { reconnectMaxMs: cp.reconnectMaxMs } : {}),
       ...(cp?.maxReconnectAttempts !== undefined
@@ -160,6 +161,9 @@ export class GatewayImpl implements GatewayCore {
           pendingApprovals: 0,
           cpuPercent: resources.cpuPercent,
           memoryMb: resources.memoryMb,
+          memoryPeakMb: resources.memoryMb,
+          activeProcesses: resources.activeProcesses ?? 1,
+          diskFreeMb: resources.memoryTotalMb ?? 1024,
         },
         systemInfo: {
           hostname: os.hostname().slice(0, 120),

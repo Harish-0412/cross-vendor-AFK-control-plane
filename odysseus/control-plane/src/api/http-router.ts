@@ -12,6 +12,7 @@ import type {
 import { CreatePolicyVersionSchema } from '@odysseus/schemas';
 
 import { SummaryGenerator } from '../afk/summary-generator';
+import { AdminActionError, AdminService } from '../admin/admin-service';
 import { isUsablePublicKeyJwk } from '../auth/device-signature';
 import { verifyFirebaseIdToken } from '../auth/firebase-admin';
 import { signJwt, verifyJwt } from '../auth/jwt';
@@ -82,6 +83,7 @@ export class HttpRouter {
   private readonly registerRateLimiter = new AuthRateLimiter(DEFAULT_REGISTER_RATE_LIMIT);
   private readonly pairingRateLimiter = new AuthRateLimiter(DEFAULT_PAIRING_RATE_LIMIT);
   private integrationAccess: IntegrationAccessService | undefined;
+  private adminService: AdminService;
 
   setIntegrationAccess(service: IntegrationAccessService): void {
     this.integrationAccess = service;
@@ -119,6 +121,7 @@ export class HttpRouter {
       db,
       config.credentialEncryptionSecret ?? config.jwtSecret,
     );
+    this.adminService = new AdminService(db, registry, tunnelServer, auditLog, '0.1.0');
     if (config.githubClientId && config.githubClientSecret && config.githubCallbackUrl) {
       this.githubOAuth = new GitHubOAuth(
         config.githubClientId,
@@ -318,6 +321,17 @@ export class HttpRouter {
           this.accountLoginRateLimiter.recordAttempt(accountKey);
           return this.sendJson(res, 401, { error: 'Invalid email or password' });
         }
+        // Suspended accounts are refused at the front door, not just in the
+        // admin console: a suspension that still lets you mint tokens would
+        // only be a UI label.
+        if (user.status === 'suspended') {
+          this.loginRateLimiter.recordAttempt(loginKey);
+          this.accountLoginRateLimiter.recordAttempt(accountKey);
+          return this.sendJson(res, 403, {
+            error:
+              'This account has been suspended by an administrator. Contact support if you believe this is a mistake.',
+          });
+        }
         const tokens = this.issueTokenPair(user.id, user.email, user.role);
         const isWeb = req.headers['x-client-type'] === 'web' || Boolean(req.headers.cookie);
         if (isWeb) {
@@ -350,6 +364,12 @@ export class HttpRouter {
         const user = await this.db.users.findById(payload.sub);
         if (!user) {
           return this.sendJson(res, 401, { error: 'User no longer exists' });
+        }
+        // Same rule as login: a suspended account cannot silently ride an
+        // existing refresh token past its suspension.
+        if (user.status === 'suspended') {
+          this.clearRefreshCookie(res);
+          return this.sendJson(res, 403, { error: 'This account has been suspended' });
         }
         const tokens = this.issueTokenPair(user.id, user.email, user.role);
         const isWeb = req.headers['x-client-type'] === 'web' || Boolean(cookies['refreshToken']);
@@ -2602,6 +2622,169 @@ export class HttpRouter {
           firstBrokenIndex: result.firstBrokenIndex,
           timestamp: new Date().toISOString(),
         });
+      }
+
+      // --- ADMIN CONSOLE API ---
+      // Every route here requires a live database lookup proving the caller
+      // holds admin/owner role — the same invariant the auth audit applied
+      // to the rest of the router — and every state-changing action is
+      // written to the hash-chained audit log by AdminService.
+      if (segments[0] === 'api' && segments[1] === 'v1' && segments[2] === 'admin') {
+        if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+        if (!(await this.adminService.isAdmin(authUser.id))) {
+          return this.sendJson(res, 403, { error: 'Admin or owner role required' });
+        }
+
+        try {
+          // GET /api/v1/admin/stats — overview: users, devices, sessions,
+          // approvals, integration grants, audit-chain health, uptime.
+          if (path === '/api/v1/admin/stats' && method === 'GET') {
+            return this.sendJson(res, 200, await this.adminService.getStats());
+          }
+
+          // GET /api/v1/admin/users — every user with live status + per-device
+          // integration grant matrix + connected providers (GitHub OAuth).
+          if (path === '/api/v1/admin/users' && method === 'GET') {
+            return this.sendJson(res, 200, await this.adminService.listUsers());
+          }
+
+          // GET /api/v1/admin/users/:id — one user's full admin summary
+          if (
+            segments.length === 5 &&
+            segments[3] === 'users' &&
+            method === 'GET'
+          ) {
+            return this.sendJson(res, 200, await this.adminService.getUser(segments[4] ?? ''));
+          }
+
+          // POST /api/v1/admin/users/:id/status — suspend or restore an account
+          if (
+            segments.length === 6 &&
+            segments[3] === 'users' &&
+            segments[5] === 'status' &&
+            method === 'POST'
+          ) {
+            const status =
+              body['status'] === 'suspended' || body['status'] === 'active'
+                ? body['status']
+                : undefined;
+            if (!status) {
+              return this.sendJson(res, 400, { error: "status must be 'active' or 'suspended'" });
+            }
+            const reason = typeof body['reason'] === 'string' ? body['reason'] : undefined;
+            return this.sendJson(
+              res,
+              200,
+              await this.adminService.setUserStatus(authUser.id, segments[4] ?? '', status, reason),
+            );
+          }
+
+          // POST /api/v1/admin/users/:id/terminate — disconnect devices, cancel
+          // active sessions, supersede pending approvals. Account stays intact.
+          if (
+            segments.length === 6 &&
+            segments[3] === 'users' &&
+            segments[5] === 'terminate' &&
+            method === 'POST'
+          ) {
+            const reason = typeof body['reason'] === 'string' ? body['reason'] : undefined;
+            return this.sendJson(
+              res,
+              200,
+              await this.adminService.terminateUser(authUser.id, segments[4] ?? '', reason),
+            );
+          }
+
+          // DELETE /api/v1/admin/users/:id — hard-delete the account. Requires
+          // the user's email in the body as a two-step confirmation.
+          if (
+            segments.length === 5 &&
+            segments[3] === 'users' &&
+            method === 'DELETE'
+          ) {
+            const confirmEmail =
+              typeof body['confirmEmail'] === 'string' ? body['confirmEmail'] : '';
+            return this.sendJson(
+              res,
+              200,
+              await this.adminService.destroyUser(authUser.id, segments[4] ?? '', confirmEmail),
+            );
+          }
+
+          // POST /api/v1/admin/users/:id/role — change a platform role (owner-only)
+          if (
+            segments.length === 6 &&
+            segments[3] === 'users' &&
+            segments[5] === 'role' &&
+            method === 'POST'
+          ) {
+            const role =
+              body['role'] === 'user' || body['role'] === 'admin' || body['role'] === 'owner'
+                ? body['role']
+                : undefined;
+            if (!role) {
+              return this.sendJson(res, 400, { error: "role must be 'user', 'admin', or 'owner'" });
+            }
+            return this.sendJson(
+              res,
+              200,
+              await this.adminService.setUserRole(authUser.id, segments[4] ?? '', role),
+            );
+          }
+
+          // POST /api/v1/admin/sessions/:id/cancel — kill any session by id
+          if (
+            segments.length === 6 &&
+            segments[3] === 'sessions' &&
+            segments[5] === 'cancel' &&
+            method === 'POST'
+          ) {
+            const reason = typeof body['reason'] === 'string' ? body['reason'] : undefined;
+            return this.sendJson(
+              res,
+              200,
+              await this.adminService.cancelSession(authUser.id, segments[4] ?? '', reason),
+            );
+          }
+
+          // GET /api/v1/admin/devices — every paired device across all users
+          if (path === '/api/v1/admin/devices' && method === 'GET') {
+            const devices = await this.adminService.listAllDevicesForAdmin();
+            return this.sendJson(
+              res,
+              200,
+              devices.map((d) => ({
+                id: d.id,
+                userId: d.userId,
+                friendlyName: d.friendlyName,
+                platform: d.platform,
+                status: d.status,
+                online: this.registry.isDeviceOnline(d.id),
+                defaultTrustProfile: d.defaultTrustProfile,
+                lastSeenAt: d.lastSeenAt?.toISOString() ?? null,
+                createdAt: d.createdAt.toISOString(),
+              })),
+            );
+          }
+
+          // GET /api/v1/admin/sessions — every session across all users
+          if (path === '/api/v1/admin/sessions' && method === 'GET') {
+            const sessions = await this.adminService.listAllSessionsForAdmin();
+            const limit = parseInt(url.searchParams.get('limit') ?? '200', 10);
+            return this.sendJson(
+              res,
+              200,
+              sessions.slice(0, Number.isFinite(limit) ? Math.max(1, Math.min(limit, 1000)) : 200),
+            );
+          }
+
+          return this.sendJson(res, 404, { error: `Admin endpoint not found: ${method} ${path}` });
+        } catch (error) {
+          if (error instanceof AdminActionError) {
+            return this.sendJson(res, error.status, { error: error.message });
+          }
+          throw error;
+        }
       }
 
       return this.sendJson(res, 404, { error: `Endpoint not found: ${method} ${path}` });

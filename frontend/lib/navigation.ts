@@ -154,6 +154,19 @@ export const NAV_GROUPS: NavGroup[] = [
 export const ALL_NAV_ITEMS: NavItem[] = NAV_GROUPS.flatMap((group) => group.items);
 
 /**
+ * Admin console entry. Rendered only for admin/owner roles by the Sidebar
+ * (the console itself re-verifies server-side on every request, so this link
+ * is convenience, not security).
+ */
+export const ADMIN_NAV_ITEM: NavItem = {
+  name: "Admin console",
+  href: "/admin",
+  icon: ShieldCheck,
+  hint: "Platform-wide administration (admins only)",
+  keywords: ["admin", "users", "manage", "platform"],
+};
+
+/**
  * The phone's bottom tabs, either side of the launch button; everything else
  * lives in the More sheet. These are the three things someone away from their
  * desk checks: is everything fine, what is running, what is waiting on me.

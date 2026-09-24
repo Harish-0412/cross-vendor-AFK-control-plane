@@ -497,86 +497,10 @@ export class TunnelServer {
 
       // 2. Handle Heartbeat
       if (type === 'heartbeat') {
-        await this.db.devices.updateLastSeen(authedId, new Date());
         const conn = this.registry.getGateway(authedId);
         if (conn) conn.lastHeartbeatAt = new Date();
 
-        if (payload && typeof payload === 'object') {
-          const p = payload;
-
-          // Admission phase drives routing: a draining gateway must stop being
-          // selected for new work immediately, while staying online so its
-          // in-flight sessions can finish and report.
-          const phase = p['admissionPhase'];
-          if (
-            phase === 'running' ||
-            phase === 'draining' ||
-            phase === 'aborting' ||
-            phase === 'stopped'
-          ) {
-            const previous = this.registry.getAdmissionPhase(authedId);
-            this.registry.setAdmissionPhase(authedId, phase);
-            if (previous !== phase) {
-              this.onAdmissionPhaseChange?.(authedId, phase, previous);
-            }
-          }
-          const resources = (p['resources'] ?? p['resourceUsage'] ?? p['load'] ?? p) as Record<
-            string,
-            unknown
-          >;
-          if (
-            typeof resources['cpuPercent'] === 'number' ||
-            typeof resources['memoryMb'] === 'number' ||
-            typeof resources['activeProcesses'] === 'number' ||
-            typeof resources['diskFreeMb'] === 'number'
-          ) {
-            await this.db.devices.updateResourceUsage(authedId, {
-              cpuPercent:
-                typeof resources['cpuPercent'] === 'number' ? resources['cpuPercent'] : undefined,
-              memoryMb:
-                typeof resources['memoryMb'] === 'number' ? resources['memoryMb'] : undefined,
-              memoryPeakMb:
-                typeof resources['memoryPeakMb'] === 'number'
-                  ? resources['memoryPeakMb']
-                  : undefined,
-              activeProcesses:
-                typeof resources['activeProcesses'] === 'number'
-                  ? resources['activeProcesses']
-                  : undefined,
-              diskFreeMb:
-                typeof resources['diskFreeMb'] === 'number' ? resources['diskFreeMb'] : undefined,
-            });
-          }
-
-          const rawSystem = p['systemInfo'];
-          if (rawSystem && typeof rawSystem === 'object') {
-            const system = rawSystem as Record<string, unknown>;
-            const platform = system['platform'];
-            await this.db.devices.update(authedId, {
-              ...(platform === 'windows' ||
-              platform === 'linux' ||
-              platform === 'darwin' ||
-              platform === 'unknown'
-                ? { platform }
-                : {}),
-              systemInfo: {
-                ...(typeof system['hostname'] === 'string'
-                  ? { hostname: system['hostname'].slice(0, 120) }
-                  : {}),
-                ...(typeof system['arch'] === 'string'
-                  ? { arch: system['arch'].slice(0, 40) }
-                  : {}),
-                ...(typeof system['nodeVersion'] === 'string'
-                  ? { nodeVersion: system['nodeVersion'].slice(0, 40) }
-                  : {}),
-                ...(typeof system['gatewayVersion'] === 'string'
-                  ? { gatewayVersion: system['gatewayVersion'].slice(0, 40) }
-                  : {}),
-              },
-            });
-          }
-        }
-
+        // Send heartbeat ACK immediately so gateway tunnel watchdog stays satisfied
         this.send(socket, {
           id: randomUUID(),
           type: 'heartbeat',
@@ -585,6 +509,76 @@ export class TunnelServer {
           timestamp: new Date(),
           payload: { ack: true },
         });
+
+        // Persist heartbeat metadata asynchronously without blocking the tunnel ack
+        void (async () => {
+          try {
+            await this.db.devices.updateLastSeen(authedId, new Date());
+
+            if (payload && typeof payload === 'object') {
+              const p = payload;
+
+              // Admission phase drives routing: a draining gateway must stop being
+              // selected for new work immediately, while staying online so its
+              // in-flight sessions can finish and report.
+              const phase = p['admissionPhase'];
+              if (
+                phase === 'running' ||
+                phase === 'draining' ||
+                phase === 'aborting' ||
+                phase === 'stopped'
+              ) {
+                const previous = this.registry.getAdmissionPhase(authedId);
+                this.registry.setAdmissionPhase(authedId, phase);
+                if (previous !== phase) {
+                  this.onAdmissionPhaseChange?.(authedId, phase, previous);
+                }
+              }
+              const resources = (p['resources'] ?? p['resourceUsage'] ?? p['load'] ?? p) as Record<
+                string,
+                unknown
+              >;
+              if (
+                typeof resources['cpuPercent'] === 'number' ||
+                typeof resources['memoryMb'] === 'number' ||
+                typeof resources['activeProcesses'] === 'number' ||
+                typeof resources['diskFreeMb'] === 'number'
+              ) {
+                const usageUpdates: Record<string, unknown> = {};
+                if (typeof resources['cpuPercent'] === 'number') usageUpdates['cpuPercent'] = resources['cpuPercent'];
+                if (typeof resources['memoryMb'] === 'number') usageUpdates['memoryMb'] = resources['memoryMb'];
+                if (typeof resources['memoryPeakMb'] === 'number') usageUpdates['memoryPeakMb'] = resources['memoryPeakMb'];
+                if (typeof resources['activeProcesses'] === 'number') usageUpdates['activeProcesses'] = resources['activeProcesses'];
+                if (typeof resources['diskFreeMb'] === 'number') usageUpdates['diskFreeMb'] = resources['diskFreeMb'];
+
+                await this.db.devices.updateResourceUsage(authedId, usageUpdates as any);
+              }
+
+              const rawSystem = p['systemInfo'];
+              if (rawSystem && typeof rawSystem === 'object') {
+                const system = rawSystem as Record<string, unknown>;
+                const platform = system['platform'];
+                const sysInfoUpdates: Record<string, string> = {};
+                if (typeof system['hostname'] === 'string') sysInfoUpdates['hostname'] = system['hostname'].slice(0, 120);
+                if (typeof system['arch'] === 'string') sysInfoUpdates['arch'] = system['arch'].slice(0, 40);
+                if (typeof system['nodeVersion'] === 'string') sysInfoUpdates['nodeVersion'] = system['nodeVersion'].slice(0, 40);
+                if (typeof system['gatewayVersion'] === 'string') sysInfoUpdates['gatewayVersion'] = system['gatewayVersion'].slice(0, 40);
+
+                await this.db.devices.update(authedId, {
+                  ...(platform === 'windows' ||
+                  platform === 'linux' ||
+                  platform === 'darwin' ||
+                  platform === 'unknown'
+                    ? { platform }
+                    : {}),
+                  ...(Object.keys(sysInfoUpdates).length > 0 ? { systemInfo: sysInfoUpdates as any } : {}),
+                });
+              }
+            }
+          } catch (err) {
+            console.error('[tunnel-server] error persisting device heartbeat info:', err);
+          }
+        })();
         return;
       }
 

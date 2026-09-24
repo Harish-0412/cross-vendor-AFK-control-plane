@@ -141,7 +141,7 @@ export const DEFAULT_TUNNEL_CONFIG: Required<
   maxReconnectAttempts: -1,
   healthyConnectionMs: 10000,
   heartbeatIntervalMs: 15000,
-  heartbeatTimeoutMs: 5000,
+  heartbeatTimeoutMs: 15000,
   maxQueueSize: 10000,
   connectTimeoutMs: 10000,
   authTimeoutMs: 5000,

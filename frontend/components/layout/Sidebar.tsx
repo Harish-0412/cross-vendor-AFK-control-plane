@@ -9,7 +9,8 @@ import { useEffect } from "react";
 
 import { LiveDot, SPRING } from "@/components/motion";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { NAV_GROUPS, isActivePath } from "@/lib/navigation";
+import { ADMIN_NAV_ITEM, NAV_GROUPS, isActivePath } from "@/lib/navigation";
+import { useAuthStore } from "@/lib/auth";
 import { useRealtimeStore } from "@/lib/realtime";
 import { useUiStore } from "@/lib/ui-store";
 import { selectPendingApprovals, useWorkspace } from "@/lib/workspace-store";
@@ -34,6 +35,8 @@ export function Sidebar() {
   const toggle = useUiStore((state) => state.toggleSidebar);
   const openCommand = useUiStore((state) => state.setCommandOpen);
   const pending = useWorkspace((state) => selectPendingApprovals(state).length);
+  const role = useAuthStore((state) => state.user?.role);
+  const isAdmin = role === "admin" || role === "owner";
 
   useEffect(() => hydrate(), [hydrate]);
 
@@ -186,6 +189,44 @@ export function Sidebar() {
             </ul>
           </div>
         ))}
+
+        {/* Admin console — rendered only for admin/owner roles. The console
+            itself re-verifies role server-side on every request. */}
+        {isAdmin && (
+          <div className="pt-4">
+            <div className="mb-1 h-5 px-3">
+              {!collapsed && (
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">
+                  Platform
+                </p>
+              )}
+            </div>
+            <ul className="space-y-0.5">
+              <li>
+                <NavTooltip label={ADMIN_NAV_ITEM.name} show={collapsed}>
+                  <Link
+                    href={ADMIN_NAV_ITEM.href}
+                    className={cn(
+                      "group relative flex h-10 items-center gap-3 rounded-xl text-[13.5px] font-medium outline-none transition-colors",
+                      collapsed ? "justify-center px-0" : "px-3",
+                      isActivePath(pathname, ADMIN_NAV_ITEM.href)
+                        ? "text-sidebar-accent-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <ADMIN_NAV_ITEM.icon
+                      className={cn(
+                        "h-[18px] w-[18px] shrink-0 transition-transform duration-300 group-hover:scale-110",
+                        isActivePath(pathname, ADMIN_NAV_ITEM.href) ? "text-primary" : "",
+                      )}
+                    />
+                    {!collapsed && <span className="flex-1 truncate">{ADMIN_NAV_ITEM.name}</span>}
+                  </Link>
+                </NavTooltip>
+              </li>
+            </ul>
+          </div>
+        )}
       </nav>
 
       <ConnectionCard collapsed={collapsed} />

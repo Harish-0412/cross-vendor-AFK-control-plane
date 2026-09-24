@@ -37,7 +37,8 @@ export interface AuthUser {
   id: string;
   email: string;
   name: string;
-  role: 'user' | 'admin';
+  /** 'owner' is assigned server-side and returned by /auth/me. */
+  role: 'user' | 'admin' | 'owner';
   photoURL?: string | null;
 }
 
