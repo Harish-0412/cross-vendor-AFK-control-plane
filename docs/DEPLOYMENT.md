@@ -152,6 +152,29 @@ WebSocket upgrades are Origin-checked against it.
 > The first request after Render has been asleep takes about a minute while it
 > cold-starts. Through the proxy that can surface as a timeout — retry once.
 
+### Grant the first Firebase owner safely
+
+The admin console accepts roles from a **verified Firebase Authentication
+custom claim**, not from a browser-supplied value or a Firestore document
+field. In a trusted server-side Firebase Admin script (never in the browser),
+set either the preferred namespaced claim or the backwards-compatible claim:
+
+```ts
+await getAuth().setCustomUserClaims(firebaseUid, { odysseusRole: 'owner' });
+// Existing deployments may instead use: { role: 'owner' }
+```
+
+Allowed values are `user`, `admin`, and `owner`. The Control Plane writes the
+verified value into its own user record and continues authorizing every
+admin request from that durable record. On the next visit to `/admin`, the web
+app forces an ID-token refresh, so a newly assigned role works without waiting
+for Firebase's normal token rotation. If it still does not, sign out and back
+in once and confirm Render has the Firebase Admin credentials for the same
+Firebase project.
+
+When an owner changes a role in the Odysseus **Users** console, that platform
+decision becomes authoritative; a stale Firebase token cannot reverse it.
+
 ## Step 4 — Pair your workstation
 
 Run these on the PC that has your code. Environment variables are set

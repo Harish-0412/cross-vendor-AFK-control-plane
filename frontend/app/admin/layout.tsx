@@ -26,6 +26,7 @@ import {
   ShieldQuestion,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { adminApi, isAdminApiError } from "@/lib/admin";
 
 const NAV = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard, exact: true },
@@ -33,6 +34,7 @@ const NAV = [
   { href: "/admin/devices", label: "Devices", icon: MonitorSmartphone },
   { href: "/admin/sessions", label: "Sessions", icon: PlaySquare },
   { href: "/admin/integrations", label: "Integrations", icon: Plug },
+  { href: "/admin/analytics", label: "Developer Analytics", icon: Activity },
   { href: "/admin/system", label: "System Health", icon: Activity },
   { href: "/admin/audit", label: "Audit Log", icon: ScrollText },
 ];
@@ -53,20 +55,26 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         await useAuthStore.getState().checkAuth();
       }
       try {
-        // Ask the Control Plane, not the token: /admin/stats 200s only for
-        // database-verified admins, which is the exact predicate we need.
-        const res = await fetch("/api/v1/admin/stats", { credentials: "include" });
+        // Firebase custom claims only take effect after an ID-token refresh.
+        // This is intentionally done before the privileged probe, so someone
+        // just granted owner/admin in Firebase Console does not have to clear
+        // browser storage or wait for the normal token rotation interval.
+        await useAuthStore.getState().refreshFirebaseRole();
+
+        // Use the app's authenticated client. A raw fetch only sent the
+        // control-plane refresh cookie, never Firebase's in-memory bearer
+        // token, so Firebase administrators were denied on every cold load.
+        await adminApi.getStats();
         if (cancelled) return;
-        if (res.status === 200) {
-          setRole(useAuthStore.getState().user?.role ?? "admin");
-          setGuard("allowed");
-        } else if (res.status === 403) {
+        setRole(useAuthStore.getState().user?.role ?? "admin");
+        setGuard("allowed");
+      } catch (err) {
+        if (cancelled) return;
+        if (isAdminApiError(err, 401) || isAdminApiError(err, 403)) {
           setGuard("denied");
         } else {
           setGuard("error");
         }
-      } catch {
-        if (!cancelled) setGuard("error");
       }
     }
     void verify();

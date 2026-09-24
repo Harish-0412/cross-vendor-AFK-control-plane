@@ -1,10 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-// Mocked before importing anything that transitively pulls in firebase-admin,
-// so `ControlPlane`/`HttpRouter` see the mock rather than trying to
-// initialize a real Firebase Admin SDK (no credentials exist in this test
-// environment, and none should be required to prove this authorization
-// logic is correct).
+// Mock before importing the Control Plane: these tests prove the boundary
+// after Firebase Admin has verified a token; they never need real credentials.
 vi.mock('../src/auth/firebase-admin', () => ({
   verifyFirebaseIdToken: vi.fn(),
   isFirebaseAdminConfigured: () => false,
@@ -15,14 +12,16 @@ vi.mock('../src/auth/firebase-admin', () => ({
 import { verifyFirebaseIdToken } from '../src/auth/firebase-admin';
 import { ControlPlane } from '../src/control-plane';
 
-/**
- * §4.3 of the pre-deployment audit: `authUser.role` used to be read directly
- * from the Firebase ID token's custom claim, while a newly-created user was
- * always given `role: 'user'` in the database — a source-of-truth mismatch
- * where the token could claim a higher role than the database ever granted.
- * Role must always come from the database record.
- */
-describe('Auth: role is sourced from the database, not the ID token claim', () => {
+const firebaseToken = (uid: string, email: string, claims: Record<string, unknown> = {}) => ({
+  uid,
+  email,
+  ...claims,
+  // The production function can only return this after Firebase Admin has
+  // checked signature, issuer and audience. The test double represents that
+  // verified boundary, not an untrusted browser payload.
+});
+
+describe('Auth: Firebase custom role synchronization', () => {
   let cp: ControlPlane;
   let baseUrl: string;
 
@@ -37,49 +36,81 @@ describe('Auth: role is sourced from the database, not the ID token claim', () =
     vi.clearAllMocks();
   });
 
-  it('ignores a role claim on the ID token for a newly-seen user and stores/reports "user"', async () => {
-    vi.mocked(verifyFirebaseIdToken).mockResolvedValue({
-      uid: 'firebase_uid_attacker',
-      email: 'attacker@example.com',
-      role: 'admin', // forged/attempted-privilege-escalation claim
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any);
+  it('provisions a verified Firebase owner claim as a durable owner role that can open admin routes', async () => {
+    vi.mocked(verifyFirebaseIdToken).mockResolvedValue(
+      firebaseToken('firebase_owner', 'owner@example.com', { role: 'owner' }) as never,
+    );
 
-    const res = await fetch(`${baseUrl}/api/v1/auth/me`, {
-      headers: { Authorization: 'Bearer fake-firebase-token' },
+    const me = await fetch(`${baseUrl}/api/v1/auth/me`, {
+      headers: { Authorization: 'Bearer verified-firebase-token' },
     });
-    const body = (await res.json()) as { user: { role: string } };
+    expect(me.status).toBe(200);
+    expect(((await me.json()) as { user: { role: string } }).user.role).toBe('owner');
 
-    expect(res.status).toBe(200);
-    expect(body.user.role).toBe('user');
+    const admin = await fetch(`${baseUrl}/api/v1/admin/stats`, {
+      headers: { Authorization: 'Bearer verified-firebase-token' },
+    });
+    expect(admin.status).toBe(200);
+    const stored = await cp.db.users.findById('firebase_owner');
+    expect(stored?.role).toBe('owner');
+    expect(stored?.metadata?._odysseusRoleAuthority).toBe('firebase-custom-claim');
   });
 
-  it("does not let a later request's forged claim override an existing user's real database role", async () => {
-    // First request creates the user (role defaults to 'user' regardless of
-    // the token's claim, per the fix above).
-    vi.mocked(verifyFirebaseIdToken).mockResolvedValue({
-      uid: 'firebase_uid_2',
-      email: 'person@example.com',
-      role: 'user',
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any);
+  it('supports the namespaced odysseusRole claim and never promotes unrecognised claims', async () => {
+    vi.mocked(verifyFirebaseIdToken).mockResolvedValue(
+      firebaseToken('firebase_admin', 'admin@example.com', { odysseusRole: 'admin' }) as never,
+    );
+    let response = await fetch(`${baseUrl}/api/v1/auth/me`, {
+      headers: { Authorization: 'Bearer verified-admin-token' },
+    });
+    expect(((await response.json()) as { user: { role: string } }).user.role).toBe('admin');
+
+    vi.mocked(verifyFirebaseIdToken).mockResolvedValue(
+      firebaseToken('firebase_untrusted', 'untrusted@example.com', { role: 'super-admin' }) as never,
+    );
+    response = await fetch(`${baseUrl}/api/v1/auth/me`, {
+      headers: { Authorization: 'Bearer verified-unrecognised-token' },
+    });
+    expect(((await response.json()) as { user: { role: string } }).user.role).toBe('user');
+  });
+
+  it('demotes Firebase-managed roles when a refreshed verified token no longer carries the claim', async () => {
+    vi.mocked(verifyFirebaseIdToken).mockResolvedValue(
+      firebaseToken('firebase_revoked', 'revoked@example.com', { role: 'owner' }) as never,
+    );
     await fetch(`${baseUrl}/api/v1/auth/me`, {
-      headers: { Authorization: 'Bearer token-1' },
+      headers: { Authorization: 'Bearer owner-token' },
     });
 
-    // Second request: same user, but now the token (attacker-controlled in
-    // the threat this fix closes) claims 'admin'.
-    vi.mocked(verifyFirebaseIdToken).mockResolvedValue({
-      uid: 'firebase_uid_2',
-      email: 'person@example.com',
+    vi.mocked(verifyFirebaseIdToken).mockResolvedValue(
+      firebaseToken('firebase_revoked', 'revoked@example.com') as never,
+    );
+    const me = await fetch(`${baseUrl}/api/v1/auth/me`, {
+      headers: { Authorization: 'Bearer refreshed-token-without-role' },
+    });
+    expect(((await me.json()) as { user: { role: string } }).user.role).toBe('user');
+
+    const admin = await fetch(`${baseUrl}/api/v1/admin/stats`, {
+      headers: { Authorization: 'Bearer refreshed-token-without-role' },
+    });
+    expect(admin.status).toBe(403);
+  });
+
+  it('does not let a Firebase claim override a role deliberately managed in Odysseus', async () => {
+    await cp.db.users.create({
+      id: 'platform_admin',
+      email: 'platform@example.com',
+      name: 'Platform admin',
       role: 'admin',
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any);
-    const res = await fetch(`${baseUrl}/api/v1/auth/me`, {
-      headers: { Authorization: 'Bearer token-2' },
+      metadata: { _odysseusRoleAuthority: 'control-plane' },
     });
-    const body = (await res.json()) as { user: { role: string } };
+    vi.mocked(verifyFirebaseIdToken).mockResolvedValue(
+      firebaseToken('platform_admin', 'platform@example.com', { role: 'user' }) as never,
+    );
 
-    expect(body.user.role).toBe('user');
+    const me = await fetch(`${baseUrl}/api/v1/auth/me`, {
+      headers: { Authorization: 'Bearer verified-firebase-token' },
+    });
+    expect(((await me.json()) as { user: { role: string } }).user.role).toBe('admin');
   });
 });

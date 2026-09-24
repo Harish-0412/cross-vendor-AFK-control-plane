@@ -19,7 +19,7 @@ import type { IDatabase, IntegrationGrantRecord } from '../db/types';
 import type { AuditLog } from '../policy/audit-log';
 import type { ConnectionRegistry } from '../tunnel/connection-registry';
 import type { TunnelServer } from '../tunnel/tunnel-server';
-import type { User, DeviceRecord, SessionRecord } from '../types';
+import type { IntegrationCredentialRecord, User, DeviceRecord, SessionRecord } from '../types';
 
 export const USER_STATUSES = ['active', 'suspended'] as const;
 export type UserStatus = (typeof USER_STATUSES)[number];
@@ -103,6 +103,34 @@ export interface AdminStats {
   version: string;
 }
 
+/** Real, server-derived operational metrics for the developer console. */
+export interface DeveloperAnalytics {
+  generatedAt: string;
+  window: { startsAt: string; endsAt: string };
+  activity: {
+    activeUsers: number;
+    newUsers: number;
+    sessionsStarted: number;
+    completedSessions: number;
+    failedSessions: number;
+    activeSessions: number;
+    pendingApprovals: number;
+  };
+  usage: {
+    recordedTokens: number;
+    meteredCostUsd: number;
+    subscriptionTokens: number;
+    byAgent: Record<string, { sessions: number; tokens: number }>;
+  };
+  service: {
+    auditChainValid: boolean;
+    devicesOnline: number;
+    devicesTotal: number;
+    deviceAvailabilityPercent: number;
+    uptimeSeconds: number;
+  };
+}
+
 /** Session states that count as "active" for dashboards and the kill switch. */
 export const ACTIVE_SESSION_STATES = new Set([
   'running',
@@ -111,9 +139,18 @@ export const ACTIVE_SESSION_STATES = new Set([
   'paused',
 ]);
 
-/** Display order for the admin integration matrix. GitHub is handled per-user via credentials, not per-device grants. */
+/** VCS connections are encrypted, per-user credentials rather than gateway grants. */
+const VCS_PROVIDERS: readonly IntegrationCredentialRecord['provider'][] = [
+  'github',
+  'gitlab',
+  'bitbucket',
+];
+
+/** Display order for the admin integration matrix. */
 const INTEGRATION_ORDER: readonly string[] = [
   'github',
+  'gitlab',
+  'bitbucket',
   'antigravity',
   'claude',
   'codex',
@@ -169,10 +206,14 @@ export class AdminService {
       perUser[grant.userId] = true;
     }
 
-    const githubUsers = new Set<string>();
+    const connectedVcsUsers: Record<string, Set<string>> = Object.fromEntries(
+      VCS_PROVIDERS.map((provider) => [provider, new Set<string>()]),
+    );
     for (const user of users) {
-      if (await this.db.integrationCredentials.find(user.id, 'github')) {
-        githubUsers.add(user.id);
+      for (const provider of VCS_PROVIDERS) {
+        if (await this.db.integrationCredentials.find(user.id, provider)) {
+          connectedVcsUsers[provider]!.add(user.id);
+        }
       }
     }
 
@@ -204,17 +245,91 @@ export class AdminService {
       integrations: {
         activeGrants: {
           ...activeGrants,
-          github: githubUsers.size,
+          ...Object.fromEntries(
+            VCS_PROVIDERS.map((provider) => [provider, connectedVcsUsers[provider]!.size]),
+          ),
         },
         connectedUsers: {
           ...Object.fromEntries(
             Object.entries(connectedUsers).map(([k, v]) => [k, Object.keys(v).length]),
           ),
-          github: githubUsers.size,
+          ...Object.fromEntries(
+            VCS_PROVIDERS.map((provider) => [provider, connectedVcsUsers[provider]!.size]),
+          ),
         },
       },
       uptimeSeconds: Math.floor((Date.now() - this.startedAt) / 1000),
       version: this.version,
+    };
+  }
+
+  /**
+   * A rolling 24-hour picture built from persisted operational records. These
+   * are deliberately measurements, not estimates: "recorded tokens" only
+   * includes token events actually received by the Control Plane, and dollar
+   * cost includes metered records only.
+   */
+  async getDeveloperAnalytics(): Promise<DeveloperAnalytics> {
+    const endsAt = new Date();
+    const startsAt = new Date(endsAt.getTime() - 24 * 60 * 60 * 1000);
+    const [users, devices, sessions, approvals, costs, chain] = await Promise.all([
+      this.db.users.list(),
+      this.listAllDevices(),
+      this.listAllSessions(),
+      this.db.approvals.listAllPending(),
+      this.db.orchestration.listCosts({}),
+      this.auditLog.verifyChain(),
+    ]);
+
+    const sessionsInWindow = sessions.filter((session) => session.startedAt >= startsAt);
+    const activeUserIds = new Set(
+      sessions.filter((session) => session.updatedAt >= startsAt).map((session) => session.userId),
+    );
+    const usageCosts = costs.filter((cost) => cost.recordedAt >= startsAt);
+    const byAgent: Record<string, { sessions: number; tokens: number }> = {};
+    for (const session of sessionsInWindow) {
+      const agent = (byAgent[session.agentId] ??= { sessions: 0, tokens: 0 });
+      agent.sessions += 1;
+      agent.tokens += session.tokensUsed ?? 0;
+    }
+
+    const devicesOnline = devices.filter((device) =>
+      this.registry.isDeviceOnline(device.id),
+    ).length;
+    return {
+      generatedAt: endsAt.toISOString(),
+      window: { startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString() },
+      activity: {
+        activeUsers: activeUserIds.size,
+        newUsers: users.filter((user) => user.createdAt >= startsAt).length,
+        sessionsStarted: sessionsInWindow.length,
+        completedSessions: sessionsInWindow.filter((session) => session.state === 'completed')
+          .length,
+        failedSessions: sessionsInWindow.filter(
+          (session) => session.state === 'failed' || session.state === 'crashed',
+        ).length,
+        activeSessions: sessions.filter((session) => ACTIVE_SESSION_STATES.has(session.state))
+          .length,
+        pendingApprovals: approvals.length,
+      },
+      usage: {
+        recordedTokens: usageCosts.reduce((total, cost) => total + cost.tokens, 0),
+        meteredCostUsd: usageCosts
+          .filter((cost) => cost.billing !== 'subscription')
+          .reduce((total, cost) => total + cost.costUsd, 0),
+        subscriptionTokens: usageCosts
+          .filter((cost) => cost.billing === 'subscription')
+          .reduce((total, cost) => total + cost.tokens, 0),
+        byAgent,
+      },
+      service: {
+        auditChainValid: chain.valid,
+        devicesOnline,
+        devicesTotal: devices.length,
+        deviceAvailabilityPercent:
+          devices.length === 0 ? 100 : Math.round((devicesOnline / devices.length) * 100),
+        uptimeSeconds: Math.floor((Date.now() - this.startedAt) / 1000),
+      },
     };
   }
 
@@ -236,9 +351,12 @@ export class AdminService {
           .map((s) => s.updatedAt)
           .sort((a, b) => b.getTime() - a.getTime())[0];
 
-        const githubConnected = Boolean(
-          await this.db.integrationCredentials.find(user.id, 'github'),
-        );
+        const vcsConnections = new Set<IntegrationCredentialRecord['provider']>();
+        for (const provider of VCS_PROVIDERS) {
+          if (await this.db.integrationCredentials.find(user.id, provider)) {
+            vcsConnections.add(provider);
+          }
+        }
         const deviceGrantLists = await Promise.all(
           userDevices.map(async (d) => this.db.integrationGrants.listByDevice(d.id)),
         );
@@ -252,9 +370,16 @@ export class AdminService {
         };
         const integrations: IntegrationGrantStatusSummary[] = INTEGRATION_ORDER.map(
           (integration) => {
-            if (integration === 'github') {
-              // GitHub OAuth is per-user, not per-device.
-              return { integration, status: githubConnected ? 'active' : 'none', scopes: [] };
+            if (VCS_PROVIDERS.includes(integration as IntegrationCredentialRecord['provider'])) {
+              // VCS OAuth credentials are per-user, not per-device. We expose
+              // only connection state — never tokens or provider account data.
+              return {
+                integration,
+                status: vcsConnections.has(integration as IntegrationCredentialRecord['provider'])
+                  ? 'active'
+                  : 'none',
+                scopes: [],
+              };
             }
             const grants = allGrants.filter((g) => (g.integration as string) === integration);
             const best = grants
@@ -269,7 +394,9 @@ export class AdminService {
         );
 
         const connectedProviders: string[] = [];
-        if (githubConnected) connectedProviders.push('github');
+        for (const provider of VCS_PROVIDERS) {
+          if (vcsConnections.has(provider)) connectedProviders.push(provider);
+        }
         for (const item of integrations) {
           if (item.status === 'active' && !connectedProviders.includes(item.integration)) {
             connectedProviders.push(item.integration);
@@ -444,10 +571,14 @@ export class AdminService {
     const userApprovals = await this.db.approvals.listByUser(userId);
     removed.approvals = userApprovals.length;
 
-    const credentials = await this.db.integrationCredentials.find(userId, 'github');
-    if (credentials) {
-      await this.db.integrationCredentials.delete(userId, 'github');
-      removed.integrationCredentials = 1;
+    let credentialCount = 0;
+    for (const provider of VCS_PROVIDERS) {
+      if (await this.db.integrationCredentials.delete(userId, provider)) {
+        credentialCount += 1;
+      }
+    }
+    if (credentialCount > 0) {
+      removed.integrationCredentials = credentialCount;
     }
 
     const grants = userDevices.length;
@@ -503,7 +634,16 @@ export class AdminService {
     if (!['user', 'admin', 'owner'].includes(role)) {
       throw new AdminActionError(400, "role must be 'user', 'admin', or 'owner'");
     }
-    const updated = await this.db.users.update(userId, { role });
+    const updated = await this.db.users.update(userId, {
+      role,
+      // A deliberate owner decision is authoritative over a Firebase custom
+      // claim. This prevents a stale cached Firebase ID token from silently
+      // undoing a role change in the platform console.
+      metadata: {
+        ...(target.metadata ?? {}),
+        _odysseusRoleAuthority: 'control-plane',
+      },
+    });
     if (!updated) throw new AdminActionError(500, 'Failed to update role');
 
     await this.auditLog.record({
@@ -512,6 +652,85 @@ export class AdminService {
       decision: 'allow',
     });
     return this.getUser(userId);
+  }
+
+  /**
+   * Permanently revoke one device. Unlike terminating a user's access, this
+   * changes the device record to `revoked`, so a gateway cannot reconnect
+   * until the person pairs the machine again. This is the incident-response
+   * control for a lost or compromised workstation.
+   */
+  async revokeDevice(
+    adminId: string,
+    deviceId: string,
+    reason?: string,
+  ): Promise<{
+    id: string;
+    status: 'revoked';
+    sessionsCancelled: number;
+    approvalsSuperseded: number;
+  }> {
+    await this.requireAdmin(adminId);
+    const device = await this.db.devices.findById(deviceId);
+    if (!device) throw new AdminActionError(404, 'Device not found');
+
+    const caller = await this.db.users.findById(adminId);
+    const owner = await this.db.users.findById(device.userId);
+    if (owner?.role === 'owner' && caller?.role !== 'owner') {
+      throw new AdminActionError(403, 'Only an owner can revoke an owner device');
+    }
+    if (owner?.role === 'admin' && caller?.role !== 'owner' && owner.id !== adminId) {
+      throw new AdminActionError(403, 'Only an owner can revoke another admin device');
+    }
+
+    const why = reason?.trim() || 'Device revoked from the admin console';
+    const result = await this.terminateDeviceAccess(device, why);
+    const updated = await this.db.devices.updateStatus(device.id, 'revoked');
+    if (!updated) throw new AdminActionError(500, 'Failed to revoke device');
+
+    await this.auditLog.record({
+      actor: { type: 'user', id: adminId },
+      deviceId: device.id,
+      action: 'admin.device.revoked',
+      decision: 'deny',
+    });
+    return {
+      id: device.id,
+      status: 'revoked',
+      sessionsCancelled: result.sessionsCancelled,
+      approvalsSuperseded: result.approvalsSuperseded,
+    };
+  }
+
+  /**
+   * Remove Odysseus' encrypted copy of one VCS credential. The remote
+   * provider token is never returned or contacted by this operation; users
+   * who need to revoke it at the provider can do so from that provider's own
+   * security page. This immediately prevents this Control Plane using it.
+   */
+  async disconnectVcsProvider(
+    adminId: string,
+    userId: string,
+    provider: IntegrationCredentialRecord['provider'],
+  ): Promise<{ disconnected: boolean }> {
+    await this.requireAdmin(adminId);
+    const caller = await this.db.users.findById(adminId);
+    const target = await this.db.users.findById(userId);
+    if (!target) throw new AdminActionError(404, 'User not found');
+    if (target.role === 'owner' && caller?.role !== 'owner') {
+      throw new AdminActionError(403, 'Only an owner can manage an owner connection');
+    }
+    if (target.role === 'admin' && caller?.role !== 'owner' && target.id !== adminId) {
+      throw new AdminActionError(403, 'Only an owner can manage another admin connection');
+    }
+
+    const disconnected = await this.db.integrationCredentials.delete(userId, provider);
+    await this.auditLog.record({
+      actor: { type: 'user', id: adminId },
+      action: 'admin.integration.disconnected',
+      decision: 'deny',
+    });
+    return { disconnected };
   }
 
   /**
@@ -634,28 +853,12 @@ export class AdminService {
     const devicesDisconnected: string[] = [];
 
     let sessionsCancelled = 0;
+    let approvalsSuperseded = 0;
     for (const device of devices) {
-      const sessions = await this.db.sessions.listByDevice(device.id);
-      for (const session of sessions.filter((s) => ACTIVE_SESSION_STATES.has(s.state))) {
-        try {
-          if (this.registry.isDeviceOnline(device.id)) {
-            await this.tunnelServer.sendCommandToDevice(
-              device.id,
-              'session.stop',
-              { sessionId: session.id, force: true, reason },
-              5_000,
-              false,
-            );
-          }
-        } catch {
-          // Offline gateway — the DB state below is what the UI reports.
-        }
-        await this.db.sessions.update(session.id, { state: 'cancelled' });
-        sessionsCancelled += 1;
-      }
-
-      if (this.registry.isDeviceOnline(device.id)) {
-        this.tunnelServer.forceDisconnectDevice(device.id, reason);
+      const result = await this.terminateDeviceAccess(device, reason);
+      sessionsCancelled += result.sessionsCancelled;
+      approvalsSuperseded += result.approvalsSuperseded;
+      if (result.disconnected) {
         devicesDisconnected.push(device.id);
       }
       // The device itself is left intact on suspend/terminate: the account
@@ -663,11 +866,40 @@ export class AdminService {
       // the rows entirely (see destroyUser).
     }
 
-    const approvalsSuperseded = await Promise.all(
-      devices.map((d) => this.approvalsSupersede(d.id, reason)),
-    ).then((counts) => counts.reduce((sum, n) => sum + n, 0));
-
     return { devicesDisconnected, sessionsCancelled, approvalsSuperseded };
+  }
+
+  /** Stop active work and void pending approvals for exactly one device. */
+  private async terminateDeviceAccess(
+    device: DeviceRecord,
+    reason: string,
+  ): Promise<{ sessionsCancelled: number; approvalsSuperseded: number; disconnected: boolean }> {
+    const sessions = await this.db.sessions.listByDevice(device.id);
+    let sessionsCancelled = 0;
+    for (const session of sessions.filter((item) => ACTIVE_SESSION_STATES.has(item.state))) {
+      try {
+        if (this.registry.isDeviceOnline(device.id)) {
+          await this.tunnelServer.sendCommandToDevice(
+            device.id,
+            'session.stop',
+            { sessionId: session.id, force: true, reason },
+            5_000,
+            false,
+          );
+        }
+      } catch {
+        // Offline gateway — persist the safe terminal state anyway.
+      }
+      await this.db.sessions.update(session.id, { state: 'cancelled' });
+      sessionsCancelled += 1;
+    }
+
+    const disconnected = this.registry.isDeviceOnline(device.id);
+    if (disconnected) {
+      this.tunnelServer.forceDisconnectDevice(device.id, reason);
+    }
+    const approvalsSuperseded = await this.approvalsSupersede(device.id, reason);
+    return { sessionsCancelled, approvalsSuperseded, disconnected };
   }
 
   private async approvalsSupersede(deviceId: string, reason: string): Promise<number> {

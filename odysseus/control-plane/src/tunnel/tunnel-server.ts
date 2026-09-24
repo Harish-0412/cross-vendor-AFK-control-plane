@@ -862,26 +862,30 @@ export class TunnelServer {
    * Called when a device is revoked via the REST API.
    */
   forceDisconnectDevice(deviceId: string, reason: string): void {
-    const conn = this.registry.getGateway(deviceId);
-    if (!conn) return;
+    const connections = this.registry.listGatewayConnections(deviceId);
+    if (connections.length === 0) return;
 
-    // Send a disconnect notice so the gateway can clean up gracefully
-    this.send(conn.socket, {
-      id: randomUUID(),
-      type: 'disconnect',
-      sequence: 0,
-      timestamp: new Date(),
-      payload: { reason, code: 'DEVICE_REVOKED' },
-    });
+    // Gateways may intentionally hold several tunnel connections. Closing
+    // only the one selected for dispatch leaves the other sockets alive while
+    // removing the registry entry — a revoked device could then keep sending
+    // on a stale tunnel. Notify and close every connection before removal.
+    for (const conn of connections) {
+      this.send(conn.socket, {
+        id: randomUUID(),
+        type: 'disconnect',
+        sequence: 0,
+        timestamp: new Date(),
+        payload: { reason, code: 'DEVICE_REVOKED' },
+      });
 
-    // Close the WebSocket with a protocol-specific code
-    try {
-      rejectSocket(conn.socket, 4003, reason);
-    } catch {
-      /* already closed */
+      try {
+        rejectSocket(conn.socket, 4003, reason);
+      } catch {
+        /* already closed */
+      }
     }
 
-    // Remove from registry
+    // Remove every connection from the live registry.
     this.registry.removeGateway(deviceId);
   }
 

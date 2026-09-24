@@ -11,6 +11,7 @@
 // FIREBASE_PRIVATE_KEY on the server side).
 
 import { create } from 'zustand';
+import type { User as FirebaseUser } from 'firebase/auth';
 import { apiClient, setAccessToken, setOnAuthFailure, ApiError } from './api-client';
 import {
   isFirebaseConfigured,
@@ -65,6 +66,12 @@ interface AuthResponse {
   user: AuthUser;
 }
 
+interface MeResponse {
+  user: AuthUser;
+  deviceCount: number;
+  connectedDeviceCount: number;
+}
+
 interface AuthState {
   user: AuthUser | null;
   accessToken: string | null;
@@ -78,7 +85,35 @@ interface AuthState {
   register: (email: string, password: string, name?: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
+  /** Force a Firebase token refresh and re-read the server-authoritative role. */
+  refreshFirebaseRole: () => Promise<void>;
   clearError: () => void;
+}
+
+function firebaseFallbackUser(user: FirebaseUser): AuthUser {
+  return {
+    id: user.uid,
+    email: user.email || '',
+    name: user.displayName || user.email?.split('@')[0] || 'User',
+    role: 'user',
+    photoURL: user.photoURL,
+  };
+}
+
+async function resolveFirebaseProfile(
+  user: FirebaseUser,
+  token: string,
+): Promise<AuthUser> {
+  setAccessToken(token);
+  setAuthCookie(token);
+  try {
+    const me = await apiClient.get<MeResponse>('/api/v1/auth/me');
+    return { ...me.user, photoURL: user.photoURL };
+  } catch {
+    // Authentication itself is still useful while the Control Plane wakes;
+    // privileged routes will independently require the server response.
+    return firebaseFallbackUser(user);
+  }
 }
 
 function formatAuthError(err: unknown, fallback: string): string {
@@ -154,16 +189,9 @@ export const useAuthStore = create<AuthState>((set, get) => {
       try {
         if (useFirebase) {
           const { user, idToken } = await fbLoginWithEmail(email, password);
-          setAccessToken(idToken);
-          setAuthCookie(idToken);
+          const profile = await resolveFirebaseProfile(user, idToken);
           set({
-            user: {
-              id: user.uid,
-              email: user.email || email,
-              name: user.displayName || email.split('@')[0] || 'User',
-              role: 'user',
-              photoURL: user.photoURL,
-            },
+            user: profile,
             accessToken: idToken,
             isAuthenticated: true,
             isLoading: false,
@@ -200,16 +228,9 @@ export const useAuthStore = create<AuthState>((set, get) => {
       set({ isLoading: true, error: null });
       try {
         const { user, idToken } = await fbLoginWithGoogle();
-        setAccessToken(idToken);
-        setAuthCookie(idToken);
+        const profile = await resolveFirebaseProfile(user, idToken);
         set({
-          user: {
-            id: user.uid,
-            email: user.email || '',
-            name: user.displayName || 'Google User',
-            role: 'user',
-            photoURL: user.photoURL,
-          },
+          user: profile,
           accessToken: idToken,
           isAuthenticated: true,
           isLoading: false,
@@ -227,16 +248,9 @@ export const useAuthStore = create<AuthState>((set, get) => {
       try {
         if (useFirebase) {
           const { user, idToken } = await fbRegisterWithEmail(email, password, name);
-          setAccessToken(idToken);
-          setAuthCookie(idToken);
+          const profile = await resolveFirebaseProfile(user, idToken);
           set({
-            user: {
-              id: user.uid,
-              email: user.email || email,
-              name: name || user.displayName || email.split('@')[0] || 'User',
-              role: 'user',
-              photoURL: user.photoURL,
-            },
+            user: profile,
             accessToken: idToken,
             isAuthenticated: true,
             isLoading: false,
@@ -294,17 +308,10 @@ export const useAuthStore = create<AuthState>((set, get) => {
         if (useFirebase && fbAuth?.currentUser) {
           const token = await getCurrentIdToken();
           if (token) {
-            setAccessToken(token);
-            setAuthCookie(token);
             const fbUser = fbAuth.currentUser;
+            const profile = await resolveFirebaseProfile(fbUser, token);
             set({
-              user: {
-                id: fbUser.uid,
-                email: fbUser.email || '',
-                name: fbUser.displayName || fbUser.email?.split('@')[0] || 'User',
-                role: 'user',
-                photoURL: fbUser.photoURL,
-              },
+              user: profile,
               accessToken: token,
               isAuthenticated: true,
               isLoading: false,
@@ -325,9 +332,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
           setAccessToken(refreshData.accessToken);
           setAuthCookie(refreshData.accessToken);
           // Fetch current user details — /api/v1/auth/me returns { user, deviceCount, connectedDeviceCount }
-          const meData = await apiClient.get<{ user: AuthUser; deviceCount: number; connectedDeviceCount: number }>(
-            '/api/v1/auth/me',
-          );
+          const meData = await apiClient.get<MeResponse>('/api/v1/auth/me');
           set({
             user: meData.user,
             accessToken: refreshData.accessToken,
@@ -358,6 +363,21 @@ export const useAuthStore = create<AuthState>((set, get) => {
           isInitialized: true,
         });
       }
+    },
+
+    refreshFirebaseRole: async () => {
+      const firebaseUser = fbAuth?.currentUser;
+      if (!useFirebase || !firebaseUser) return;
+      const token = await getCurrentIdToken(true);
+      if (!token) return;
+      const profile = await resolveFirebaseProfile(firebaseUser, token);
+      set({
+        user: profile,
+        accessToken: token,
+        isAuthenticated: true,
+        isInitialized: true,
+        error: null,
+      });
     },
   };
 });

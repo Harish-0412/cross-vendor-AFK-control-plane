@@ -56,6 +56,33 @@ export interface AdminStats {
   version: string;
 }
 
+export interface DeveloperAnalytics {
+  generatedAt: string;
+  window: { startsAt: string; endsAt: string };
+  activity: {
+    activeUsers: number;
+    newUsers: number;
+    sessionsStarted: number;
+    completedSessions: number;
+    failedSessions: number;
+    activeSessions: number;
+    pendingApprovals: number;
+  };
+  usage: {
+    recordedTokens: number;
+    meteredCostUsd: number;
+    subscriptionTokens: number;
+    byAgent: Record<string, { sessions: number; tokens: number }>;
+  };
+  service: {
+    auditChainValid: boolean;
+    devicesOnline: number;
+    devicesTotal: number;
+    deviceAvailabilityPercent: number;
+    uptimeSeconds: number;
+  };
+}
+
 export interface AdminDevice {
   id: string;
   userId: string;
@@ -86,6 +113,7 @@ export function isAdminApiError(err: unknown, status: number): err is ApiError {
 
 export const adminApi = {
   getStats: () => apiClient.get<AdminStats>("/api/v1/admin/stats"),
+  getAnalytics: () => apiClient.get<DeveloperAnalytics>("/api/v1/admin/analytics"),
 
   listUsers: () => apiClient.get<AdminUser[]>("/api/v1/admin/users"),
   getUser: (id: string) => apiClient.get<AdminUser>(`/api/v1/admin/users/${id}`),
@@ -109,16 +137,27 @@ export const adminApi = {
     ),
 
   listDevices: () => apiClient.get<AdminDevice[]>("/api/v1/admin/devices"),
+  revokeDevice: (id: string, reason?: string) =>
+    apiClient.post<{ id: string; status: "revoked"; sessionsCancelled: number; approvalsSuperseded: number }>(
+      `/api/v1/admin/devices/${id}/revoke`,
+      { reason },
+    ),
   listSessions: (limit = 200) => apiClient.get<AdminSession[]>(`/api/v1/admin/sessions?limit=${limit}`),
   cancelSession: (id: string, reason?: string) =>
     apiClient.post<{ id: string; state: string; delivered: boolean }>(
       `/api/v1/admin/sessions/${id}/cancel`,
       { reason },
     ),
+  disconnectVcsProvider: (userId: string, provider: "github" | "gitlab" | "bitbucket") =>
+    apiClient.delete<{ disconnected: boolean }>(
+      `/api/v1/admin/users/${userId}/providers/${provider}`,
+    ),
 };
 
 export const INTEGRATION_LABELS: Record<string, string> = {
   github: "GitHub",
+  gitlab: "GitLab",
+  bitbucket: "Bitbucket",
   antigravity: "Antigravity",
   claude: "Claude Code",
   codex: "Codex",

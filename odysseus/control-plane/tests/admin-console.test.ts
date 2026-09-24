@@ -416,6 +416,62 @@ describe('Admin Console API', () => {
       const sessions = (await res.json()) as Array<{ id: string }>;
       expect(sessions.find((s) => s.id === 'sess_admin_list')).toBeTruthy();
     });
+
+    it('revokes one device, cancels its work, and records the incident-response action', async () => {
+      const admin = await registerAdmin(cp, baseUrl);
+      const user = await registerUser(baseUrl, 'revoke-device@odysseus.dev');
+      const device = await cp.db.devices.create({
+        id: 'dev_revoke_test',
+        userId: user.id,
+        gatewayId: 'gw_revoke_test',
+        friendlyName: 'Lost laptop',
+        platform: 'windows',
+        publicKeyPem: 'pem',
+        publicKeyJwk: { kty: 'OKP' },
+        fingerprintHex: 'bb',
+        fingerprintWords: ['bravo'],
+        status: 'trusted',
+      });
+      const session = await cp.db.sessions.create({
+        id: 'sess_revoke_test',
+        userId: user.id,
+        deviceId: device.id,
+        gatewayId: device.gatewayId,
+        agentId: 'mock',
+        projectRoot: '/tmp/revoke',
+        state: 'running',
+        startedAt: new Date(),
+      });
+
+      const response = await fetch(`${baseUrl}/api/v1/admin/devices/${device.id}/revoke`, {
+        method: 'POST',
+        headers: authHeaders(admin.token),
+        body: JSON.stringify({ reason: 'reported lost' }),
+      });
+      expect(response.status).toBe(200);
+      expect(((await response.json()) as { status: string }).status).toBe('revoked');
+      expect((await cp.db.devices.findById(device.id))?.status).toBe('revoked');
+      expect((await cp.db.sessions.findById(session.id))?.state).toBe('cancelled');
+      expect((await cp.auditLog.list({ actorId: admin.id, limit: 10 })).map((event) => event.action)).toContain(
+        'admin.device.revoked',
+      );
+    });
+
+    it('returns rolling developer analytics from server-side records', async () => {
+      const admin = await registerAdmin(cp, baseUrl);
+      const response = await fetch(`${baseUrl}/api/v1/admin/analytics`, {
+        headers: authHeaders(admin.token),
+      });
+      expect(response.status).toBe(200);
+      const analytics = (await response.json()) as {
+        window: { startsAt: string; endsAt: string };
+        activity: { activeUsers: number };
+        usage: { recordedTokens: number };
+      };
+      expect(Date.parse(analytics.window.startsAt)).toBeLessThan(Date.parse(analytics.window.endsAt));
+      expect(analytics.activity.activeUsers).toBeGreaterThanOrEqual(0);
+      expect(analytics.usage.recordedTokens).toBeGreaterThanOrEqual(0);
+    });
   });
 
   describe('audit', () => {

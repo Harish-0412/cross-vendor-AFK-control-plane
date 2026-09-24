@@ -53,7 +53,7 @@ import { type PolicyEngineService, type ApprovalWorkflow, type AuditLog } from '
 import { ReviewOrchestrator } from '../review/review-orchestrator';
 import type { ConnectionRegistry } from '../tunnel/connection-registry';
 import type { TunnelServer } from '../tunnel/tunnel-server';
-import type { ControlPlaneConfig, DeviceRecord } from '../types';
+import type { ControlPlaneConfig, DeviceRecord, User } from '../types';
 
 const TRUST_PROFILES: readonly TrustProfile[] = [
   'default',
@@ -62,6 +62,14 @@ const TRUST_PROFILES: readonly TrustProfile[] = [
   'read-only',
   'locked',
 ];
+
+/**
+ * Metadata key used to distinguish a role administered by the Control Plane
+ * from one administered through a verified Firebase custom claim. This is
+ * intentionally internal; browser input never writes it.
+ */
+const FIREBASE_ROLE_AUTHORITY = '_odysseusRoleAuthority';
+const FIREBASE_ROLE_AUTHORITY_VALUE = 'firebase-custom-claim';
 
 function isTrustProfile(value: unknown): value is TrustProfile {
   return typeof value === 'string' && TRUST_PROFILES.includes(value as TrustProfile);
@@ -227,38 +235,19 @@ export class HttpRouter {
       try {
         const decoded = await verifyFirebaseIdToken(token);
         if (decoded) {
-          // SECURITY FIX: `role` used to be read directly from the Firebase
-          // ID token's custom claim (`decoded['role']`) and trusted for
-          // every authorization decision in this handler, while a
-          // newly-created user record was unconditionally given `role:
-          // 'user'` — so the database (source of truth) and the per-request
-          // authUser.role could diverge, and every check downstream trusted
-          // the token over the database. Custom claims can currently only be
-          // set server-side via the Admin SDK, so this wasn't yet reachable
-          // by a client — but it's exactly the kind of latent seam that
-          // becomes exploitable the moment an unrelated feature (an "invite
-          // a teammate" flow, a claims-sync endpoint) is added without
-          // realizing this handler already trusts that claim. Role is now
-          // always read from the database record.
-          const existing = await this.db.users.findById(decoded.uid);
+          // Firebase Admin has cryptographically verified this token. A
+          // Firebase custom claim is therefore a legitimate bootstrap and
+          // lifecycle source for an account configured in Firebase Console.
+          // We persist the resolved role and *all subsequent authorization*
+          // still reads that database record. See synchronizeFirebaseUser for
+          // the source-boundary that prevents a normal request body or an
+          // unrelated local role from changing it.
+          const user = await this.synchronizeFirebaseUser(decoded);
           authUser = {
             id: decoded.uid,
             email: decoded.email,
-            role: existing?.role ?? 'user',
+            role: user?.role ?? 'user',
           };
-          // Ensure user exists in our repository
-          if (!existing && decoded.email) {
-            try {
-              await this.db.users.create({
-                id: decoded.uid,
-                email: decoded.email,
-                name: (decoded['name'] as string) || decoded.email.split('@')[0] || 'User',
-                role: 'user',
-              });
-            } catch {
-              // Ignore duplicate
-            }
-          }
         }
       } catch {
         /* Not a valid Firebase token */
@@ -461,10 +450,11 @@ export class HttpRouter {
           try {
             const decoded = await verifyFirebaseIdToken(idToken);
             if (decoded) {
+              const user = await this.synchronizeFirebaseUser(decoded);
               userAuth = {
                 id: decoded.uid,
                 email: decoded.email,
-                role: (decoded['role'] as string) || 'user',
+                role: user?.role ?? 'user',
               };
             }
           } catch {
@@ -2962,6 +2952,13 @@ export class HttpRouter {
             return this.sendJson(res, 200, await this.adminService.getStats());
           }
 
+          // GET /api/v1/admin/analytics — rolling, persisted developer
+          // analytics. Values are measurements from Control Plane records,
+          // never client-side guesses.
+          if (path === '/api/v1/admin/analytics' && method === 'GET') {
+            return this.sendJson(res, 200, await this.adminService.getDeveloperAnalytics());
+          }
+
           // GET /api/v1/admin/users — every user with live status + per-device
           // integration grant matrix + connected providers (GitHub OAuth).
           if (path === '/api/v1/admin/users' && method === 'GET') {
@@ -3056,6 +3053,47 @@ export class HttpRouter {
               res,
               200,
               await this.adminService.cancelSession(authUser.id, segments[4] ?? '', reason),
+            );
+          }
+
+          // POST /api/v1/admin/devices/:id/revoke — incident-response
+          // action: stop work, void approvals, disconnect now and prevent the
+          // gateway reconnecting until it has been paired again.
+          if (
+            segments.length === 6 &&
+            segments[3] === 'devices' &&
+            segments[5] === 'revoke' &&
+            method === 'POST'
+          ) {
+            const reason = typeof body['reason'] === 'string' ? body['reason'] : undefined;
+            return this.sendJson(
+              res,
+              200,
+              await this.adminService.revokeDevice(authUser.id, segments[4] ?? '', reason),
+            );
+          }
+
+          // DELETE /api/v1/admin/users/:id/providers/:provider — remove the
+          // encrypted provider credential held by Odysseus. Never returns a
+          // token, and cannot grant a local gateway integration.
+          if (
+            segments.length === 7 &&
+            segments[3] === 'users' &&
+            segments[5] === 'providers' &&
+            method === 'DELETE'
+          ) {
+            const provider = segments[6];
+            if (provider !== 'github' && provider !== 'gitlab' && provider !== 'bitbucket') {
+              return this.sendJson(res, 400, { error: 'Unsupported provider' });
+            }
+            return this.sendJson(
+              res,
+              200,
+              await this.adminService.disconnectVcsProvider(
+                authUser.id,
+                segments[4] ?? '',
+                provider,
+              ),
             );
           }
 
@@ -3406,6 +3444,86 @@ export class HttpRouter {
     const user = await this.db.users.findById(userId);
     if (!user) return false;
     return user.role === 'admin' || user.role === 'owner';
+  }
+
+  /**
+   * Resolve a platform role from a Firebase Admin-verified custom claim.
+   *
+   * `odysseusRole` is the preferred, namespaced claim. `role` remains
+   * supported for existing Firebase setups, including the one documented in
+   * the original admin-console setup. Claims are only considered here, after
+   * verifyFirebaseIdToken has validated their issuer, audience and signature.
+   */
+  private firebaseClaimRole(decoded: Record<string, unknown>): User['role'] | undefined {
+    const value = decoded['odysseusRole'] ?? decoded['role'];
+    return value === 'user' || value === 'admin' || value === 'owner' ? value : undefined;
+  }
+
+  /**
+   * Bring a verified Firebase identity into the Control Plane's durable role
+   * model. The database remains the authorization source for every route;
+   * this is the tightly-scoped bridge that makes an owner/admin custom claim
+   * usable rather than leaving it stranded in Firebase.
+   *
+   * A role is refreshed from Firebase only when the account was originally
+   * provisioned by a verified Firebase claim. An owner changing a role in
+   * Odysseus marks it control-plane-managed, so a stale Firebase token can
+   * never silently undo an explicit platform decision. Conversely, removing
+   * the custom claim demotes a Firebase-managed account on its next verified
+   * request (after Firebase has issued a refreshed ID token).
+   */
+  private async synchronizeFirebaseUser(decoded: {
+    uid: string;
+    email?: string | undefined;
+    [key: string]: unknown;
+  }): Promise<User | null> {
+    const claimRole = this.firebaseClaimRole(decoded);
+    let user = await this.db.users.findById(decoded.uid);
+
+    if (!user && decoded.email) {
+      const metadata = claimRole
+        ? { [FIREBASE_ROLE_AUTHORITY]: FIREBASE_ROLE_AUTHORITY_VALUE }
+        : undefined;
+      try {
+        user = await this.db.users.create({
+          id: decoded.uid,
+          email: decoded.email,
+          name:
+            (typeof decoded['name'] === 'string' && decoded['name'].trim()) ||
+            decoded.email.split('@')[0] ||
+            'User',
+          role: claimRole ?? 'user',
+          ...(metadata ? { metadata } : {}),
+        });
+      } catch {
+        // A concurrent first request may have created the row. Re-read it so
+        // the role decision below is still deterministic.
+        user = await this.db.users.findById(decoded.uid);
+      }
+    }
+
+    if (!user) return null;
+
+    const authority = user.metadata?.[FIREBASE_ROLE_AUTHORITY];
+    const isFirebaseManaged = authority === FIREBASE_ROLE_AUTHORITY_VALUE;
+    if (authority === 'control-plane') {
+      return user;
+    }
+    if (claimRole === undefined && !isFirebaseManaged) {
+      return user;
+    }
+
+    const role = claimRole ?? 'user';
+    const metadata = {
+      ...(user.metadata ?? {}),
+      [FIREBASE_ROLE_AUTHORITY]: FIREBASE_ROLE_AUTHORITY_VALUE,
+    };
+    if (user.role === role && authority === FIREBASE_ROLE_AUTHORITY_VALUE) {
+      return user;
+    }
+
+    const updated = await this.db.users.update(user.id, { role, metadata });
+    return updated ?? user;
   }
 
   private async readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {

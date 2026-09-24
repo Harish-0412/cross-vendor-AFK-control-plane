@@ -4,13 +4,15 @@
 // Every paired device across every user, with live online state.
 
 import { useCallback, useEffect, useState } from "react";
-import { MonitorSmartphone, RefreshCw, Wifi, WifiOff } from "lucide-react";
+import { MonitorSmartphone, RefreshCw, ShieldAlert, Wifi, WifiOff } from "lucide-react";
 import { adminApi, timeAgo, type AdminDevice } from "@/lib/admin";
 import { cn } from "@/lib/utils";
 
 export default function AdminDevicesPage() {
   const [devices, setDevices] = useState<AdminDevice[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState<AdminDevice | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -24,6 +26,20 @@ export default function AdminDevicesPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  async function revokeDevice() {
+    if (!revoking) return;
+    setBusy(true);
+    try {
+      await adminApi.revokeDevice(revoking.id, "Revoked from admin console");
+      setRevoking(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not revoke device");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -100,8 +116,53 @@ export default function AdminDevicesPage() {
                 <dt className="text-zinc-500">Last seen</dt>
                 <dd className="text-zinc-300">{timeAgo(device.lastSeenAt)}</dd>
               </dl>
+              {device.status !== "revoked" && (
+                <div className="mt-4 border-t border-zinc-800/70 pt-3">
+                  <button
+                    onClick={() => setRevoking(device)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-300 hover:bg-rose-500/20"
+                  >
+                    <ShieldAlert className="h-3.5 w-3.5" /> Revoke device
+                  </button>
+                </div>
+              )}
             </div>
           ))}
+        </div>
+      )}
+
+      {revoking && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-zinc-700 bg-zinc-900 p-6">
+            <div className="flex items-center gap-2 text-rose-300">
+              <ShieldAlert className="h-5 w-5" />
+              <h2 className="text-lg font-semibold">Revoke {revoking.friendlyName}?</h2>
+            </div>
+            <p className="mt-3 text-sm text-zinc-400">
+              This immediately stops the device&apos;s active work, voids its pending approvals,
+              closes every live tunnel, and prevents it reconnecting. The machine must be paired
+              again before it can use Odysseus.
+            </p>
+            <p className="mt-3 rounded-lg bg-zinc-950 px-3 py-2 font-mono text-xs text-zinc-500">
+              {revoking.id}
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                disabled={busy}
+                onClick={() => setRevoking(null)}
+                className="rounded-lg border border-zinc-700 px-4 py-2 text-sm hover:bg-zinc-800 disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={busy}
+                onClick={() => void revokeDevice()}
+                className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-500 disabled:opacity-40"
+              >
+                {busy ? "Revoking…" : "Revoke permanently"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

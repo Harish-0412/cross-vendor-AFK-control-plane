@@ -6,7 +6,7 @@
 // at a glance and act from the Users page.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plug, RefreshCw, Search } from "lucide-react";
+import { Link2Off, Plug, RefreshCw, Search } from "lucide-react";
 import {
   adminApi,
   INTEGRATION_LABELS,
@@ -17,13 +17,28 @@ import {
 } from "@/lib/admin";
 import { cn } from "@/lib/utils";
 
-const INTEGRATION_ORDER = ["github", "antigravity", "claude", "codex", "chatgpt-export", "openai-org"];
+const INTEGRATION_ORDER = [
+  "github",
+  "gitlab",
+  "bitbucket",
+  "antigravity",
+  "claude",
+  "codex",
+  "chatgpt-export",
+  "openai-org",
+];
+const VCS_PROVIDERS = new Set(["github", "gitlab", "bitbucket"]);
 
 export default function AdminIntegrationsPage() {
   const [users, setUsers] = useState<AdminUser[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [only, setOnly] = useState<"all" | "connected" | "disconnected">("all");
+  const [disconnecting, setDisconnecting] = useState<{
+    user: AdminUser;
+    provider: "github" | "gitlab" | "bitbucket";
+  } | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -37,6 +52,20 @@ export default function AdminIntegrationsPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  async function disconnectProvider() {
+    if (!disconnecting) return;
+    setBusy(true);
+    try {
+      await adminApi.disconnectVcsProvider(disconnecting.user.id, disconnecting.provider);
+      setDisconnecting(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not disconnect provider");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const filtered = useMemo(() => {
     if (!users) return [];
@@ -142,17 +171,33 @@ export default function AdminIntegrationsPage() {
               </div>
               <div className="mt-3 flex flex-wrap gap-1.5">
                 {user.integrations.map((item) => (
-                  <span
+                  <div
                     key={`${user.id}-${item.integration}`}
-                    title={item.scopes.length > 0 ? `Scopes: ${item.scopes.join(", ")}` : undefined}
                     className={cn(
-                      "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                      "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
                       STATUS_STYLES[item.status as GrantStatusView],
                     )}
                   >
-                    {INTEGRATION_LABELS[item.integration] ?? item.integration}
-                    {item.status !== "none" ? ` · ${item.status}` : " · not connected"}
-                  </span>
+                    <span title={item.scopes.length > 0 ? `Scopes: ${item.scopes.join(", ")}` : undefined}>
+                      {INTEGRATION_LABELS[item.integration] ?? item.integration}
+                      {item.status !== "none" ? ` · ${item.status}` : " · not connected"}
+                    </span>
+                    {item.status === "active" && VCS_PROVIDERS.has(item.integration) && (
+                      <button
+                        aria-label={`Disconnect ${item.integration} for ${user.email}`}
+                        title="Remove Odysseus' encrypted connection"
+                        onClick={() =>
+                          setDisconnecting({
+                            user,
+                            provider: item.integration as "github" | "gitlab" | "bitbucket",
+                          })
+                        }
+                        className="ml-0.5 rounded-full p-0.5 hover:bg-black/20"
+                      >
+                        <Link2Off className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>
@@ -160,6 +205,37 @@ export default function AdminIntegrationsPage() {
           {filtered.length === 0 && (
             <p className="py-10 text-center text-sm text-zinc-500">No users match.</p>
           )}
+        </div>
+      )}
+
+      {disconnecting && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-zinc-700 bg-zinc-900 p-6">
+            <h2 className="text-lg font-semibold">
+              Disconnect {INTEGRATION_LABELS[disconnecting.provider]}?
+            </h2>
+            <p className="mt-2 text-sm text-zinc-400">
+              This deletes Odysseus&apos; encrypted {INTEGRATION_LABELS[disconnecting.provider]} credential
+              for {disconnecting.user.email}. It immediately prevents this Control Plane using the
+              connection; it does not revoke the token at the provider.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                disabled={busy}
+                onClick={() => setDisconnecting(null)}
+                className="rounded-lg border border-zinc-700 px-4 py-2 text-sm hover:bg-zinc-800 disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={busy}
+                onClick={() => void disconnectProvider()}
+                className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-500 disabled:opacity-40"
+              >
+                {busy ? "Disconnecting…" : "Disconnect"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

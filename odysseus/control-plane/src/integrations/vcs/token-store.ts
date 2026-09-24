@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 
 import type { IDatabase } from '../../db/types';
+
 import type { StoredVcsCredential, VcsProvider } from './types';
 
 export class VcsCredentialStore {
