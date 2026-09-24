@@ -31,7 +31,9 @@ import {
   loadAdapter,
   loadGatewayConfig,
   nodeVersionCheck,
+  pairingCheck,
   projectRootsCheck,
+  readPairingRecord,
   sandboxIsolationCheck,
   type PreflightCheck,
 } from '../gateway/core/src/index';
@@ -297,6 +299,9 @@ async function main(): Promise<void> {
     nodeVersionCheck(20),
     identityCheck({ deviceId: identity.deviceId, sign: (data) => identityManager.sign(data) }),
     controlPlaneUrlCheck(controlPlaneUrl),
+    // Catches a gateway pointed at a different server from the one this
+    // device was paired with — the cause of "the website shows no devices".
+    pairingCheck(controlPlaneUrl, readPairingRecord()),
     projectRootsCheck(options.projectRoots ?? []),
     adaptersCheck(agents.length, agents.filter((agent) => agent.installed).length),
     clockSkewCheck(() => fetchControlPlaneTime(controlPlaneUrl)),
@@ -329,9 +334,11 @@ async function main(): Promise<void> {
 
   // Tunnel events drive the runtime's online/degraded state and feed the
   // failure taxonomy, so a revoked device exits 77 instead of retrying.
+  let warnedNotTrusted = false;
   tunnelClient.onEvent((event) => {
     switch (event.type) {
       case 'auth_success':
+        warnedNotTrusted = false;
         runtime.notifyTunnelConnected();
         // Bring the web app up to date after a reconnect (e.g. the PC woke up).
         void history?.syncAllActive();
@@ -349,6 +356,26 @@ async function main(): Promise<void> {
         break;
       case 'auth_failure': {
         const failure = tunnelClient.getLastFailure();
+        // "Not trusted" is retryable — the owner may be approving the pairing
+        // right now — so the client keeps reconnecting and nothing was logged.
+        // The result was a gateway that looked healthy while the website had
+        // no device on it. Say why, once, with where it was trying.
+        if (failure?.code === 'DEVICE_NOT_TRUSTED' && !warnedNotTrusted) {
+          warnedNotTrusted = true;
+          const target = (() => {
+            try {
+              return new URL(controlPlaneUrl ?? '').host;
+            } catch {
+              return controlPlaneUrl ?? 'the Control Plane';
+            }
+          })();
+          deviceLog.warn('tunnel.device_not_registered', {
+            detail:
+              `${target} does not know this device. It was paired with a different server, ` +
+              'or never paired. Run `pnpm pair` (hosted) and restart the gateway. ' +
+              'Retrying in the background in case a pairing is being approved right now.',
+          });
+        }
         if (failure && !failure.retryable) {
           runtime.recordFailure(
             failure.class === 'protocol' ? 'protocol' : 'auth_fatal',

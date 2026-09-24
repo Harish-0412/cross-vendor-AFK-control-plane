@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -65,7 +67,11 @@ process.env.ODYSSEUS_CLI_COMMAND ??= 'odysseus';
 if (command === 'pair') {
   process.env.CONTROL_PLANE_URL ??= 'https://odysseus-control-plane.onrender.com';
 }
-if (command === 'gateway') {
+if (command === 'gateway' && !existsSync(join(homedir(), '.odysseus', 'pairing.json'))) {
+  // Only a fallback for a machine that has never paired. Once `pair` has run,
+  // ~/.odysseus/pairing.json names the server this device is registered on,
+  // and an environment default set here would override it — pointing a
+  // self-hosted device back at the hosted Control Plane, which would refuse it.
   process.env.ODYSSEUS_CONTROL_PLANE_URL ??= 'wss://odysseus-control-plane.onrender.com/ws/tunnel';
 }
 

@@ -1,9 +1,15 @@
 /**
  * Layered gateway configuration.
  *
- * Precedence follows the Viper/Cobra convention that operators already expect:
+ * Precedence follows the Viper/Cobra convention that operators already expect,
+ * with one addition:
  *
- *     CLI flag  >  environment variable  >  config file  >  built-in default
+ *     CLI flag  >  environment variable  >  config file  >  pairing  >  built-in default
+ *
+ * The pairing layer is the Control Plane this device was registered on, as
+ * recorded by `pair`. It sits just above the defaults because it is a better
+ * guess than any default — it is the only server that will accept this device —
+ * but anything the operator sets explicitly still overrides it.
  *
  * Every resolved value records which layer it came from, so `--print-config`
  * can answer "why is this value what it is" — the question that costs the most
@@ -20,7 +26,9 @@ import { mergeGatewayOptions } from '@odysseus/config';
 import type { GatewayOptions } from '@odysseus/protocol';
 import { parse as parseYaml } from 'yaml';
 
-export type ConfigLayerName = 'defaults' | 'file' | 'env' | 'flags';
+import { pairingRecordPath, readPairingRecord } from './paired-control-plane';
+
+export type ConfigLayerName = 'defaults' | 'pairing' | 'file' | 'env' | 'flags';
 
 export interface ConfigLayer {
   name: ConfigLayerName;
@@ -269,6 +277,16 @@ export function loadGatewayConfig(input: LoadConfigInput = {}): ResolvedConfig {
     controlPlane: { url: DEFAULT_CONTROL_PLANE_URL, autoConnect: true },
   };
 
+  // Pairing layer: where `pair` registered this device.
+  const pairing = readPairingRecord(home, read);
+  const pairingValues: Partial<GatewayOptions> = pairing
+    ? {
+        controlPlane: {
+          url: pairing.tunnelUrl,
+        } as NonNullable<GatewayOptions['controlPlane']>,
+      }
+    : {};
+
   // File layer. An explicitly requested path must exist; the default location
   // is optional.
   const explicitPath = flags.configPath ?? envLayer.configPath;
@@ -328,6 +346,11 @@ export function loadGatewayConfig(input: LoadConfigInput = {}): ResolvedConfig {
 
   const layers: ConfigLayer[] = [
     { name: 'defaults', values: defaults, source: 'built-in' },
+    {
+      name: 'pairing',
+      values: pairingValues,
+      source: pairing ? pairingRecordPath(home) : '(not paired)',
+    },
     { name: 'file', values: fileValues, source: filePath ?? '(none)' },
     { name: 'env', values: envLayer.values, source: 'environment' },
     { name: 'flags', values: flags.values, source: 'command line' },
@@ -396,7 +419,7 @@ export function redactConfig(value: unknown, key = ''): unknown {
 export function formatResolvedConfig(resolved: ResolvedConfig): string {
   const lines: string[] = [];
   lines.push('Resolved gateway configuration');
-  lines.push('  precedence: flags > env > file > defaults');
+  lines.push('  precedence: flags > env > file > pairing > defaults');
   for (const layer of resolved.layers) {
     lines.push(`  layer ${layer.name.padEnd(9)} ${layer.source}`);
   }

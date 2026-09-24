@@ -25,6 +25,25 @@ export const DEFAULT_LOGIN_RATE_LIMIT: AuthRateLimiterConfig = {
   maxAttemptsPerWindow: 5,
 };
 
+/**
+ * Failed logins against one account, from anywhere.
+ *
+ * The IP+email limit above is keyed on an address taken from X-Forwarded-For,
+ * which the caller writes. Rotating that header gave every guess a fresh key,
+ * so it bounded nothing against a determined attacker. This limit ignores the
+ * address entirely: however the requests are spread, one account gets this
+ * many wrong passwords per window.
+ *
+ * It is looser than the per-address limit on purpose. It can be tripped by
+ * someone else — that is the cost of not trusting the address — so it has to
+ * leave room for a real user who mistypes a few times, and it only blocks
+ * password sign-in: an existing session keeps refreshing normally.
+ */
+export const DEFAULT_ACCOUNT_LOGIN_RATE_LIMIT: AuthRateLimiterConfig = {
+  windowMs: 15 * 60 * 1000,
+  maxAttemptsPerWindow: 20,
+};
+
 export const DEFAULT_REGISTER_RATE_LIMIT: AuthRateLimiterConfig = {
   windowMs: 60 * 60 * 1000,
   maxAttemptsPerWindow: 10,

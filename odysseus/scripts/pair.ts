@@ -5,11 +5,30 @@
  * waits while the user enters the code in the web app, compares the
  * fingerprint words, and approves. The public key is what the tunnel handshake
  * later verifies signatures against, so it is sent here, at pairing time.
+ *
+ * Which Control Plane:
+ *
+ *   pnpm pair                        the hosted Control Plane (the product)
+ *   pnpm pair --local                a development server on localhost:4000
+ *   CONTROL_PLANE_URL=… pnpm pair    anything else
+ *
+ * This used to default to localhost. A fresh terminal without the variable set
+ * therefore registered the device with the local development server, and the
+ * hosted website showed no devices. On success the Control Plane is written to
+ * ~/.odysseus/pairing.json, and `pnpm gateway` connects there by default — so a
+ * device and its gateway can no longer end up on different servers.
  */
 import { execFile } from 'node:child_process';
 import { hostname, platform as osPlatform } from 'node:os';
 import { promisify } from 'node:util';
 
+import {
+  HOSTED_CONTROL_PLANE_URL,
+  HOSTED_WEB_URL,
+  isLocalControlPlane,
+  tunnelUrlFor,
+  writePairingRecord,
+} from '../gateway/core/src/runtime/paired-control-plane';
 import { DeviceIdentityManager } from '../gateway/identity/src/device-identity';
 import { PairingManager } from '../gateway/pairing/src/pairing-manager';
 
@@ -31,22 +50,18 @@ import {
   write,
 } from './pair-ui';
 
-const CONTROL_PLANE_URL = (process.env['CONTROL_PLANE_URL'] ?? 'http://localhost:4000').replace(
+const WANTS_LOCAL = process.argv.includes('--local');
+const CONTROL_PLANE_URL = (
+  process.env['CONTROL_PLANE_URL']?.trim() ||
+  (WANTS_LOCAL ? 'http://localhost:4000' : HOSTED_CONTROL_PLANE_URL)
+).replace(/\/+$/, '');
+const rawWebUrl = process.env['ODYSSEUS_WEB_URL']?.trim();
+const IS_LOCAL = isLocalControlPlane(CONTROL_PLANE_URL);
+
+const WEB_URL = (rawWebUrl || (IS_LOCAL ? 'http://localhost:3000' : HOSTED_WEB_URL)).replace(
   /\/+$/,
   '',
 );
-const rawWebUrl = process.env['ODYSSEUS_WEB_URL']?.trim();
-const isRemoteControlPlane =
-  CONTROL_PLANE_URL &&
-  !CONTROL_PLANE_URL.includes('localhost') &&
-  !CONTROL_PLANE_URL.includes('127.0.0.1');
-
-const WEB_URL = (
-  rawWebUrl ??
-  (isRemoteControlPlane
-    ? 'https://cross-vendor-afk-control-plane.vercel.app'
-    : 'http://localhost:3000')
-).replace(/\/+$/, '');
 const POLL_INTERVAL_MS = 2000;
 /** How long to keep retrying while a sleeping host starts up. */
 const WAKE_BUDGET_MS = 100_000;
@@ -118,20 +133,26 @@ async function suggestedProjectRoot(): Promise<string> {
   return process.cwd();
 }
 
-function nextStepCommand(projectRoot: string): string[] {
-  const tunnelUrl = CONTROL_PLANE_URL.replace(/^http/, 'ws') + '/ws/tunnel';
+/**
+ * The next command to run. With a pairing record written, the gateway finds
+ * its Control Plane on its own; the environment variable is only shown when
+ * the record could not be saved — it was the step people missed.
+ */
+function nextStepCommand(projectRoot: string, recorded: boolean): string[] {
   const gatewayCommand = process.env['ODYSSEUS_CLI_COMMAND']
     ? `${process.env['ODYSSEUS_CLI_COMMAND']} gateway`
     : 'pnpm gateway';
-  if (process.platform === 'win32') {
-    return [
-      paint(palette.amber, `$env:ODYSSEUS_CONTROL_PLANE_URL = "${tunnelUrl}"`),
-      paint(palette.amber, `${gatewayCommand} --project-root "${projectRoot}"`),
-    ];
-  }
+  const run = paint(palette.amber, `${gatewayCommand} --project-root "${projectRoot}"`);
+  if (recorded) return [run];
+  const tunnelUrl = tunnelUrlFor(CONTROL_PLANE_URL);
   return [
-    paint(palette.amber, `ODYSSEUS_CONTROL_PLANE_URL=${tunnelUrl} \\`),
-    paint(palette.amber, `  ${gatewayCommand} --project-root "${projectRoot}"`),
+    paint(
+      palette.amber,
+      process.platform === 'win32'
+        ? `$env:ODYSSEUS_CONTROL_PLANE_URL = "${tunnelUrl}"`
+        : `export ODYSSEUS_CONTROL_PLANE_URL=${tunnelUrl}`,
+    ),
+    run,
   ];
 }
 
@@ -162,6 +183,18 @@ async function main(): Promise<void> {
   );
 
   const host = new URL(CONTROL_PLANE_URL).host;
+  if (IS_LOCAL) {
+    // Said before anything is registered, because this is the mistake that
+    // leaves the hosted website with no devices on it.
+    write(
+      `  ${paint(palette.amber, '!')}  Pairing with a ${bold('local development')} Control Plane (${host}).`,
+    );
+    write(
+      `     ${dim('This device will appear only on the website that server serves, not the hosted one.')}`,
+    );
+    write(`     ${dim('Run plain `pnpm pair` to pair with the hosted Control Plane instead.')}`);
+    write();
+  }
   await step(
     `Registering with ${host}`,
     (handle) =>
@@ -260,6 +293,22 @@ async function main(): Promise<void> {
       if (tick) clearInterval(tick);
       tick = undefined;
       status.done(`  ${paint(palette.green, '✓')}  ${bold('Paired')}`);
+      // Remember where this device is registered, so the gateway connects to
+      // the same server without being told.
+      let recorded = false;
+      try {
+        writePairingRecord({
+          controlPlaneUrl: CONTROL_PLANE_URL,
+          tunnelUrl: tunnelUrlFor(CONTROL_PLANE_URL),
+          webUrl: WEB_URL,
+          deviceId: identity.deviceId,
+          pairedAt: new Date().toISOString(),
+        });
+        recorded = true;
+      } catch {
+        // Pairing itself succeeded. Without the record the gateway needs the
+        // environment variable, which the card below then shows.
+      }
       const projectRoot = await suggestedProjectRoot();
       write();
       card(
@@ -267,10 +316,11 @@ async function main(): Promise<void> {
         [
           `${dim('device ')}  ${identity.deviceId}`,
           `${dim('gateway')}  ${identity.gatewayId}`,
+          `${dim('server ')}  ${host}`,
           '',
           dim('Next — start the gateway so your phone can reach this machine:'),
           '',
-          ...nextStepCommand(projectRoot),
+          ...nextStepCommand(projectRoot, recorded),
         ],
         palette.green,
       );

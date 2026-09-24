@@ -43,6 +43,63 @@ describe('Auth rate limiting', () => {
     expect(lastStatus).toBe(429);
   });
 
+  it('cannot be bypassed by rotating X-Forwarded-For', async () => {
+    await fetch(`${baseUrl}/api/v1/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'spoof@test.dev', password: 'CorrectPassword123!' }),
+    });
+
+    // Every request claims a different client address. Keyed on the address,
+    // each guess got a fresh counter and was never refused.
+    const statuses: number[] = [];
+    for (let i = 0; i < 25; i++) {
+      const res = await fetch(`${baseUrl}/api/v1/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': `203.0.113.${i}` },
+        body: JSON.stringify({ email: 'spoof@test.dev', password: `Guess${i}` }),
+      });
+      statuses.push(res.status);
+    }
+
+    // The per-account limit allows 20 failures per window, then refuses —
+    // however the requests are spread across addresses.
+    expect(statuses.slice(0, 20).every((status) => status === 401)).toBe(true);
+    expect(statuses.slice(20).every((status) => status === 429)).toBe(true);
+
+    // And the refusal holds for the right password too: the lock is on the
+    // account, so a guess that happens to be correct is not let through.
+    const correct = await fetch(`${baseUrl}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '198.51.100.7' },
+      body: JSON.stringify({ email: 'spoof@test.dev', password: 'CorrectPassword123!' }),
+    });
+    expect(correct.status).toBe(429);
+  });
+
+  it("keeps one account's lockout from affecting another", async () => {
+    for (const email of ['victim@test.dev', 'bystander@test.dev']) {
+      await fetch(`${baseUrl}/api/v1/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password: 'CorrectPassword123!' }),
+      });
+    }
+    for (let i = 0; i < 21; i++) {
+      await fetch(`${baseUrl}/api/v1/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': `203.0.113.${i}` },
+        body: JSON.stringify({ email: 'victim@test.dev', password: 'nope' }),
+      });
+    }
+    const other = await fetch(`${baseUrl}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'bystander@test.dev', password: 'CorrectPassword123!' }),
+    });
+    expect(other.status).toBe(200);
+  });
+
   it('does not rate-limit a successful login after prior failures within the limit', async () => {
     await fetch(`${baseUrl}/api/v1/auth/register`, {
       method: 'POST',

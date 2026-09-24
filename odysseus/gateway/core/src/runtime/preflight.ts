@@ -235,6 +235,60 @@ export function adaptersCheck(registeredCount: number, installedCount: number): 
 }
 
 /**
+ * Is the gateway connecting to the Control Plane this device is paired with?
+ *
+ * A device is registered on one server. Connecting to any other is refused at
+ * the handshake, and the symptom the user sees is far from the cause: the
+ * website shows no devices, or the device shows as offline, while the gateway
+ * terminal looks healthy. Comparing the two hosts at startup puts the cause on
+ * the first screen.
+ */
+export function pairingCheck(
+  target: string | undefined,
+  record: { controlPlaneUrl: string; tunnelUrl: string; pairedAt: string } | null,
+): PreflightCheck {
+  return {
+    name: 'pairing',
+    run: async () => {
+      const host = (url: string) => {
+        try {
+          return new URL(url).host.toLowerCase();
+        } catch {
+          return null;
+        }
+      };
+
+      if (!target) {
+        return { status: 'pass' as const, message: 'Local-only gateway; no Control Plane to pair with' };
+      }
+      if (!record) {
+        return {
+          status: 'warn' as const,
+          message: `No pairing record; connecting to ${host(target) ?? target}`,
+          remedy:
+            'If the website does not list this machine, run `pnpm pair` — it registers the ' +
+            'device and records the server, so this gateway connects to the right one.',
+        };
+      }
+
+      const paired = host(record.tunnelUrl);
+      const connecting = host(target);
+      if (paired && connecting && paired !== connecting) {
+        return {
+          status: 'warn' as const,
+          message: `Paired with ${paired}, but connecting to ${connecting}`,
+          remedy:
+            `${connecting} has not registered this device and will refuse it. Unset ` +
+            'ODYSSEUS_CONTROL_PLANE_URL (and any controlPlane.url in ~/.odysseus/config) to ' +
+            `use ${paired}, or run \`pnpm pair\` against ${connecting}.`,
+        };
+      }
+      return { status: 'pass' as const, message: `Paired with ${paired ?? target}` };
+    },
+  };
+}
+
+/**
  * What the sandbox on this machine actually enforces.
  *
  * The whole proposition of this project is leaving an agent running while you

@@ -18,6 +18,7 @@ import { signJwt, verifyJwt } from '../auth/jwt';
 import { hashPassword, verifyPassword } from '../auth/password';
 import {
   AuthRateLimiter,
+  DEFAULT_ACCOUNT_LOGIN_RATE_LIMIT,
   DEFAULT_LOGIN_RATE_LIMIT,
   DEFAULT_PAIRING_RATE_LIMIT,
   DEFAULT_REGISTER_RATE_LIMIT,
@@ -76,6 +77,8 @@ export class HttpRouter {
   // limited) and by IP alone for register (an email doesn't exist yet to
   // key on when the abuse is account-creation spam itself).
   private readonly loginRateLimiter = new AuthRateLimiter(DEFAULT_LOGIN_RATE_LIMIT);
+  /** Keyed on the account alone, so a spoofed address cannot reset it. */
+  private readonly accountLoginRateLimiter = new AuthRateLimiter(DEFAULT_ACCOUNT_LOGIN_RATE_LIMIT);
   private readonly registerRateLimiter = new AuthRateLimiter(DEFAULT_REGISTER_RATE_LIMIT);
   private readonly pairingRateLimiter = new AuthRateLimiter(DEFAULT_PAIRING_RATE_LIMIT);
   private integrationAccess: IntegrationAccessService | undefined;
@@ -290,10 +293,20 @@ export class HttpRouter {
         // or an attacker sharing an IP (e.g. behind NAT/a proxy) lock out
         // every other user on that IP via a per-IP-only limit.
         const loginKey = `${this.getClientIp(req)}:${email.toLowerCase()}`;
+        const accountKey = email.toLowerCase();
         if (!this.loginRateLimiter.isAllowed(loginKey)) {
           return this.sendJson(res, 429, {
             error: 'Too many login attempts. Please try again later.',
             retryAfterSeconds: this.loginRateLimiter.retryAfterSeconds(loginKey),
+          });
+        }
+        // The address above is caller-supplied, so on its own it bounded
+        // nothing: rotating X-Forwarded-For gave each guess a new key. This
+        // one counts failures against the account wherever they come from.
+        if (!this.accountLoginRateLimiter.isAllowed(accountKey)) {
+          return this.sendJson(res, 429, {
+            error: 'Too many failed sign-in attempts for this account. Please try again later.',
+            retryAfterSeconds: this.accountLoginRateLimiter.retryAfterSeconds(accountKey),
           });
         }
 
@@ -302,6 +315,7 @@ export class HttpRouter {
           // Record only failed attempts — a legitimate user who succeeds on
           // their first try should never be throttled by their own history.
           this.loginRateLimiter.recordAttempt(loginKey);
+          this.accountLoginRateLimiter.recordAttempt(accountKey);
           return this.sendJson(res, 401, { error: 'Invalid email or password' });
         }
         const tokens = this.issueTokenPair(user.id, user.email, user.role);
@@ -2636,13 +2650,16 @@ export class HttpRouter {
   }
 
   /**
-   * Best-effort client IP for rate-limiting purposes. Trusts
-   * X-Forwarded-For's first entry when present (this API is expected to run
-   * behind a reverse proxy/load balancer in any real deployment — see the
-   * deployment checklist), falling back to the raw socket address for local
-   * dev / direct connections. This is a rate-limiting signal, not an
-   * authentication one — it does not need to be spoof-proof, only good
-   * enough that casual abuse from a single source gets throttled.
+   * Best-effort client IP for rate-limiting purposes: X-Forwarded-For's first
+   * entry, else the socket address.
+   *
+   * This is caller-controlled and must never be the only thing standing
+   * between an attacker and unlimited attempts — a direct request can put
+   * anything in the header. Web traffic reaches this server through Vercel,
+   * which sets the header from the real client address, and direct traffic
+   * does not, so no single proxy-hop count is right for both paths. Anything
+   * that needs a hard bound (password guessing) is therefore also limited by a
+   * key the caller cannot change: the account itself.
    */
   private getClientIp(req: IncomingMessage): string {
     const forwarded = req.headers['x-forwarded-for'];

@@ -477,38 +477,47 @@ export class PairingManager {
     };
   }
 
+  /**
+   * The plain-terminal version of the pairing screen, for callers that do not
+   * draw their own (`pnpm pair` does, and turns this off).
+   *
+   * Written as one block to stdout: it is terminal UI, not logging, and one
+   * write keeps it from interleaving with anything else printing at the time.
+   */
   private printPairingInstructions(session: PairingSession): void {
     const identity = this.identityManager.getIdentity();
     const expiresIn = Math.max(0, Math.floor((session.expiresAt.getTime() - Date.now()) / 1000));
+    const rule = '═══════════════════════════════════════════════════════';
 
-    console.log('');
-    console.log('═══════════════════════════════════════════════════════');
-    console.log('  ODYSSEUS DEVICE PAIRING');
-    console.log('═══════════════════════════════════════════════════════');
-    console.log('');
-    console.log(`  Pairing Code:    ${session.code.substring(0, 4)}-${session.code.substring(4)}`);
-    console.log('');
-    console.log(`  Fingerprint:     ${formatFingerprintForDisplay(identity.fingerprint, 'short')}`);
-    console.log(`  Words:           ${identity.fingerprint.words.slice(0, 5).join(' ')}`);
-    console.log(`                   ${identity.fingerprint.words.slice(5).join(' ')}`);
-    console.log('');
-    console.log(`  Expires in:      ${Math.floor(expiresIn / 60)}m ${expiresIn % 60}s`);
-    console.log(`  Device ID:       ${session.deviceId.substring(0, 12)}...`);
-    console.log('');
-    console.log('  ⚠️  SECURITY CHECK:');
-    console.log('     Verify the fingerprint above matches');
-    console.log('     the one shown in the Control Plane UI');
-    console.log('     BEFORE clicking "Confirm Pairing".');
-    console.log('');
-    console.log('  Step 1: Open the Control Plane and log in');
-    console.log('  Step 2: Go to Settings → Pair New Device');
-    console.log('  Step 3: Enter the Pairing Code or scan QR');
-    console.log('  Step 4: Confirm fingerprints MATCH');
-    console.log('  Step 5: Click "Approve Pairing"');
-    console.log('');
-    console.log('  To cancel: Ctrl+C or call cancelPairing()');
-    console.log('═══════════════════════════════════════════════════════');
-    console.log('');
+    const lines = [
+      '',
+      rule,
+      '  ODYSSEUS DEVICE PAIRING',
+      rule,
+      '',
+      `  Pairing Code:    ${session.code.substring(0, 4)}-${session.code.substring(4)}`,
+      '',
+      `  Fingerprint:     ${formatFingerprintForDisplay(identity.fingerprint, 'short')}`,
+      `  Words:           ${identity.fingerprint.words.slice(0, 5).join(' ')}`,
+      `                   ${identity.fingerprint.words.slice(5).join(' ')}`,
+      '',
+      `  Expires in:      ${Math.floor(expiresIn / 60)}m ${expiresIn % 60}s`,
+      `  Device ID:       ${session.deviceId.substring(0, 12)}...`,
+      '',
+      '  SECURITY CHECK: the words above must match the ones the',
+      '  website shows, in order, before you approve.',
+      '',
+      '  1  Open the Odysseus website and sign in',
+      '  2  Go to Devices → Pair a device',
+      '  3  Enter the pairing code',
+      '  4  Check every fingerprint word matches',
+      '  5  Approve',
+      '',
+      '  To cancel: Ctrl+C',
+      rule,
+      '',
+    ];
+    process.stdout.write(`${lines.join('\n')}\n`);
   }
 
   private buildConfirmation(session: PairingSession): PairingConfirmation {

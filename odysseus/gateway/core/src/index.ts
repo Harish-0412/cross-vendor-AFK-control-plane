@@ -18,6 +18,7 @@ export * from './runtime/config-loader';
 export * from './runtime/tunnel-supervisor';
 export * from './runtime/adapter-manifest';
 export * from './runtime/capabilities';
+export * from './runtime/paired-control-plane';
 
 // Re-export new Phase 1 modules
 export { CheckpointStore, createCheckpointStore } from '@odysseus/checkpoint';

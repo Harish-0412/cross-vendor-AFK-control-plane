@@ -237,6 +237,64 @@ describe('redaction', () => {
 
     expect(output).not.toContain('do-not-leak-me');
     expect(output).toContain('redacted');
-    expect(output).toContain('precedence: flags > env > file > defaults');
+    expect(output).toContain('precedence: flags > env > file > pairing > defaults');
+  });
+});
+
+/**
+ * The pairing record is how a gateway finds the server its device is
+ * registered on. Before it existed, `pair` and `gateway` each defaulted to
+ * localhost, and a missed environment variable in either terminal left the
+ * hosted website with no devices on it.
+ */
+describe('pairing layer: the server this device was paired with', () => {
+  const PAIRING_PATH = `${HOME}/.odysseus/pairing.json`;
+  const hosted = JSON.stringify({
+    controlPlaneUrl: 'https://odysseus-control-plane.onrender.com',
+    tunnelUrl: 'wss://odysseus-control-plane.onrender.com/ws/tunnel',
+    webUrl: 'https://cross-vendor-afk-control-plane.vercel.app',
+    deviceId: 'dev_paired',
+    pairedAt: '2026-09-24T00:00:00.000Z',
+  });
+
+  test('a paired device connects to its paired server with nothing else set', () => {
+    const resolved = load({ files: { [PAIRING_PATH]: hosted } });
+    expect(resolved.options.controlPlane?.url).toBe(
+      'wss://odysseus-control-plane.onrender.com/ws/tunnel',
+    );
+    expect(resolved.provenance['controlPlane.url']).toBe('pairing');
+    // Only the URL comes from the record; the rest keeps its defaults.
+    expect(resolved.options.controlPlane?.autoConnect).toBe(true);
+  });
+
+  test('an explicit setting still wins over the record', () => {
+    const resolved = load({
+      files: { [PAIRING_PATH]: hosted },
+      env: { ODYSSEUS_CONTROL_PLANE_URL: 'ws://localhost:4000/ws/tunnel' },
+    });
+    expect(resolved.options.controlPlane?.url).toBe('ws://localhost:4000/ws/tunnel');
+    expect(resolved.provenance['controlPlane.url']).toBe('env');
+  });
+
+  test('a config file wins over the record too', () => {
+    const resolved = load({
+      files: {
+        [PAIRING_PATH]: hosted,
+        [CONFIG_PATH]: 'controlPlane:\n  url: wss://self-hosted.example/ws/tunnel\n',
+      },
+    });
+    expect(resolved.options.controlPlane?.url).toBe('wss://self-hosted.example/ws/tunnel');
+  });
+
+  test('a corrupt or incomplete record is ignored rather than half-trusted', () => {
+    for (const bad of ['{not json', '{"controlPlaneUrl":"https://x"}', '{"tunnelUrl":"nope"}']) {
+      const resolved = load({ files: { [PAIRING_PATH]: bad } });
+      expect(resolved.provenance['controlPlane.url']).toBe('defaults');
+    }
+  });
+
+  test('--print-config names the pairing layer in the precedence line', () => {
+    const resolved = load({ files: { [PAIRING_PATH]: hosted } });
+    expect(formatResolvedConfig(resolved)).toContain('flags > env > file > pairing > defaults');
   });
 });
