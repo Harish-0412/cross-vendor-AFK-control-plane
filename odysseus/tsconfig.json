@@ -11,6 +11,7 @@
     { "path": "./packages/schemas" },
     { "path": "./packages/config" },
     { "path": "./packages/attention-engine" },
+    { "path": "./packages/policy-engine" },
     { "path": "./gateway/adapters/mock" },
     { "path": "./gateway/adapters/opencode" },
     { "path": "./gateway/adapters/claude" },

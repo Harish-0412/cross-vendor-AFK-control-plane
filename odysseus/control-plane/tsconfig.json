@@ -25,6 +25,9 @@
     },
     {
       "path": "../packages/attention-engine"
+    },
+    {
+      "path": "../packages/policy-engine"
     }
   ]
 }
