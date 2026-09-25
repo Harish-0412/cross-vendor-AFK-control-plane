@@ -370,9 +370,10 @@ export async function loadAdapter(discovered: DiscoveredAdapter): Promise<Loaded
 
   let instance: unknown;
   try {
-    // Supports both a class and a zero-argument factory.
+    // Supports both a class and a zero-argument factory. `\b`, not `\s`: a
+    // minified bundle prints an anonymous class as `class{`.
     instance =
-      typeof exported === 'function' && /^\s*class\s/.test(exported.toString())
+      typeof exported === 'function' && /^\s*class\b/.test(exported.toString())
         ? new (exported as new () => unknown)()
         : typeof exported === 'function'
           ? (exported as () => unknown)()

@@ -321,8 +321,23 @@ export class TunnelClient {
           this.handleWebSocketClose(event.code, event.reason, event.wasClean);
         };
 
-        ws.onerror = () => {
-          // The close handler will fire next; avoid double-rejection
+        ws.onerror = (event: unknown) => {
+          // The close handler fires next and drives the reconnect; this only
+          // records why, which the close event itself does not carry.
+          const cause = (event as { error?: unknown; message?: unknown } | null) ?? {};
+          const message =
+            cause.error instanceof Error
+              ? cause.error.message
+              : typeof cause.message === 'string'
+                ? cause.message
+                : undefined;
+          if (message) {
+            this.emitEvent({
+              type: 'error',
+              timestamp: new Date(),
+              message: `WebSocket error: ${message}`,
+            });
+          }
         };
       } catch (err) {
         if (connectTimer) {

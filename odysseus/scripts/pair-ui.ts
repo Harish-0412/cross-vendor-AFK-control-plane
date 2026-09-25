@@ -20,7 +20,7 @@ export const animate =
 
 // ------------------------------------------------------------------ colour
 
-type RGB = readonly [number, number, number];
+export type RGB = readonly [number, number, number];
 
 const ESC = '\x1b[';
 const reset = rich ? `${ESC}0m` : '';
@@ -46,7 +46,7 @@ export const palette = {
 
 export const paint = (color: RGB, text: string) => (rich ? `${fg(color)}${text}${reset}` : text);
 
-function mix(a: RGB, b: RGB, t: number): RGB {
+export function mix(a: RGB, b: RGB, t: number): RGB {
   return [
     Math.round(a[0] + (b[0] - a[0]) * t),
     Math.round(a[1] + (b[1] - a[1]) * t),
@@ -118,7 +118,9 @@ function portraitLines(): string[] {
  * typed out. Skipped entirely on a terminal too narrow to hold the portrait,
  * where it would wrap into noise.
  */
-export async function intro(): Promise<void> {
+export async function intro(
+  tagline = 'device pairing  ·  vendor-neutral AFK control plane',
+): Promise<void> {
   const art = portraitLines();
   const artWidth = Math.max(...art.map((line) => line.length));
   const width = columns();
@@ -148,7 +150,6 @@ export async function intro(): Promise<void> {
   }
   write();
 
-  const tagline = 'device pairing  ·  vendor-neutral AFK control plane';
   write(' '.repeat(Math.max(2, Math.floor((width - tagline.length) / 2))) + dim(tagline));
   write();
 }

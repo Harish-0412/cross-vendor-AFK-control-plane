@@ -20,7 +20,7 @@ Windows, macOS, and Linux with Node.js and remains independently inspectable.
 Every tagged version is attached to a public GitHub Release as an npm tarball:
 
 ```shell
-npm install --global https://github.com/Harish-0412/cross-vendor-AFK-control-plane/releases/download/gateway-v0.1.0/harish-0412-odysseus-gateway-0.1.0.tgz
+npm install --global https://github.com/Harish-0412/cross-vendor-AFK-control-plane/releases/download/gateway-v0.1.1/harish-0412-odysseus-gateway-0.1.1.tgz
 ```
 
 ## Install from GitHub Packages

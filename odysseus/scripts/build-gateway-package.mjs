@@ -25,10 +25,11 @@ const common = {
   format: 'esm',
   platform: 'node',
   target: 'node20',
-  // ws and yaml are CommonJS and intentionally perform dynamic requires.
-  // Leaving those two tiny runtime dependencies external preserves their Node
-  // behavior; every Odysseus workspace module is still bundled.
-  external: ['ws', 'yaml'],
+  // ws and yaml are CommonJS and intentionally perform dynamic requires, and
+  // node-pty loads a per-platform native binary. Leaving these runtime
+  // dependencies external preserves their Node behavior; every Odysseus
+  // workspace module is still bundled.
+  external: ['ws', 'yaml', '@lydell/node-pty'],
   minify: true,
   legalComments: 'none',
   sourcemap: false,

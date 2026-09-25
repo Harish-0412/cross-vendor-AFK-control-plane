@@ -46,7 +46,9 @@ import {
 } from '../gateway/integrations/src/index';
 import { isIntegrationId } from '../packages/protocol/src/index';
 
+import { createGatewayUi } from './gateway-ui';
 import { promptForApproval, renderRequest, signerFor } from './grant-prompt';
+import { rich } from './pair-ui';
 
 const CLI_COMMAND = process.env['ODYSSEUS_CLI_COMMAND']
   ? `${process.env['ODYSSEUS_CLI_COMMAND']} gateway`
@@ -94,14 +96,22 @@ async function main(): Promise<void> {
     return;
   }
 
-  const log = createLogger({ level: resolved.options.logLevel ?? 'info' });
-  for (const warning of resolved.warnings) log.warn('config.warning', { detail: warning });
-
   if (resolved.directives.printConfig) {
     console.log(formatResolvedConfig(resolved));
     process.exit(ExitCode.OK);
     return;
   }
+
+  // An interactive terminal gets the status screen; anything piped keeps the
+  // JSON log. ODYSSEUS_UI=plain forces the log on a terminal too.
+  const ui = rich && process.env['ODYSSEUS_UI'] !== 'plain' ? createGatewayUi() : undefined;
+  if (ui) await ui.intro();
+
+  const log = createLogger({
+    level: resolved.options.logLevel ?? 'info',
+    ...(ui ? { pretty: false, sink: (line: string) => ui.sink(line) } : {}),
+  });
+  for (const warning of resolved.warnings) log.warn('config.warning', { detail: warning });
 
   const options = resolved.options;
   const controlPlaneUrl =
@@ -227,6 +237,7 @@ async function main(): Promise<void> {
           // Not awaited: the Control Plane gets its answer ("pending") now,
           // and the owner decides in their own time.
           void (async () => {
+            ui?.suspend();
             try {
               await renderRequest(request);
               await promptForApproval(integrations, request);
@@ -234,6 +245,7 @@ async function main(): Promise<void> {
               deviceLog.warn('integration.prompt_failed', { error: error as Error });
             } finally {
               prompting = false;
+              ui?.resume();
             }
           })();
         }
@@ -397,6 +409,11 @@ async function main(): Promise<void> {
         break;
     }
   });
+
+  // Every gateway timer is unref'd, so while the tunnel dials or waits to
+  // reconnect nothing holds the event loop open and Node exits with code 0.
+  // The runtime decides when this process ends, via process.exit.
+  setInterval(() => undefined, 1 << 30);
 
   await runtime.start();
 }
