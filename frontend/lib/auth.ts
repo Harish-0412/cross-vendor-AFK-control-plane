@@ -12,7 +12,7 @@
 
 import { create } from 'zustand';
 import type { User as FirebaseUser } from 'firebase/auth';
-import { apiClient, setAccessToken, setOnAuthFailure, ApiError } from './api-client';
+import { apiClient, setAccessToken, setOnAuthFailure, setTokenRefresher, ApiError } from './api-client';
 import {
   isFirebaseConfigured,
   loginWithEmail as fbLoginWithEmail,
@@ -20,6 +20,7 @@ import {
   loginWithGoogle as fbLoginWithGoogle,
   logoutFirebase as fbLogout,
   getCurrentIdToken,
+  waitForFirebaseAuth,
   auth as fbAuth,
 } from './firebase';
 
@@ -33,6 +34,13 @@ function resolveAuthProvider(): AuthProvider {
 
 const authProvider = resolveAuthProvider();
 const useFirebase = authProvider === 'firebase';
+
+if (useFirebase) {
+  setTokenRefresher(async () => {
+    await waitForFirebaseAuth();
+    return getCurrentIdToken(true).catch(() => null);
+  });
+}
 
 export interface AuthUser {
   id: string;
@@ -156,6 +164,15 @@ function formatAuthError(err: unknown, fallback: string): string {
     if (code === 'auth/popup-closed-by-user' || msg.includes('auth/popup-closed-by-user')) {
       return 'Google sign in was closed before completing.';
     }
+    if (code === 'auth/popup-blocked' || msg.includes('auth/popup-blocked')) {
+      return 'Your browser blocked the Google sign-in window. Allow pop-ups for this site and try again.';
+    }
+    if (code === 'auth/operation-not-allowed' || msg.includes('auth/operation-not-allowed')) {
+      return 'Email and password sign-in is turned off for this workspace. Use "Continue with Google", or ask the administrator to enable it.';
+    }
+    if (code === 'auth/unauthorized-domain' || msg.includes('auth/unauthorized-domain')) {
+      return 'This website is not on the sign-in allow list. The administrator must add it under Firebase Authentication → Authorized domains.';
+    }
     if (msg) return msg;
   }
   if (err instanceof ApiError) return err.message;
@@ -195,6 +212,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
             accessToken: idToken,
             isAuthenticated: true,
             isLoading: false,
+            isInitialized: true,
             error: null,
           });
         } else {
@@ -210,6 +228,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
             accessToken: data.accessToken,
             isAuthenticated: true,
             isLoading: false,
+            isInitialized: true,
             error: null,
           });
         }
@@ -234,6 +253,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
           accessToken: idToken,
           isAuthenticated: true,
           isLoading: false,
+          isInitialized: true,
           error: null,
         });
       } catch (err) {
@@ -254,6 +274,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
             accessToken: idToken,
             isAuthenticated: true,
             isLoading: false,
+            isInitialized: true,
             error: null,
           });
         } else {
@@ -270,6 +291,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
             accessToken: data.accessToken,
             isAuthenticated: true,
             isLoading: false,
+            isInitialized: true,
             error: null,
           });
         }
@@ -296,6 +318,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
           accessToken: null,
           isAuthenticated: false,
           isLoading: false,
+          isInitialized: true,
           error: null,
         });
       }
@@ -304,11 +327,10 @@ export const useAuthStore = create<AuthState>((set, get) => {
     checkAuth: async () => {
       set({ isLoading: true });
       try {
-        // Firebase path: rely on the persisted Firebase session
-        if (useFirebase && fbAuth?.currentUser) {
-          const token = await getCurrentIdToken();
-          if (token) {
-            const fbUser = fbAuth.currentUser;
+        if (useFirebase) {
+          const fbUser = await waitForFirebaseAuth();
+          const token = fbUser ? await getCurrentIdToken() : null;
+          if (fbUser && token) {
             const profile = await resolveFirebaseProfile(fbUser, token);
             set({
               user: profile,
@@ -320,6 +342,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
             });
             return;
           }
+          throw new Error('No Firebase session');
         }
 
         // Local path: silent refresh using HttpOnly cookie on Control Plane

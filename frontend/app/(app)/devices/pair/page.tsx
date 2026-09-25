@@ -395,10 +395,9 @@ export default function PairDevicePage() {
                 Enter the connection PIN
               </h2>
               <p className="mt-3 max-w-lg text-sm leading-6 text-muted-foreground">
-                On the computer you want to connect, open the Odysseus project
-                and run{" "}
+                On the computer you want to connect, open a terminal and run{" "}
                 <code className="rounded-md border bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
-                  pnpm pair
+                  odysseus pair
                 </code>
                 . Enter the one-time code it displays.
               </p>

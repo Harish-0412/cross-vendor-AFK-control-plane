@@ -175,6 +175,16 @@ export async function logoutFirebase(): Promise<void> {
 }
 
 /**
+ * Resolve once Firebase has restored any persisted session. Until then
+ * `auth.currentUser` is null even for a signed-in user.
+ */
+export async function waitForFirebaseAuth(): Promise<FirebaseUser | null> {
+  if (!auth) return null;
+  await auth.authStateReady();
+  return auth.currentUser;
+}
+
+/**
  * Get current ID token or refresh it
  */
 export async function getCurrentIdToken(forceRefresh = false): Promise<string | null> {

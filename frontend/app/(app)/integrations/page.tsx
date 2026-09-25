@@ -112,7 +112,7 @@ export default function IntegrationsPage() {
       setConnectionError(
         "Could not start the " +
           providerMeta[provider].name +
-          " connection. It may need administrator setup first.",
+          " connection. Check that its OAuth app is configured on the Control Plane.",
       );
     } finally {
       setConnecting(null);
@@ -297,8 +297,19 @@ export default function IntegrationsPage() {
                     )}
                     {!connected && !configured && (
                       <p className="text-xs text-muted-foreground">
-                        An administrator must configure this provider before it
-                        can be connected.
+                        This server has no {meta.name} OAuth app yet. Set{" "}
+                        <code className="text-foreground">
+                          {provider.toUpperCase()}_CLIENT_ID
+                        </code>
+                        ,{" "}
+                        <code className="text-foreground">
+                          {provider.toUpperCase()}_CLIENT_SECRET
+                        </code>{" "}
+                        and{" "}
+                        <code className="text-foreground">
+                          {provider.toUpperCase()}_CALLBACK_URL
+                        </code>{" "}
+                        on the Control Plane, then reload.
                       </p>
                     )}
                   </CardContent>

@@ -42,6 +42,16 @@ export const API_BASE_URL = resolveApiBaseUrl();
 let currentAccessToken: string | null = null;
 let refreshPromise: Promise<string | null> | null = null;
 let onAuthFailureCallback: (() => void) | null = null;
+let tokenRefresher: (() => Promise<string | null>) | null = null;
+
+/**
+ * Replace the refresh-cookie exchange with another token source. Firebase
+ * sessions have no Control Plane refresh cookie, so the cookie path would
+ * always fail and sign them out.
+ */
+export function setTokenRefresher(refresher: (() => Promise<string | null>) | null): void {
+  tokenRefresher = refresher;
+}
 
 export function setAccessToken(token: string | null): void {
   currentAccessToken = token;
@@ -79,6 +89,13 @@ export async function requestRefreshToken(): Promise<string | null> {
 
   refreshPromise = (async () => {
     try {
+      if (tokenRefresher) {
+        const token = await tokenRefresher();
+        setAccessToken(token);
+        if (!token && onAuthFailureCallback) onAuthFailureCallback();
+        return token;
+      }
+
       const res = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
         method: 'POST',
         headers: {

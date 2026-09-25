@@ -228,12 +228,12 @@ export function Onboarding({ compact = false }: { compact?: boolean }) {
     {
       icon: Link2,
       title: "Pair your computer",
-      body: "Run `pnpm pair` on it, then enter the code here and check the words match.",
+      body: "Run `odysseus pair` on it, then enter the code here and check the words match.",
     },
     {
       icon: Wrench,
       title: "Start the gateway",
-      body: "`pnpm gateway` keeps your machine reachable. Your code never leaves it.",
+      body: "`odysseus gateway` keeps your machine reachable. Your code never leaves it.",
     },
     {
       icon: MonitorUp,

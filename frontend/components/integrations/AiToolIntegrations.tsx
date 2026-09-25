@@ -314,7 +314,7 @@ export function AiToolIntegrations() {
           <CardTitle className="text-base">No paired workstation</CardTitle>
           <CardDescription>
             AI coding tools run on your own computer. Pair it first (run{" "}
-            <code>pnpm pair</code> on it), then come back here to connect Codex,
+            <code>odysseus pair</code> on it), then come back here to connect Codex,
             Antigravity, or Claude Code.
           </CardDescription>
         </CardHeader>
@@ -425,7 +425,7 @@ export function AiToolIntegrations() {
               Local chat reads pause when the last website or mobile tab
               disconnects. From this PC, run{" "}
               <code className="font-medium text-foreground">
-                pnpm grants terminate-web
+                odysseus grants terminate-web
               </code>{" "}
               to close every active web connection.
             </div>
@@ -510,7 +510,7 @@ export function AiToolIntegrations() {
                         <p className="rounded-md bg-muted/50 p-2.5 text-xs text-muted-foreground">
                           Import locally on this PC:{" "}
                           <code className="text-foreground">
-                            pnpm import chatgpt &lt;export.zip&gt;
+                            odysseus import chatgpt &lt;export.zip&gt;
                           </code>
                         </p>
                       )}
@@ -518,7 +518,7 @@ export function AiToolIntegrations() {
                         <p className="rounded-md bg-muted/50 p-2.5 text-xs text-muted-foreground">
                           Store the Admin key at a hidden PC prompt:{" "}
                           <code className="text-foreground">
-                            pnpm openai-org configure
+                            odysseus openai-org configure
                           </code>
                         </p>
                       )}
@@ -652,6 +652,17 @@ export function AiToolIntegrations() {
                         Connect
                       </Button>
                     )}
+                    {!active && !waiting && !device?.online && (
+                      <p className="w-full text-xs text-muted-foreground">
+                        Start the gateway on {device?.friendlyName ?? "your PC"}{" "}
+                        to connect.
+                      </p>
+                    )}
+                    {!active && !waiting && device?.online && chosen.length === 0 && (
+                      <p className="w-full text-xs text-muted-foreground">
+                        Choose at least one kind of access above.
+                      </p>
+                    )}
                   </CardFooter>
                 )}
               </Card>
@@ -694,7 +705,7 @@ export function AiToolIntegrations() {
             </p>
             <p className="pl-6 text-xs text-muted-foreground">
               If the gateway runs in the background, open a terminal there and
-              run <code className="text-foreground">pnpm grants approve</code>.
+              run <code className="text-foreground">odysseus grants approve</code>.
             </p>
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
