@@ -32,7 +32,7 @@ export interface DeviceSummary {
   lastSeenAt?: string | null;
   connectedAt?: string | null;
   fingerprintShort?: string | null;
-  systemInfo?: { hostname?: string; gatewayVersion?: string } | null;
+  systemInfo?: { hostname?: string; gatewayVersion?: string; projectRoots?: string[] } | null;
   availableAgents?: Array<{ id: string; capabilities?: Record<string, string> }>;
 }
 

@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ResponsiveDialog } from "@/components/ui/responsive-dialog";
 import { apiClient, ApiError } from "@/lib/api-client";
+import { explainStartFailure, isFullPath } from "@/lib/session-errors";
 import { useUiStore } from "@/lib/ui-store";
 import { useWorkspace, type DeviceSummary } from "@/lib/workspace-store";
 import { cn } from "@/lib/utils";
@@ -104,6 +105,15 @@ export function LaunchSessionSheet() {
     [devices],
   );
   const selected = devices.find((device) => device.id === deviceId);
+  const allowedRoots = useMemo(
+    () => selected?.systemInfo?.projectRoots ?? [],
+    [selected?.systemInfo?.projectRoots],
+  );
+
+  // Offer the folder the gateway was started in: it is where sessions can run.
+  useEffect(() => {
+    if (open && !projectRoot && allowedRoots[0]) setProjectRoot(allowedRoots[0]);
+  }, [open, projectRoot, allowedRoots]);
 
   // Preselect the only online machine: the common case is one workstation.
   useEffect(() => {
@@ -144,20 +154,36 @@ export function LaunchSessionSheet() {
     if (!deviceId) return setError("Choose a machine to run on.");
     if (!agentId) return setError("Choose an agent installed on that machine.");
     if (!projectRoot.trim()) return setError("Enter the project folder on that machine.");
+    if (!isFullPath(projectRoot)) {
+      return setError(
+        `"${projectRoot.trim()}" is not a full folder path. Use something like ${
+          selected?.platform === "windows" ? "C:\\projects\\my-app" : "/home/me/projects/my-app"
+        }.`,
+      );
+    }
 
     setSubmitting(true);
     setError(null);
     try {
-      const session = await apiClient.post<{ id: string }>("/api/v1/sessions", {
-        deviceId,
-        agentId,
-        projectRoot: projectRoot.trim(),
-        prompt: prompt.trim() || undefined,
-      });
+      const session = await apiClient.post<{ id: string; state?: string; error?: string }>(
+        "/api/v1/sessions",
+        {
+          deviceId,
+          agentId,
+          projectRoot: projectRoot.trim(),
+          prompt: prompt.trim() || undefined,
+        },
+      );
+      void refresh();
+      // The server records the session either way; a refused start comes back
+      // as state "failed". Say why here instead of announcing a start.
+      if (session.state === "failed") {
+        setError(explainStartFailure(session.error));
+        return;
+      }
       toast.success("Session started", { description: `${agentName({ id: agentId })} is working.` });
       setOpen(false);
       onLaunched?.();
-      void refresh();
       router.push(`/sessions/${session.id}`);
     } catch (err) {
       const message = err instanceof ApiError ? err.message : "The session could not be started.";
@@ -311,7 +337,33 @@ export function LaunchSessionSheet() {
               spellCheck={false}
             />
           </div>
-          <p className="text-xs text-muted-foreground">A folder on that machine, inside a project root its gateway allows.</p>
+          {allowedRoots.length > 0 ? (
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">Folders this computer allows:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {allowedRoots.map((root) => (
+                  <button
+                    key={root}
+                    type="button"
+                    onClick={() => setProjectRoot(root)}
+                    className={cn(
+                      "max-w-full truncate rounded-lg border px-2.5 py-1 font-mono text-xs transition-colors",
+                      projectRoot.trim() === root
+                        ? "border-primary bg-primary/10 text-foreground"
+                        : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                    )}
+                    title={root}
+                  >
+                    {root}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              The full path of a folder on that computer, inside a folder its gateway allows.
+            </p>
+          )}
         </section>
 
         <section className="space-y-2">

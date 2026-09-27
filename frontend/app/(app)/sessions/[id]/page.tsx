@@ -33,6 +33,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiClient, ApiError } from "@/lib/api-client";
 import { realtimeClient } from "@/lib/realtime";
+import { explainStartFailure } from "@/lib/session-errors";
 import { toast } from "sonner";
 
 const MAX_EVENT_BUFFER = 2000;
@@ -47,6 +48,24 @@ interface StoredEventRecord {
   storedAt: string;
 }
 
+/**
+ * Milliseconds for a timestamp as the API may send it: an ISO string, or a
+ * serialised Firestore Timestamp. `new Date()` on the latter is what showed
+ * "NaNm NaNs".
+ */
+function timeOf(value: unknown): number | null {
+  if (typeof value === "string" || typeof value === "number") {
+    const ms = new Date(value).getTime();
+    return Number.isFinite(ms) ? ms : null;
+  }
+  if (value && typeof value === "object") {
+    const stamp = value as { seconds?: unknown; _seconds?: unknown };
+    const seconds = typeof stamp.seconds === "number" ? stamp.seconds : stamp._seconds;
+    if (typeof seconds === "number") return seconds * 1000;
+  }
+  return null;
+}
+
 interface SessionDetail {
   id: string;
   userId: string;
@@ -55,8 +74,8 @@ interface SessionDetail {
   projectRoot: string;
   state: SessionState;
   trustProfile?: string;
-  startedAt: string;
-  completedAt?: string | null;
+  startedAt: unknown;
+  completedAt?: unknown;
   error?: string | null;
   tokensUsed?: number | null;
 }
@@ -207,13 +226,20 @@ export default function LiveSessionPage({
   // Timer logic for running session
   useEffect(() => {
     if (!session) return;
-    const start = new Date(session.startedAt).getTime();
+    const start = timeOf(session.startedAt);
     const isFinished =
-      session.state === "completed" || session.state === "failed" || session.state === "cancelled";
+      session.state === "completed" ||
+      session.state === "failed" ||
+      session.state === "cancelled" ||
+      session.state === "crashed";
 
-    if (isFinished && session.completedAt) {
-      const end = new Date(session.completedAt).getTime();
-      setElapsedSeconds(Math.max(0, Math.floor((end - start) / 1000)));
+    if (start === null) {
+      setElapsedSeconds(-1);
+      return;
+    }
+    if (isFinished) {
+      const end = timeOf(session.completedAt);
+      setElapsedSeconds(end === null ? -1 : Math.max(0, Math.floor((end - start) / 1000)));
       return;
     }
 
@@ -229,6 +255,7 @@ export default function LiveSessionPage({
   }, [session]);
 
   const formatTimer = (totalSec: number) => {
+    if (totalSec < 0) return "—";
     const min = Math.floor(totalSec / 60);
     const sec = totalSec % 60;
     const hrs = Math.floor(min / 60);
@@ -682,7 +709,15 @@ export default function LiveSessionPage({
           onScroll={handleScroll}
           className="flex-1 overflow-y-auto p-4 font-mono text-xs space-y-2.5 selection:bg-primary/30"
         >
-          {events.length === 0 ? (
+          {events.length === 0 && (session.state === "failed" || session.state === "crashed") ? (
+            <div className="flex flex-col items-center justify-center h-full px-6 text-center text-gray-400">
+              <Terminal className="h-8 w-8 mb-2 opacity-50" />
+              <p className="text-gray-300">This session did not start, so there is no output.</p>
+              <p className="mt-1 max-w-md text-[11px] leading-relaxed text-gray-500">
+                {explainStartFailure(session.error)}
+              </p>
+            </div>
+          ) : events.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center text-gray-500">
               <Terminal className="h-8 w-8 mb-2 opacity-50" />
               <p>Waiting for agent event stream...</p>

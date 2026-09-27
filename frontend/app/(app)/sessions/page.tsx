@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiClient } from "@/lib/api-client";
+import { explainStartFailure } from "@/lib/session-errors";
 import { realtimeClient } from "@/lib/realtime";
 import { QuickLaunchModal } from "@/components/dashboard/QuickLaunchModal";
 
@@ -154,9 +155,17 @@ export default function SessionsPage() {
     }
   };
 
-  const formatDuration = (startedAt: string, completedAt?: string | null) => {
-    const start = new Date(startedAt).getTime();
-    const end = completedAt ? new Date(completedAt).getTime() : Date.now();
+  const formatDuration = (session: SessionRecord) => {
+    const start = new Date(session.startedAt).getTime();
+    const finished = ["completed", "failed", "cancelled", "crashed"].includes(session.state);
+    // A finished session with no end time never ran; counting up to "now"
+    // made a failed start look like it had been running for minutes.
+    const end = session.completedAt
+      ? new Date(session.completedAt).getTime()
+      : finished
+        ? Number.NaN
+        : Date.now();
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return "—";
     const sec = Math.max(0, Math.floor((end - start) / 1000));
     const min = Math.floor(sec / 60);
     const hrs = Math.floor(min / 60);
@@ -315,13 +324,13 @@ export default function SessionsPage() {
                         <span>•</span>
                         <span className="flex items-center gap-1">
                           <Clock className="h-3.5 w-3.5" />
-                          Duration: {formatDuration(s.startedAt, s.completedAt)}
+                          Duration: {formatDuration(s)}
                         </span>
                       </div>
 
                       {s.error && (
-                        <p className="text-xs text-destructive mt-0.5 line-clamp-1">
-                          Error: {s.error}
+                        <p className="text-xs text-destructive mt-0.5 line-clamp-2" title={s.error}>
+                          {explainStartFailure(s.error)}
                         </p>
                       )}
                     </div>

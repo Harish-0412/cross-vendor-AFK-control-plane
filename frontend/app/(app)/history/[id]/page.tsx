@@ -79,11 +79,26 @@ export default function ConversationPage({
     }
   }, [id]);
 
+  // Opening a conversation should show it. Messages are fetched from the
+  // workstation on first view rather than waiting for a second tap.
+  const autoRequested = useRef(false);
   useEffect(() => {
-    void load();
+    void load().then((loaded) => {
+      if (
+        loaded &&
+        loaded.hasTranscript &&
+        !loaded.contentSynced &&
+        !autoRequested.current
+      ) {
+        autoRequested.current = true;
+        void requestContent(loaded.contentSyncedAt);
+      }
+    });
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
+    // requestContent is recreated each render; running once per id is intended.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load]);
 
   /**
@@ -104,12 +119,14 @@ export default function ConversationPage({
     toast.success(`Saved as ${format === "md" ? "Markdown" : "JSON"}`);
   };
 
-  const requestContent = async () => {
+  const requestContent = async (
+    previous: string | null | undefined = conversation?.contentSyncedAt,
+  ) => {
     setLoadingContent(true);
+    if (pollRef.current) clearInterval(pollRef.current);
     try {
       await aiIntegrations.requestContent(decodeURIComponent(id));
       const started = Date.now();
-      const previous = conversation?.contentSyncedAt;
       pollRef.current = setInterval(async () => {
         const latest = await load();
         const done =

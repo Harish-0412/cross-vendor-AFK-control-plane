@@ -58,8 +58,11 @@ export function ProviderLimits({ compact = false }: { compact?: boolean }) {
             <Gauge className="h-4 w-4" /> Plan limits
           </CardTitle>
           <CardDescription>
-            Connect Codex with <span className="font-medium">usage</span> access
-            on the Integrations page to see your ChatGPT plan limits here.
+            Your ChatGPT plan limits appear here once Codex is connected with{" "}
+            <span className="font-medium">Usage &amp; plan limits</span> access
+            on the Integrations page and your computer is online with{" "}
+            <code className="text-foreground">odysseus gateway</code> running.
+            Readings arrive within a minute of this page being open.
           </CardDescription>
         </CardHeader>
       </Card>

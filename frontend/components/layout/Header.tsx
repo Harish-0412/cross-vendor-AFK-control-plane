@@ -119,7 +119,11 @@ function MobileHeader() {
     <header
       className={cn(
         "pt-safe sticky top-0 z-40 w-full transition-[background-color,box-shadow] duration-300",
-        scrolled ? "glass shadow-[0_1px_0_0_var(--border)]" : "bg-transparent",
+        // Nearly opaque: at the usual 72% the page's headings showed through
+        // the title on a phone and read as overlapping text.
+        scrolled
+          ? "bg-background/95 shadow-[0_1px_0_0_var(--border)] backdrop-blur-xl"
+          : "bg-transparent",
       )}
     >
       <div className="flex h-14 items-center justify-between gap-3 px-4">
