@@ -133,7 +133,12 @@ export async function readGrantedLines(
 
     const head = await readLines(handle, start, PARTIAL_READ_BYTES, false);
     const tail = await readLines(handle, size - PARTIAL_READ_BYTES, PARTIAL_READ_BYTES, true);
-    return { lines: [...head.lines, ...tail.lines], nextOffset: tail.nextOffset, size, partial: true };
+    return {
+      lines: [...head.lines, ...tail.lines],
+      nextOffset: tail.nextOffset,
+      size,
+      partial: true,
+    };
   } finally {
     await handle.close();
   }

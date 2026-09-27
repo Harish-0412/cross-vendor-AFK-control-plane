@@ -82,8 +82,7 @@ const PROJECT_ROOT_HINT =
 function workstationPath(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const root = value.trim();
-  const absolute =
-    /^[A-Za-z]:[\\/]/.test(root) || root.startsWith('/') || root.startsWith('\\\\');
+  const absolute = /^[A-Za-z]:[\\/]/.test(root) || root.startsWith('/') || root.startsWith('\\\\');
   if (!absolute) return null;
   // Drop a trailing separator, but keep a bare drive or filesystem root.
   return root.length > 3 ? root.replace(/[\\/]+$/, '') : root;
