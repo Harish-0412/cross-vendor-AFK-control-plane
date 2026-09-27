@@ -28,7 +28,12 @@ import { LocalCredentialStore } from '../credential-store';
 import type { IntegrationManager } from '../integration-manager';
 import { OpenAiOrgClient } from '../openai-org';
 import { displayPath, type PathContext } from '../paths';
-import { listAllowedFiles, readGrantedLines, type ListedFile } from '../safe-files';
+import {
+  listAllowedFiles,
+  readGrantedLines,
+  type ListedFile,
+  type ReadResult,
+} from '../safe-files';
 
 import { antigravityItems, summariseAntigravity } from './antigravity';
 import { claudeItems, summariseClaude } from './claude';
@@ -163,12 +168,9 @@ export class HistorySync {
         continue;
       }
 
-      const { lines } = await readGrantedLines(
-        this.guard,
-        'codex',
-        'history.read',
-        file.absolutePath,
-      );
+      const read = await this.scanRead('codex', 'history.read', file.absolutePath);
+      if (!read) continue;
+      const { lines } = read;
       const idFromName = basename(file.relativePath, '.jsonl').match(
         /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
       )?.[0];
@@ -216,12 +218,9 @@ export class HistorySync {
         summaries.push(cached.summary);
         continue;
       }
-      const { lines } = await readGrantedLines(
-        this.guard,
-        'antigravity',
-        'history.read',
-        file.absolutePath,
-      );
+      const read = await this.scanRead('antigravity', 'history.read', file.absolutePath);
+      if (!read) continue;
+      const { lines } = read;
       const parsed = summariseAntigravity(
         lines.map((line) => line.line),
         conversationId,
@@ -284,12 +283,9 @@ export class HistorySync {
         continue;
       }
 
-      const { lines } = await readGrantedLines(
-        this.guard,
-        'claude',
-        'history.read',
-        file.absolutePath,
-      );
+      const read = await this.scanRead('claude', 'history.read', file.absolutePath);
+      if (!read) continue;
+      const { lines } = read;
       const idFromName = basename(file.relativePath, '.jsonl');
       const parsed = summariseClaude(
         lines.map((line) => line.line),
@@ -334,11 +330,10 @@ export class HistorySync {
     if (!path) throw new Error('No readable transcript for that conversation');
 
     const imported = integration === 'chatgpt-export' ? await this.chatgpt.content(path) : null;
-    const raw = imported
-      ? []
-      : (await readGrantedLines(this.guard, integration, 'history.read', path)).lines.map(
-          (line) => line.line,
-        );
+    const file = imported
+      ? null
+      : await readGrantedLines(this.guard, integration, 'history.read', path);
+    const raw = file ? file.lines.map((line) => line.line) : [];
     const parsed = imported
       ? {
           items: imported.slice(0, HISTORY_LIMITS.itemsPerConversation),
@@ -349,7 +344,10 @@ export class HistorySync {
         : integration === 'claude'
           ? claudeItems(raw)
           : antigravityItems(raw);
-    const { items, truncated } = parsed;
+    const { items } = parsed;
+    // A partly read file is missing its middle; say so rather than present
+    // the conversation as complete.
+    const truncated = parsed.truncated || file?.partial === true;
 
     const size = HISTORY_LIMITS.itemsPerMessage;
     const parts = Math.max(1, Math.ceil(items.length / size));
@@ -390,13 +388,9 @@ export class HistorySync {
     let latest: ProviderUsageSnapshot | null = null;
     for (const file of newest) {
       this.assertBrowserPresent();
-      const { lines } = await readGrantedLines(
-        this.guard,
-        'codex',
-        'usage.read',
-        file.absolutePath,
-      );
-      const snapshot = codexUsage(lines.map((line) => line.line));
+      const read = await this.scanRead('codex', 'usage.read', file.absolutePath);
+      if (!read) continue;
+      const snapshot = codexUsage(read.lines.map((line) => line.line));
       if (
         snapshot &&
         (!latest || Date.parse(snapshot.observedAt) > Date.parse(latest.observedAt))
@@ -464,6 +458,23 @@ export class HistorySync {
     }
     if (integration === 'chatgpt-export') void this.chatgpt.purge();
     if (integration === 'openai-org') void this.credentials.remove('openai-org');
+  }
+
+  /**
+   * One file's lines for a scan, or null when it cannot be read — refused,
+   * deleted mid-scan, or unreadable. Skipping it keeps one bad file from
+   * emptying the whole list; the guard has already reported any refusal.
+   */
+  private async scanRead(
+    integration: IntegrationId,
+    scope: 'history.read' | 'usage.read',
+    path: string,
+  ): Promise<ReadResult | null> {
+    try {
+      return await readGrantedLines(this.guard, integration, scope, path);
+    } catch {
+      return null;
+    }
   }
 
   private async hasScope(

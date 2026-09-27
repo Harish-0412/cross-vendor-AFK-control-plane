@@ -97,13 +97,22 @@ describe('safe file access', () => {
     ).rejects.toBeInstanceOf(AccessDeniedError);
   });
 
-  it('refuses a file over the size limit', async () => {
+  it('reads the start and end of a file too large to load whole', async () => {
+    // A real 70 MB Codex session used to be refused, and that refusal aborted
+    // the whole scan: none of the other conversations were listed either.
     const big = join(sessions, '2026', '09', '21', 'rollout-2026-09-21T11-00-00-bbbb.jsonl');
-    writeFile(big, '');
+    writeFile(big, '{"first":true}\n');
     const fd = openSync(big, 'r+');
-    ftruncateSync(fd, MAX_FILE_BYTES + 1);
+    ftruncateSync(fd, MAX_FILE_BYTES + 1024);
     closeSync(fd);
-    await expect(readGrantedLines(manager.guard, 'codex', 'history.read', big)).rejects.toThrow(/size limit/);
+    appendFileSync(big, '\n{"last":true}\n');
+
+    const result = await readGrantedLines(manager.guard, 'codex', 'history.read', big);
+    const lines = result.lines.map((line) => line.line);
+
+    expect(result.partial).toBe(true);
+    expect(lines[0]).toBe('{"first":true}');
+    expect(lines[lines.length - 1]).toBe('{"last":true}');
   });
 
   it('holds back a half-written last line and resumes it once complete', async () => {

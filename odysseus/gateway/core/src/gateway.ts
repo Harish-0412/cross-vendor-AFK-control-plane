@@ -1,4 +1,5 @@
 import * as os from 'node:os';
+import * as path from 'node:path';
 
 import { type CheckpointStore, createCheckpointStore } from '@odysseus/checkpoint';
 import { DEFAULT_SHUTDOWN_TIMEOUT_MS, mergeGatewayOptions } from '@odysseus/config';
@@ -178,6 +179,9 @@ export class GatewayImpl implements GatewayCore {
           arch: os.arch(),
           nodeVersion: process.version,
           gatewayVersion: GATEWAY_VERSION,
+          projectRoots: (this.options.projectRoots ?? [])
+            .slice(0, 20)
+            .map((root) => path.resolve(root)),
         },
       };
     });

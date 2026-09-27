@@ -314,6 +314,8 @@ export interface HeartbeatPayload {
     arch: string;
     nodeVersion: string;
     gatewayVersion: string;
+    /** Folders sessions may run in, so the web app can offer them. */
+    projectRoots?: string[];
   };
 }
 

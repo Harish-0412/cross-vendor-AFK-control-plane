@@ -45,9 +45,15 @@ function parse(line: string): Line | null {
 /**
  * Codex wraps context it adds itself in tags and sends it as a "user"
  * message. Those are not things the person typed, so they are never used as a
- * title or shown as the user's words.
+ * title or shown as the user's words. One message can carry several blocks
+ * (`<recommended_plugins>` then `<environment_context>`), so it counts as
+ * injected when nothing is left once every tagged block is removed.
  */
-const INJECTED = /^\s*<([a-z_]+)>[\s\S]*<\/\1>\s*$/;
+const TAG_BLOCK = /<([a-z_][a-z0-9_-]*)(?:\s[^>]*)?>[\s\S]*?<\/\1>/gi;
+const INJECTED = {
+  test: (text: string): boolean =>
+    text.trim().length > 0 && text.replace(TAG_BLOCK, '').trim().length === 0,
+};
 
 function messageText(payload: Record<string, unknown>): string {
   const content = payload['content'];

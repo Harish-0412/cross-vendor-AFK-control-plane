@@ -127,6 +127,32 @@ describe('Codex parsing', () => {
     });
   });
 
+  it('skips a message made of several injected blocks when choosing the title', () => {
+    // Newer Codex sends plugin suggestions and environment context as one
+    // user message with two parts; every title read "<recommended_plugins>…".
+    const withPlugins = [...codexSession];
+    withPlugins.splice(
+      3,
+      1,
+      j({
+        timestamp: '2026-09-10T10:00:02.000Z',
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'user',
+          content: [
+            { type: 'input_text', text: '<recommended_plugins>\n- Dropbox\n</recommended_plugins>' },
+            { type: 'input_text', text: '<environment_context>\n  <cwd>C:\\x</cwd>\n</environment_context>' },
+          ],
+        },
+      }),
+    );
+    const summary = summariseCodex(withPlugins, { includeTokens: false })!;
+    expect(summary.title.startsWith('Fix the login bug')).toBe(true);
+    expect(summary.messageCount).toBe(2);
+    expect(JSON.stringify(codexItems(withPlugins).items)).not.toContain('recommended_plugins');
+  });
+
   it('builds content without Codex instructions, injected context or encrypted reasoning', () => {
     const { items } = codexItems(codexSession);
     expect(items.map((item) => item.kind)).toEqual([

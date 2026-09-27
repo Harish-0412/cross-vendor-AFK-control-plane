@@ -252,8 +252,25 @@ describe('CLI argument construction', () => {
     expect(built[built.indexOf('-p') + 1]).toBe('fix the bug');
   });
 
-  test('bare mode is on by default so repo hooks and MCP servers do not run implicitly', () => {
-    expect(args()).toContain('--bare');
+  test('bare mode is on by default when an API key can authenticate it', () => {
+    const saved = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+    try {
+      expect(args()).toContain('--bare');
+    } finally {
+      if (saved === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = saved;
+    }
+  });
+
+  test('without an API key the subscription login is used, so bare mode is off', () => {
+    const saved = process.env.ANTHROPIC_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    try {
+      expect(args()).not.toContain('--bare');
+    } finally {
+      if (saved !== undefined) process.env.ANTHROPIC_API_KEY = saved;
+    }
   });
 
   test('a follow-up turn resumes the same Claude conversation', () => {

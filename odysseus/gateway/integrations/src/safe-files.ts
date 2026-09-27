@@ -7,13 +7,16 @@
  * one that was checked — so swapping a file for a link between the check and
  * the open does not redirect the read.
  */
-import { open, readdir, lstat } from 'node:fs/promises';
+import { open, readdir, lstat, type FileHandle } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 
 import type { IntegrationId, IntegrationScope } from '@odysseus/protocol';
 
 import { isAllowedFile } from './allowlist';
-import type { GrantGuard } from './grant-guard';
+import { MAX_FILE_BYTES, type GrantGuard } from './grant-guard';
+
+/** How much of each end of a file too large to load whole is read. */
+export const PARTIAL_READ_BYTES = 8 * 1024 * 1024;
 
 export interface ListedFile {
   absolutePath: string;
@@ -88,11 +91,21 @@ export interface ReadResult {
    */
   nextOffset: number;
   size: number;
+  /**
+   * The file was too large to load whole, so only its start and its end were
+   * read. Lines from the middle are missing.
+   */
+  partial?: boolean;
 }
 
 /**
  * Read complete lines of a granted file, starting at `fromOffset`.
  * Throws AccessDeniedError when the guard refuses.
+ *
+ * At most MAX_FILE_BYTES are loaded. A longer file is read as its first and
+ * last PARTIAL_READ_BYTES — where a session's title, model and final totals
+ * are — and the result is marked partial, rather than refusing the file and
+ * losing the whole conversation.
  */
 export async function readGrantedLines(
   guard: GrantGuard,
@@ -113,34 +126,61 @@ export async function readGrantedLines(
 
     const size = opened.size;
     const start = Math.min(Math.max(0, fromOffset), size);
-    const length = size - start;
-    const buffer = Buffer.alloc(length);
-    let read = 0;
-    while (read < length) {
-      const { bytesRead } = await handle.read(buffer, read, length - read, start + read);
-      if (bytesRead === 0) break;
-      read += bytesRead;
+    if (size - start <= MAX_FILE_BYTES) {
+      const whole = await readLines(handle, start, size - start, false);
+      return { lines: whole.lines, nextOffset: whole.nextOffset, size };
     }
 
-    const lines: ReadLine[] = [];
-    let cursor = 0;
-    while (cursor < read) {
-      const newline = buffer.indexOf(0x0a, cursor);
-      if (newline === -1 || newline >= read) break; // incomplete final line
-      let content = buffer.subarray(cursor, newline);
-      if (content.length && content[content.length - 1] === 0x0d) content = content.subarray(0, -1);
-      lines.push({
-        line: content.toString('utf8'),
-        start: start + cursor,
-        end: start + newline + 1,
-      });
-      cursor = newline + 1;
-    }
-
-    return { lines, nextOffset: start + cursor, size };
+    const head = await readLines(handle, start, PARTIAL_READ_BYTES, false);
+    const tail = await readLines(handle, size - PARTIAL_READ_BYTES, PARTIAL_READ_BYTES, true);
+    return { lines: [...head.lines, ...tail.lines], nextOffset: tail.nextOffset, size, partial: true };
   } finally {
     await handle.close();
   }
+}
+
+/**
+ * Complete lines within [start, start + length). A final line without a
+ * newline is left out. With `skipLeadingFragment`, so is the first line,
+ * which a window starting mid-file almost always cuts in half.
+ */
+async function readLines(
+  handle: FileHandle,
+  start: number,
+  length: number,
+  skipLeadingFragment: boolean,
+): Promise<{ lines: ReadLine[]; nextOffset: number }> {
+  const buffer = Buffer.alloc(length);
+  let read = 0;
+  while (read < length) {
+    const { bytesRead } = await handle.read(buffer, read, length - read, start + read);
+    if (bytesRead === 0) break;
+    read += bytesRead;
+  }
+
+  const lines: ReadLine[] = [];
+  let cursor = 0;
+  if (skipLeadingFragment && start > 0) {
+    const before = Buffer.alloc(1);
+    await handle.read(before, 0, 1, start - 1);
+    if (before[0] !== 0x0a) {
+      const first = buffer.indexOf(0x0a);
+      cursor = first === -1 || first >= read ? read : first + 1;
+    }
+  }
+  while (cursor < read) {
+    const newline = buffer.indexOf(0x0a, cursor);
+    if (newline === -1 || newline >= read) break; // incomplete final line
+    let content = buffer.subarray(cursor, newline);
+    if (content.length && content[content.length - 1] === 0x0d) content = content.subarray(0, -1);
+    lines.push({
+      line: content.toString('utf8'),
+      start: start + cursor,
+      end: start + newline + 1,
+    });
+    cursor = newline + 1;
+  }
+  return { lines, nextOffset: start + cursor };
 }
 
 export class AccessDeniedError extends Error {

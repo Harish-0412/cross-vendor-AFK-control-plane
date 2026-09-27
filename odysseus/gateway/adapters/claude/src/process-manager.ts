@@ -72,6 +72,15 @@ export class ClaudeProcessManager implements ClaudeProcessController {
     this.resolved = resolveCommand(this.binary);
   }
 
+  /**
+   * Bare mode by default only when an API key can authenticate it. Bare mode
+   * ignores the subscription login, so forcing it on someone signed in with
+   * `claude` made every run fail to authenticate.
+   */
+  private get bare(): boolean {
+    return this.options.bare ?? Boolean(process.env.ANTHROPIC_API_KEY);
+  }
+
   async detect(): Promise<{ path: string; version: string } | null> {
     const timeoutMs = this.options.detectTimeoutMs ?? 5000;
     try {
@@ -108,7 +117,7 @@ export class ClaudeProcessManager implements ClaudeProcessController {
 
     // In bare mode Claude Code never reads OAuth credentials or the keychain,
     // so an API key is required. Outside bare mode a subscription login works.
-    if (this.options.bare !== false && !process.env.ANTHROPIC_API_KEY) {
+    if (this.bare && !process.env.ANTHROPIC_API_KEY) {
       warnings.push(
         'ANTHROPIC_API_KEY is not set. Bare mode does not read subscription ' +
           'credentials, so runs will fail to authenticate.',
@@ -128,7 +137,7 @@ export class ClaudeProcessManager implements ClaudeProcessController {
 
     // --bare keeps a gateway-run session reproducible: no host hooks, no
     // plugins, no MCP servers from the repo, no implicit CLAUDE.md.
-    if (this.options.bare !== false) args.push('--bare');
+    if (this.bare) args.push('--bare');
 
     args.push('-p', options.prompt);
 

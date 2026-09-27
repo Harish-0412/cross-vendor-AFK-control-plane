@@ -14,7 +14,11 @@ import type { IntegrationId, IntegrationScope } from '@odysseus/protocol';
 import { isAllowedFile } from './allowlist';
 import type { GrantStore, StoredGrant } from './grant-store';
 
-/** Larger than any real session file seen (22 MB), small enough to bound memory and time. */
+/**
+ * The most one read loads into memory. Real session files do exceed it (a
+ * 70 MB Codex session has been seen); those are read in part — see
+ * readGrantedLines — rather than refused.
+ */
 export const MAX_FILE_BYTES = 64 * 1024 * 1024;
 
 export type AccessDecision =
@@ -60,7 +64,7 @@ export class GrantGuard {
 
   /**
    * Checks 1–5 for one file: grant, scope, real path inside a granted root,
-   * allowlist match, not a symlink, within the size cap.
+   * allowlist match, not a symlink. Size bounds how much is read, not whether.
    */
   async authorizeFile(
     integration: IntegrationId,
@@ -103,9 +107,6 @@ export class GrantGuard {
     const relativePath = relative(root, realPath).split(sep).join('/');
     if (!isAllowedFile(integration, scope, relativePath)) {
       return this.refuseFile(integration, scope, 'file is not on the allowlist', relativePath);
-    }
-    if (linkInfo.size > MAX_FILE_BYTES) {
-      return this.refuseFile(integration, scope, 'file exceeds the size limit', relativePath);
     }
 
     return {
