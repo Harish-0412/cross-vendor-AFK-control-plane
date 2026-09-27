@@ -5,6 +5,7 @@ import type { Duplex } from 'node:stream';
 import type { WebSocket } from 'ws';
 import { WebSocketServer } from 'ws';
 
+import { verifyFirebaseIdToken } from '../auth/firebase-admin';
 import { verifyJwt } from '../auth/jwt';
 import type { IDatabase } from '../db/types';
 import type { StoredEvent } from '../types';
@@ -23,6 +24,12 @@ interface InboundClientMessage {
 
 type PresenceListener = (userId: string, clients: number) => void | Promise<void>;
 
+/** Resolves a non-Control-Plane token (a Firebase ID token) to a user id. */
+export type ExternalTokenVerifier = (token: string) => Promise<string | null>;
+
+const verifyFirebaseUser: ExternalTokenVerifier = async (token) =>
+  (await verifyFirebaseIdToken(token))?.uid ?? null;
+
 const AUTH_TIMEOUT_MS = 5_000;
 const HEARTBEAT_INTERVAL_MS = 15_000;
 
@@ -36,6 +43,10 @@ export class ClientServer {
     private readonly registry: ConnectionRegistry,
     private readonly jwtSecret: string,
     private readonly db: IDatabase,
+    // REST accepts Firebase ID tokens as well as its own JWTs; the socket must
+    // too, or a Google-signed-in user never counts as present and every
+    // presence-gated read on their workstation stays paused.
+    private readonly verifyExternalToken: ExternalTokenVerifier = verifyFirebaseUser,
   ) {
     this.wss = new WebSocketServer({ noServer: true });
     this.setupWss();
@@ -65,14 +76,20 @@ export class ClientServer {
       }, AUTH_TIMEOUT_MS);
       authTimer.unref?.();
 
-      const authenticate = (token: string): boolean => {
-        if (clientConn) return true;
-        try {
-          const payload = verifyJwt(token, this.jwtSecret);
-          if (!payload.sub) throw new Error('token carries no subject');
+      let authenticating: Promise<boolean> | undefined;
+      const authenticate = (token: string): Promise<boolean> => {
+        if (clientConn) return Promise.resolve(true);
+        authenticating ??= (async () => {
+          const userId = await this.resolveUserId(token);
+          // The socket may have closed while a Firebase token was verified.
+          if (cleanedUp || socket.readyState !== 1) return false;
+          if (!userId) {
+            rejectSocket(socket, 4001, 'Unauthorized: invalid token');
+            return false;
+          }
           clientConn = {
             clientId,
-            userId: payload.sub,
+            userId,
             socket,
             connectedAt: new Date(),
             subscribedSessions: new Set<string>(),
@@ -83,15 +100,15 @@ export class ClientServer {
           this.send(socket, {
             type: 'connected',
             clientId,
-            userId: clientConn.userId,
+            userId,
             timestamp: new Date().toISOString(),
           });
-          this.notifyPresence(clientConn.userId);
+          this.notifyPresence(userId);
           return true;
-        } catch {
-          rejectSocket(socket, 4001, 'Unauthorized: invalid token');
-          return false;
-        }
+        })().finally(() => {
+          authenticating = undefined;
+        });
+        return authenticating;
       };
 
       // Non-browser callers can authenticate in a header. Browsers authenticate
@@ -102,7 +119,7 @@ export class ClientServer {
         typeof header === 'string' && header.startsWith('Bearer ')
           ? header.slice('Bearer '.length).trim()
           : null;
-      if (bearer) authenticate(bearer);
+      if (bearer) void authenticate(bearer);
 
       socket.on('pong', () => this.alive.set(socket, true));
       socket.on('message', (data: Buffer | string) => {
@@ -131,7 +148,7 @@ export class ClientServer {
     socket: WebSocket,
     data: Buffer | string,
     getClient: () => ClientConnection | undefined,
-    authenticate: (token: string) => boolean,
+    authenticate: (token: string) => Promise<boolean>,
   ): Promise<void> {
     let msg: InboundClientMessage;
     try {
@@ -141,7 +158,7 @@ export class ClientServer {
     }
 
     if (!getClient()) {
-      if (msg.type === 'auth' && typeof msg.token === 'string') authenticate(msg.token);
+      if (msg.type === 'auth' && typeof msg.token === 'string') await authenticate(msg.token);
       return;
     }
     const client = getClient()!;
@@ -196,6 +213,20 @@ export class ClientServer {
     if (msg.action === 'unsubscribe_device' && typeof msg.deviceId === 'string') {
       client.subscribedDevices.delete(msg.deviceId);
       this.send(socket, { type: 'unsubscribed', deviceId: msg.deviceId });
+    }
+  }
+
+  private async resolveUserId(token: string): Promise<string | null> {
+    try {
+      const payload = verifyJwt(token, this.jwtSecret);
+      if (payload.sub) return payload.sub;
+    } catch {
+      /* not one of ours; it may be a Firebase ID token */
+    }
+    try {
+      return await this.verifyExternalToken(token);
+    } catch {
+      return null;
     }
   }
 

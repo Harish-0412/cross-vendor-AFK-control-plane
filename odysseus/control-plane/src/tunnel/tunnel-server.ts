@@ -596,6 +596,11 @@ export class TunnelServer {
                   sysInfoUpdates['nodeVersion'] = system['nodeVersion'].slice(0, 40);
                 if (typeof system['gatewayVersion'] === 'string')
                   sysInfoUpdates['gatewayVersion'] = system['gatewayVersion'].slice(0, 40);
+                if (Array.isArray(system['projectRoots']))
+                  sysInfoUpdates['projectRoots'] = system['projectRoots']
+                    .filter((root): root is string => typeof root === 'string' && root.length > 0)
+                    .slice(0, 20)
+                    .map((root) => root.slice(0, 400));
 
                 await this.db.devices.update(authedId, {
                   ...(platform === 'windows' ||

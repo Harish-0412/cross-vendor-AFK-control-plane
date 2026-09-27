@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { basename, resolve } from 'node:path';
 
 import type {
   AgentCapabilities,
@@ -70,6 +69,29 @@ const TRUST_PROFILES: readonly TrustProfile[] = [
  */
 const FIREBASE_ROLE_AUTHORITY = '_odysseusRoleAuthority';
 const FIREBASE_ROLE_AUTHORITY_VALUE = 'firebase-custom-claim';
+
+const PROJECT_ROOT_HINT =
+  'Use the full path of a folder on that computer, for example C:\\projects\\my-app or /home/me/my-app.';
+
+/**
+ * A project folder as the workstation will see it, or null when it is not a
+ * full path. It is never resolved here: this server's working directory and
+ * path rules (Linux on the hosted service) have nothing to do with the
+ * user's computer, and resolving turned `C:\app` into `/srv/…/C:\app`.
+ */
+function workstationPath(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const root = value.trim();
+  const absolute =
+    /^[A-Za-z]:[\\/]/.test(root) || root.startsWith('/') || root.startsWith('\\\\');
+  if (!absolute) return null;
+  // Drop a trailing separator, but keep a bare drive or filesystem root.
+  return root.length > 3 ? root.replace(/[\\/]+$/, '') : root;
+}
+
+function folderName(root: string): string {
+  return root.split(/[\\/]/).filter(Boolean).pop() ?? root;
+}
 
 function isTrustProfile(value: unknown): value is TrustProfile {
   return typeof value === 'string' && TRUST_PROFILES.includes(value as TrustProfile);
@@ -1791,13 +1813,19 @@ export class HttpRouter {
         if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
         if (typeof body['root'] !== 'string' || !body['root'])
           return this.sendJson(res, 400, { error: 'root is required' });
-        const root = resolve(body['root']);
+        const root = workstationPath(body['root']);
+        if (!root) {
+          return this.sendJson(res, 400, {
+            error: PROJECT_ROOT_HINT,
+            code: 'PROJECT_ROOT_NOT_ABSOLUTE',
+          });
+        }
         const existing = await this.db.projects.findByRoot(authUser.id, root);
         if (existing) return this.sendJson(res, 200, existing);
         const project = await this.db.projects.create({
           id: `proj_${randomUUID().replace(/-/g, '').slice(0, 24)}`,
           userId: authUser.id,
-          name: typeof body['name'] === 'string' ? body['name'] : basename(root),
+          name: typeof body['name'] === 'string' ? body['name'] : folderName(root),
           root,
           preferences: { protectedBranches: ['main', 'master'] },
         });
@@ -1924,7 +1952,7 @@ export class HttpRouter {
           const sessions = allSessions.filter(
             (item) =>
               item.projectId === projectId ||
-              (!item.projectId && resolve(item.projectRoot) === project.root),
+              (!item.projectId && workstationPath(item.projectRoot) === project.root),
           );
           const activeStates = new Set([
             'initializing',
@@ -2139,8 +2167,6 @@ export class HttpRouter {
         if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
         let deviceId = typeof body['deviceId'] === 'string' ? body['deviceId'] : undefined;
         let agentId = typeof body['agentId'] === 'string' ? body['agentId'] : 'mock';
-        const projectRoot =
-          typeof body['projectRoot'] === 'string' ? body['projectRoot'] : process.cwd();
         const prompt = typeof body['prompt'] === 'string' ? body['prompt'] : undefined;
         const requestedProjectId =
           typeof body['projectId'] === 'string' ? body['projectId'] : undefined;
@@ -2149,21 +2175,44 @@ export class HttpRouter {
             ? body['config']
             : undefined;
 
+        // The folder is on the user's computer, not on this server. It used to
+        // be resolved against this server's working directory, so "jhjj" or a
+        // Windows path became a path that exists on no machine at all, and
+        // the gateway refused it only after the session was recorded.
+        const requestedRoot =
+          typeof body['projectRoot'] === 'string' ? body['projectRoot'] : undefined;
+        const requestedLocalRoot =
+          requestedRoot !== undefined ? workstationPath(requestedRoot) : undefined;
+        if (requestedRoot !== undefined && !requestedLocalRoot) {
+          return this.sendJson(res, 400, {
+            error: PROJECT_ROOT_HINT,
+            code: 'PROJECT_ROOT_NOT_ABSOLUTE',
+          });
+        }
+
         let project = requestedProjectId
           ? await this.db.projects.findById(requestedProjectId)
-          : await this.db.projects.findByRoot(authUser.id, resolve(projectRoot));
+          : requestedLocalRoot
+            ? await this.db.projects.findByRoot(authUser.id, requestedLocalRoot)
+            : null;
         if (project && project.userId !== authUser.id)
           return this.sendJson(res, 404, { error: 'Project not found' });
         if (!project) {
-          const root = resolve(projectRoot);
+          if (!requestedLocalRoot) {
+            return this.sendJson(res, 400, {
+              error: 'Choose the project folder the agent should work in.',
+              code: 'PROJECT_ROOT_REQUIRED',
+            });
+          }
           project = await this.db.projects.create({
             id: `proj_${randomUUID().replace(/-/g, '').slice(0, 24)}`,
             userId: authUser.id,
-            name: basename(root),
-            root,
+            name: folderName(requestedLocalRoot),
+            root: requestedLocalRoot,
             preferences: { protectedBranches: ['main', 'master'] },
           });
         }
+        const projectRoot = requestedLocalRoot ?? project.root;
 
         let device = deviceId ? await this.db.devices.findById(deviceId) : null;
         if (deviceId && (!device || device.userId !== authUser.id)) {

@@ -52,6 +52,8 @@ export interface DeviceRecord {
         arch?: string | undefined;
         nodeVersion?: string | undefined;
         gatewayVersion?: string | undefined;
+        /** Folders this gateway lets sessions run in, as it reported them. */
+        projectRoots?: string[] | undefined;
       }
     | undefined;
   resourceUsage?:
