@@ -15,23 +15,37 @@ Windows, macOS, and Linux with Node.js and remains independently inspectable.
 - At least one supported agent CLI installed and signed in
 - Git, when workspace diff features are used
 
-## Install without a GitHub Packages token
+## Install
 
-Every tagged version is attached to a public GitHub Release as an npm tarball:
+One command. No GitHub account, access token or administrator rights.
 
-```shell
-npm install --global https://github.com/Harish-0412/cross-vendor-AFK-control-plane/releases/download/gateway-v0.1.1/harish-0412-odysseus-gateway-0.1.1.tgz
+Windows (PowerShell):
+
+```powershell
+irm https://cross-vendor-afk-control-plane.vercel.app/install.ps1 | iex
 ```
 
-## Install from GitHub Packages
-
-GitHub requires a classic personal access token with `read:packages`, even for
-public npm packages. Authenticate once, then install the package:
+macOS or Linux:
 
 ```shell
-npm login --scope=@harish-0412 --auth-type=legacy --registry=https://npm.pkg.github.com
-npm install --global @harish-0412/odysseus-gateway --registry=https://npm.pkg.github.com
+curl -fsSL https://cross-vendor-afk-control-plane.vercel.app/install.sh | sh
 ```
+
+The installer checks for Node.js 20+ (and offers to install it), installs the
+latest release, makes the `odysseus` command work in PowerShell, and offers to
+pair the computer. Step-by-step instructions:
+https://cross-vendor-afk-control-plane.vercel.app/install
+
+To install with npm yourself instead, use the public release, which always
+points at the newest version:
+
+```shell
+npm install --global https://github.com/Harish-0412/cross-vendor-AFK-control-plane/releases/latest/download/odysseus-gateway.tgz
+```
+
+Do not use `npm login` or the GitHub Packages registry to install: GitHub
+requires a personal access token there even for public packages, and a normal
+password is rejected with `403 Forbidden`.
 
 ## Pair and run
 

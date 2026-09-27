@@ -1,6 +1,6 @@
 {
   "name": "@harish-0412/odysseus-gateway",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Lightweight local gateway for the Odysseus cross-vendor AI coding control plane",
   "type": "module",
   "bin": {

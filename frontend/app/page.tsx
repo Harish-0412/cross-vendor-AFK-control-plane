@@ -125,8 +125,12 @@ export default function Home() {
               textColor: "#fff",
               links: [
                 { label: "FAQ", href: "#faq", ariaLabel: "FAQ" },
-                { label: "Docs", href: "#", ariaLabel: "Docs" },
-                { label: "GitHub", href: "#", ariaLabel: "GitHub" },
+                { label: "Install", href: "/install", ariaLabel: "Install Odysseus" },
+                {
+                  label: "GitHub",
+                  href: "https://github.com/Harish-0412/cross-vendor-AFK-control-plane",
+                  ariaLabel: "GitHub",
+                },
               ],
             },
           ]}

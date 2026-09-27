@@ -41,31 +41,46 @@ This guide takes you from nothing to a computer that shows **Online** in your da
 
 ## Step 2 — Install the gateway
 
-In your terminal, run:
+Copy one line into your terminal. There's also a page with copy buttons: https://cross-vendor-afk-control-plane.vercel.app/install
 
-```shell
-npm install --global https://github.com/Harish-0412/cross-vendor-AFK-control-plane/releases/download/gateway-v0.1.1/harish-0412-odysseus-gateway-0.1.1.tgz
+**Windows** — open **PowerShell** (not Command Prompt; no administrator window needed) and run:
+
+```powershell
+irm https://cross-vendor-afk-control-plane.vercel.app/install.ps1 | iex
 ```
 
-Then check it worked:
+**macOS / Linux** — open **Terminal** and run:
 
 ```shell
-odysseus --version
+curl -fsSL https://cross-vendor-afk-control-plane.vercel.app/install.sh | sh
 ```
 
-It should print `0.1.1`.
+The installer:
+
+- checks for Node.js 20 or newer, and offers to install it if it's missing,
+- installs the latest Odysseus gateway (the `odysseus` command),
+- makes the command work in PowerShell without changing any security settings,
+- offers to pair your computer right away (Step 3).
+
+You don't need a GitHub account, an access token, `npm login` or `sudo`.
+
+To check it worked, open a new terminal and run `odysseus --version`.
 
 <details>
-<summary><strong>Windows: "running scripts is disabled on this system"</strong></summary>
+<summary><strong>Prefer to install with npm yourself?</strong></summary>
 
-PowerShell blocks the `odysseus` shortcut by default on some computers. Either type `odysseus.cmd` instead of `odysseus` in every command in this guide, or open **Command Prompt** instead of PowerShell and use the commands as written.
+Needs Node.js 20 or newer. On Windows, run it in Command Prompt, or type `npm.cmd` instead of `npm` in PowerShell.
+
+```shell
+npm install --global https://github.com/Harish-0412/cross-vendor-AFK-control-plane/releases/latest/download/odysseus-gateway.tgz
+```
 </details>
 
 ---
 
 ## Step 3 — Pair your computer with your account
 
-Pairing proves to the dashboard that this computer belongs to you. You do it once per computer.
+Pairing proves to the dashboard that this computer belongs to you. You do it once per computer. If you already paired when the installer offered, skip to Step 4.
 
 1. In your terminal, run:
 
@@ -176,9 +191,15 @@ The gateway explains problems in plain words, in red, with what to do next. The 
 | **The secure connection could not be verified** | A proxy or antivirus is intercepting the connection. Try another network. |
 | **No coding agents found** | Install Codex, Claude Code or OpenCode and sign in to it once, then restart the gateway. |
 
+**Installation problems**
+
+- **`npm login` fails with `403 Forbidden` (GitHub Packages).** You don't need it. GitHub Packages asks for a personal access token even for public packages. Use the one-line installer in Step 2 instead.
+- **"Running scripts is disabled on this system".** Run the Step 2 installer again; it fixes the `odysseus` command for PowerShell. Or type `odysseus.cmd` instead of `odysseus`.
+- **`odysseus` is not recognised.** Close and reopen the terminal after installing. If it still fails, run the Step 2 installer again.
+- **"Permission denied" / `EACCES` on macOS or Linux.** Don't use `sudo`. The installer installs into `~/.odysseus/npm` when npm's own folder is locked.
+
 **Other issues**
 
-- **`odysseus` is not recognised.** Close and reopen the terminal after installing. If it still fails, run the install command in Step 2 again.
 - **The dashboard shows the computer offline, but the gateway says Online.** Refresh the dashboard. Make sure you're signed in with the same account you paired with.
 - **Connect is greyed out on the Integrations page.** The selected computer is offline — start `odysseus gateway` on it.
 
@@ -191,7 +212,7 @@ Everything the gateway does is also written to a log file, which is useful if yo
 
 ## Updating
 
-Run the install command from Step 2 with the newer version number. Your pairing is kept.
+Run the Step 2 installer again. It always installs the newest version, and your pairing is kept.
 
 ## Removing Odysseus from a computer
 

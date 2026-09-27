@@ -21,6 +21,18 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  // The installers are piped straight into a shell (`irm … | iex`,
+  // `curl … | sh`): serve them as UTF-8 text, and keep caches short so a
+  // fixed installer reaches people quickly.
+  async headers() {
+    return ['/install.ps1', '/install.sh'].map((source) => ({
+      source,
+      headers: [
+        { key: 'Content-Type', value: 'text/plain; charset=utf-8' },
+        { key: 'Cache-Control', value: 'public, max-age=300' },
+      ],
+    }))
+  },
   async rewrites() {
     if (!controlPlaneUrl) return []
     return [

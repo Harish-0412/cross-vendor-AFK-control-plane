@@ -399,7 +399,11 @@ export default function PairDevicePage() {
                 <code className="rounded-md border bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
                   odysseus pair
                 </code>
-                . Enter the one-time code it displays.
+                . Enter the one-time code it displays. Not installed yet?{" "}
+                <Link href="/install" className="font-medium text-primary underline-offset-4 hover:underline">
+                  Install Odysseus
+                </Link>
+                .
               </p>
 
               <form onSubmit={verifyCode} className="mt-9 space-y-5">

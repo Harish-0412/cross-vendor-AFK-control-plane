@@ -318,9 +318,12 @@ export function AiToolIntegrations() {
             Antigravity, or Claude Code.
           </CardDescription>
         </CardHeader>
-        <CardFooter>
+        <CardFooter className="gap-2">
           <Button asChild variant="outline" size="sm">
             <Link href="/devices/pair">Pair a device</Link>
+          </Button>
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/install">Install Odysseus</Link>
           </Button>
         </CardFooter>
       </Card>

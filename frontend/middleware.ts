@@ -21,6 +21,8 @@ export function middleware(request: NextRequest) {
   if (
     pathname === '/' ||
     pathname === '/health' ||
+    // Install instructions are for people who do not have an account yet.
+    pathname === '/install' ||
     // The service worker pre-caches this to show when a page load fails. It
     // holds no data, and a redirect to /login here would both defeat the
     // pre-cache (a redirected response cannot be stored) and send someone with
