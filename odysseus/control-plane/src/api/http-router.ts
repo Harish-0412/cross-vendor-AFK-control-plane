@@ -50,6 +50,7 @@ import { type AgentRouter } from '../orchestration/agent-router';
 import { type CostGovernor } from '../orchestration/cost-governor';
 import { type MultiAgentOrchestrator } from '../orchestration/multi-agent-orchestrator';
 import { RiskEngine } from '../orchestration/risk-engine';
+import { spendSummary } from '../orchestration/spend-summary';
 import { type PolicyEngineService, type ApprovalWorkflow, type AuditLog } from '../policy/index';
 import { ReviewOrchestrator } from '../review/review-orchestrator';
 import type { ConnectionRegistry } from '../tunnel/connection-registry';
@@ -1736,6 +1737,10 @@ export class HttpRouter {
             return this.sendJson(res, 404, { error: 'Session not found' });
         }
         return this.sendJson(res, 200, await this.costGovernor.usage(scope, scopeId));
+      }
+      if (path === '/api/v1/budgets/summary' && method === 'GET') {
+        if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+        return this.sendJson(res, 200, await spendSummary(this.db, authUser.id));
       }
       if (path === '/api/v1/orchestrations' && method === 'GET') {
         if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
