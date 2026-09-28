@@ -1057,7 +1057,7 @@ export class FirestoreOrchestrationRepository implements IOrchestrationRepositor
       .where('scope', '==', scope)
       .where('scopeId', '==', scopeId)
       .get();
-    return snap.docs.map((doc) => docData(doc) as unknown as BudgetLimit);
+    return snap.docs.map((doc) => reviveTimestamps(docData(doc)) as unknown as BudgetLimit);
   }
   async appendCost(data: Omit<CostEventRecord, 'id' | 'recordedAt'>): Promise<CostEventRecord> {
     const event = { ...data, id: `cost_${randomUUID().replace(/-/g, '')}`, recordedAt: new Date() };
@@ -1068,10 +1068,14 @@ export class FirestoreOrchestrationRepository implements IOrchestrationRepositor
     sessionId?: string;
     projectId?: string;
     organizationId?: string;
+    userId?: string;
   }): Promise<CostEventRecord[]> {
-    const snap = await this.costs().get();
+    // One person's costs are a single-field query; the rest filter in memory.
+    const snap = await (
+      options.userId ? this.costs().where('userId', '==', options.userId) : this.costs()
+    ).get();
     return snap.docs
-      .map((doc) => docData(doc) as unknown as CostEventRecord)
+      .map((doc) => reviveTimestamps(docData(doc)) as unknown as CostEventRecord)
       .filter(
         (item) =>
           (!options.sessionId || item.sessionId === options.sessionId) &&
