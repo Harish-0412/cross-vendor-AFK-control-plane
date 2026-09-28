@@ -45,6 +45,14 @@ import { type AgentManager, createAgentManager } from './agent-manager';
 import { type EventBus, createEventBus } from './event-bus';
 import { collectDiff, commit, createBranch, getStatus, push } from './git/git-operations';
 import { runProjectTests } from './git/test-runner';
+import {
+  commitWorkspaceBranch,
+  evaluateWorkspace,
+  listRecentChanges,
+  prepareWorkspace,
+  removeWorkspace,
+  servedRoot,
+} from './git/workspaces';
 import { type ProjectManager, createProjectManager } from './project-manager';
 import { type AdmissionPhase, ADMISSION_POLICY, SessionAdmissionError } from './runtime/admission';
 import {
@@ -660,12 +668,66 @@ export class GatewayImpl implements GatewayCore {
           };
         case 'git.status':
           return { success: true, result: await getStatus(this.commandProjectRoot(payload)) };
+        // Isolated workspaces for contests and benchmarks. Project roots must
+        // be folders this gateway serves; workspaces must be ones it created.
+        case 'git.recent_changes':
+          return {
+            success: true,
+            result: await listRecentChanges(
+              servedRoot(this.commandProjectRoot(payload), this.servedRoots()),
+              typeof payload['limit'] === 'number' ? payload['limit'] : 10,
+            ),
+          };
+        case 'workspace.prepare':
+          return {
+            success: true,
+            result: await prepareWorkspace(
+              servedRoot(this.commandProjectRoot(payload), this.servedRoots()),
+              typeof payload['ref'] === 'string' ? payload['ref'] : 'HEAD',
+              typeof payload['label'] === 'string' ? payload['label'] : 'run',
+            ),
+          };
+        case 'workspace.evaluate': {
+          const realTests = payload['realTests'] as
+            { commit?: unknown; paths?: unknown } | undefined;
+          return {
+            success: true,
+            result: await evaluateWorkspace(
+              this.requiredString(payload, 'workspaceRoot'),
+              this.requiredString(payload, 'baseCommit'),
+              realTests && typeof realTests.commit === 'string' && Array.isArray(realTests.paths)
+                ? {
+                    commit: realTests.commit,
+                    paths: realTests.paths.filter(
+                      (item): item is string => typeof item === 'string',
+                    ),
+                  }
+                : undefined,
+            ),
+          };
+        }
+        case 'workspace.commit_branch':
+          return {
+            success: true,
+            result: await commitWorkspaceBranch(
+              this.requiredString(payload, 'workspaceRoot'),
+              this.requiredString(payload, 'branch'),
+              typeof payload['message'] === 'string' ? payload['message'] : '',
+            ),
+          };
+        case 'workspace.remove':
+          await removeWorkspace(this.requiredString(payload, 'workspaceRoot'));
+          return { success: true };
         default:
           return { success: false, error: `Unsupported command: ${commandType || '(missing)'}` };
       }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
+  }
+
+  private servedRoots(): string[] {
+    return (this.options.projectRoots ?? []).map((root) => path.resolve(root));
   }
 
   private commandProjectRoot(payload: Record<string, unknown>): string {

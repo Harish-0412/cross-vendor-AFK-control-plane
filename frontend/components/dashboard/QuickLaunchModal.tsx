@@ -165,7 +165,12 @@ export function LaunchSessionSheet() {
     setSubmitting(true);
     setError(null);
     try {
-      const session = await apiClient.post<{ id: string; state?: string; error?: string }>(
+      const session = await apiClient.post<{
+        id: string;
+        state?: string;
+        error?: string;
+        substitution?: { agentId: string; reason: string };
+      }>(
         "/api/v1/sessions",
         {
           deviceId,
@@ -181,7 +186,14 @@ export function LaunchSessionSheet() {
         setError(explainStartFailure(session.error));
         return;
       }
-      toast.success("Session started", { description: `${agentName({ id: agentId })} is working.` });
+      if (session.substitution) {
+        toast.info(`${agentName({ id: session.substitution.agentId })} started instead`, {
+          description: session.substitution.reason,
+          duration: 10_000,
+        });
+      } else {
+        toast.success("Session started", { description: `${agentName({ id: agentId })} is working.` });
+      }
       setOpen(false);
       onLaunched?.();
       router.push(`/sessions/${session.id}`);

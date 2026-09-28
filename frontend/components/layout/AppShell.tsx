@@ -13,6 +13,7 @@ import { SIDEBAR_COLLAPSED, SIDEBAR_EXPANDED, Sidebar } from "./Sidebar";
 import { LaunchSessionSheet } from "@/components/dashboard/QuickLaunchModal";
 import { EASE_OUT } from "@/components/motion";
 import { formatRelative, type UsageAlert } from "@/lib/ai-integrations";
+import { agentLabel } from "@/lib/arena";
 import { useAuthStore } from "@/lib/auth";
 import { ensureServiceWorker } from "@/lib/push";
 import { realtimeClient } from "@/lib/realtime";
@@ -81,6 +82,48 @@ export function AppShell({ children }: { children: ReactNode }) {
         },
         duration: 12_000,
       });
+    });
+  }, [isAuthenticated, router]);
+
+  // Cross-vendor events: a hand-off, a decided contest, a finished benchmark.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    return realtimeClient.subscribeAllEvents((message) => {
+      const data = message as Record<string, unknown> & { type?: string };
+      if (data.type === "handoff") {
+        const handoff = data["handoff"] as {
+          kind?: string;
+          reason?: string;
+          toSessionId?: string;
+        };
+        const title =
+          handoff?.kind === "handoff"
+            ? "Task handed to another agent"
+            : handoff?.kind === "scheduled_resume"
+              ? "Task will continue after the reset"
+              : "An agent hit its usage limit";
+        toast.info(title, {
+          description: handoff?.reason,
+          duration: 12_000,
+          action: {
+            label: handoff?.toSessionId ? "Open" : "Details",
+            onClick: () =>
+              router.push(handoff?.toSessionId ? `/sessions/${handoff.toSessionId}` : "/never-idle"),
+          },
+        });
+      } else if (data.type === "contest_decided") {
+        const winner = typeof data["winner"] === "string" ? agentLabel(data["winner"]) : null;
+        toast.success(winner ? `Contest decided: ${winner} wins` : "Contest finished", {
+          duration: 12_000,
+          action: { label: "View", onClick: () => router.push("/contests") },
+        });
+      } else if (data.type === "benchmark_completed") {
+        toast.success("Benchmark finished", {
+          description: "The leaderboard is up to date.",
+          duration: 12_000,
+          action: { label: "View", onClick: () => router.push("/leaderboard") },
+        });
+      }
     });
   }, [isAuthenticated, router]);
 

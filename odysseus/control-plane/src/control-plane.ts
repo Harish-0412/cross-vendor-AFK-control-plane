@@ -8,6 +8,11 @@ import { EscalationScheduler } from './afk/escalation-scheduler';
 import { notificationForUsageAlert } from './afk/notification-templates';
 import { PushSender } from './afk/push-sender';
 import { HttpRouter } from './api/http-router';
+import { BenchmarkService } from './arena/benchmark';
+import { ContestService } from './arena/contest';
+import { NeverIdleService } from './arena/never-idle';
+import { ArenaRoutes } from './arena/routes';
+import { ArenaRuntime } from './arena/runtime';
 import { getFirebaseFirestore, isFirebaseAdminConfigured } from './auth/firebase-admin';
 import { loadConfig, isAllowedOrigin } from './config';
 import { FirestoreDatabase } from './db/firestore-store';
@@ -46,6 +51,9 @@ export class ControlPlane {
   public riskEngine: RiskEngine;
   public multiAgentOrchestrator: MultiAgentOrchestrator;
   public integrationAccess: IntegrationAccessService;
+  public neverIdle: NeverIdleService;
+  public contests: ContestService;
+  public benchmarks: BenchmarkService;
   /**
    * True when no persistent database was configured. The production guard
    * refuses to start on this, because a container restart would erase every
@@ -127,6 +135,20 @@ export class ControlPlane {
       { context: new ContextAgent(this.db) },
     );
 
+    // Cross-vendor features: never idle, contests, and the leaderboard.
+    const arenaRuntime = new ArenaRuntime(
+      this.db,
+      this.tunnelServer,
+      this.registry,
+      this.policyService,
+      this.approvalWorkflow,
+    );
+    const notifyArena = (userId: string, message: Record<string, unknown>) =>
+      this.clientServer.sendToUser(userId, message);
+    this.neverIdle = new NeverIdleService(arenaRuntime, notifyArena);
+    this.contests = new ContestService(arenaRuntime, notifyArena);
+    this.benchmarks = new BenchmarkService(arenaRuntime, notifyArena);
+
     // Wire real-time event forwarding and the automatic completion review.
     this.tunnelServer.setOnEventBroadcast((storedEvent) => {
       this.clientServer.broadcastEvent(storedEvent);
@@ -138,6 +160,17 @@ export class ControlPlane {
           .catch((error: unknown) =>
             console.warn('[Odysseus Control Plane] Orchestration advance failed:', error),
           );
+        for (const [name, service] of [
+          ['Never-idle', this.neverIdle],
+          ['Contest', this.contests],
+          ['Benchmark', this.benchmarks],
+        ] as const) {
+          void service
+            .onSessionFinished(storedEvent.sessionId)
+            .catch((error: unknown) =>
+              console.warn(`[Odysseus Control Plane] ${name} update failed:`, error),
+            );
+        }
       }
       void this.afkOrchestrator.handleEvent(storedEvent).catch((error: unknown) => {
         console.warn('[Odysseus Control Plane] AFK notification pipeline failed:', error);
@@ -208,6 +241,10 @@ export class ControlPlane {
       ),
     );
     this.router.setIntegrationAccess(this.integrationAccess);
+    this.router.setArena(
+      new ArenaRoutes(this.db, this.neverIdle, this.contests, this.benchmarks),
+      this.neverIdle,
+    );
     this.tunnelServer.setOnIntegrationUpdate((deviceId, payload) => {
       void this.integrationAccess.handleGatewayUpdate(deviceId, payload).catch((error: unknown) => {
         // eslint-disable-next-line no-console
@@ -293,6 +330,8 @@ export class ControlPlane {
     if (this.server) {
       return { url: this.getUrl(), port: this.actualPort };
     }
+    // Starts sessions scheduled to continue once a plan limit resets.
+    this.neverIdle.start();
 
     return new Promise((resolve, reject) => {
       this.server = http.createServer((req, res) => {
@@ -364,6 +403,7 @@ export class ControlPlane {
     this.tunnelServer.close();
     this.clientServer.close();
     this.escalationScheduler.close();
+    this.neverIdle.stop();
 
     await new Promise<void>((resolve, reject) => {
       this.server?.close((err) => {

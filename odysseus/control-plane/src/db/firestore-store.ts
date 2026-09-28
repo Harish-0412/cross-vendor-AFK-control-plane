@@ -34,6 +34,9 @@ import type {
   IExternalConversationRepository,
   ExternalConversationRecord,
   IProviderUsageRepository,
+  IDocumentRepository,
+  DocumentCollection,
+  StoredDocument,
   ProviderUsageRecord,
   IDatabase,
   IUserRepository,
@@ -1094,8 +1097,10 @@ export class FirestoreDatabase implements IDatabase {
   public integrationGrants: IIntegrationGrantRepository;
   public externalConversations: IExternalConversationRepository;
   public providerUsage: IProviderUsageRepository;
+  public documents: IDocumentRepository;
 
   constructor(private firestore: Firestore) {
+    this.documents = new FirestoreDocumentRepository(this.firestore);
     this.users = new FirestoreUserRepository(this.firestore);
     this.devices = new FirestoreDeviceRepository(this.firestore);
     this.pairings = new FirestorePairingRepository(this.firestore);
@@ -1111,6 +1116,54 @@ export class FirestoreDatabase implements IDatabase {
     this.approvals = new FirestoreApprovalRepository(this.firestore);
     this.pushSubscriptions = new FirestorePushSubscriptionRepository(this.firestore);
     this.audit = new FirestoreAuditRepository(this.firestore);
+  }
+}
+
+/**
+ * JSON documents, one Firestore collection per kind. The payload is stored as
+ * a JSON string: it keeps nested optional fields (Firestore rejects
+ * `undefined`) and dates (it would turn them into Timestamps) exactly as the
+ * services wrote them.
+ */
+export class FirestoreDocumentRepository implements IDocumentRepository {
+  constructor(private db: Firestore) {}
+  private col = (collection: DocumentCollection) => this.db.collection(`odysseus_${collection}`);
+
+  async put<T>(collection: DocumentCollection, id: string, userId: string, data: T): Promise<void> {
+    await this.col(collection)
+      .doc(id)
+      .set({ id, userId, json: JSON.stringify(data), updatedAt: new Date().toISOString() });
+  }
+
+  async get<T>(collection: DocumentCollection, id: string): Promise<StoredDocument<T> | null> {
+    const doc = await this.col(collection).doc(id).get();
+    return doc.exists ? this.revive<T>(docData(doc)) : null;
+  }
+
+  async listByUser<T>(
+    collection: DocumentCollection,
+    userId: string,
+  ): Promise<StoredDocument<T>[]> {
+    const snap = await this.col(collection).where('userId', '==', userId).get();
+    return snap.docs.map((doc) => this.revive<T>(docData(doc)));
+  }
+
+  async listAll<T>(collection: DocumentCollection): Promise<StoredDocument<T>[]> {
+    const snap = await this.col(collection).get();
+    return snap.docs.map((doc) => this.revive<T>(docData(doc)));
+  }
+
+  async delete(collection: DocumentCollection, id: string): Promise<void> {
+    await this.col(collection).doc(id).delete();
+  }
+
+  private revive<T>(raw: Record<string, unknown>): StoredDocument<T> {
+    return {
+      id: String(raw['id']),
+      userId: String(raw['userId']),
+      data: JSON.parse(String(raw['json'] ?? '{}')) as T,
+      updatedAt: String(raw['updatedAt'] ?? ''),
+    };
   }
 }
 

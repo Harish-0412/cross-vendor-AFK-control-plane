@@ -170,6 +170,41 @@ You'll see the Odysseus logo, a card describing your computer, and a short check
 
 ---
 
+## Using several vendors' agents together
+
+If more than one coding agent is installed (for example Claude Code and Codex), three features in the **Cross-vendor** section of the menu use them together. All three need the gateway running (Step 4). Contest and Leaderboard also need the project folder to be a git repository.
+
+### Never idle — work continues when an agent hits its limit
+
+It's on by default. When an agent stops because it reached its plan or rate limit (for example "Claude AI usage limit reached"), Odysseus:
+
+1. notes which agent is limited and when the limit resets (you'll see "At its limit · resets 3:00 PM" on the **Never idle** page);
+2. hands the task to the next agent in your **hand-off order**, in the same folder. That agent is told the original task, which files were already changed, and what the first agent said last, so it continues rather than starts over;
+3. if no other agent is available, restarts the same agent automatically once its limit resets.
+
+Launching an agent that is at its limit starts the next one instead, and tells you so. Both sessions link to each other ("continued from…" / "continued by…"), and you get a notification when a hand-off happens. You can turn it off, change the order, or mark an agent as available again ("It's back") on the **Never idle** page.
+
+### Contest — the same task, several vendors, the best result
+
+On the **Contest** page, pick 2–4 agents and describe a task.
+
+- Each agent works **in its own copy of your repository** (a git worktree under `~/.odysseus/worktrees`), at the same time. Your own folder isn't touched.
+- When they finish, your project's **tests run on each result**, and each result is **reviewed by an agent from a different vendor**, which isn't told who wrote it.
+- Each entry gets a score out of 100: **tests 60** + **review 40**. If the project has no tests, or a review isn't available, that part counts as half.
+- Press **Apply** and the winner (or any entry you choose) becomes a **branch** in your repository, for example `odysseus/contest-1a2b3c4d-codex`. Review and merge it as usual. **Remove workspaces** deletes the copies.
+
+### Leaderboard — which agent is best on *your* code
+
+On the **Leaderboard** page, pick agents and how many recent changes to replay, then press **Show which changes** to see them first.
+
+- For each change already merged into your repository, each agent starts from the commit **before** the change and gets its title and description as the task.
+- The **tests that shipped with the real change** are then run on the agent's code. Passing them counts as "solved". The page also shows how many of the same files the agent changed, and how long it took.
+- Agents are ranked by how many changes they solved. **Make default** sets the winner as this project's preferred agent.
+
+Contests and benchmarks use each agent's own plan: a benchmark with 3 agents and 5 changes runs 15 agent sessions, 2 at a time.
+
+---
+
 ## Every day
 
 - **To go AFK:** open a terminal in your project and run `odysseus gateway`. Then leave.

@@ -13,6 +13,8 @@ import { CreatePolicyVersionSchema } from '@odysseus/schemas';
 
 import { AdminActionError, AdminService } from '../admin/admin-service';
 import { SummaryGenerator } from '../afk/summary-generator';
+import type { NeverIdleService } from '../arena/never-idle';
+import type { ArenaRoutes } from '../arena/routes';
 import {
   isSameDeviceKey,
   isUsablePublicKeyJwk,
@@ -149,6 +151,14 @@ export class HttpRouter {
   private readonly pairingRateLimiter = new AuthRateLimiter(DEFAULT_PAIRING_RATE_LIMIT);
   private integrationAccess: IntegrationAccessService | undefined;
   private adminService: AdminService;
+
+  private arenaRoutes: ArenaRoutes | undefined;
+  private neverIdle: NeverIdleService | undefined;
+
+  setArena(routes: ArenaRoutes, neverIdle: NeverIdleService): void {
+    this.arenaRoutes = routes;
+    this.neverIdle = neverIdle;
+  }
 
   setIntegrationAccess(service: IntegrationAccessService): void {
     this.integrationAccess = service;
@@ -2263,6 +2273,17 @@ export class HttpRouter {
           });
         }
 
+        // Never idle: launching an agent that is at its plan limit would only
+        // fail, so the next available agent starts instead, and the response
+        // says so.
+        const substitution =
+          this.neverIdle && !(rawConfig as { adapter?: unknown } | undefined)?.adapter
+            ? await this.neverIdle
+                .substituteForLaunch(authUser.id, deviceId, agentId)
+                .catch(() => null)
+            : null;
+        if (substitution) agentId = substitution.agentId;
+
         const sessionId = `sess_${randomUUID().replace(/-/g, '')}`;
         // The gateway resolves adapters by SessionConfig.adapter (see
         // GatewayImpl.createSession). This previously emitted `agent`, which
@@ -2284,6 +2305,15 @@ export class HttpRouter {
             sessionId,
             projectId: project.id,
             agentId,
+            ...(substitution
+              ? {
+                  substitutedFor: typeof body['agentId'] === 'string' ? body['agentId'] : undefined,
+                  substitutionReason: substitution.reason,
+                  originalPrompt: resolvedPrompt,
+                }
+              : resolvedPrompt !== undefined
+                ? { originalPrompt: resolvedPrompt }
+                : {}),
           },
         };
 
@@ -2369,7 +2399,10 @@ export class HttpRouter {
           sessionRecord.error = errMsg;
         }
 
-        return this.sendJson(res, 201, sessionRecord);
+        return this.sendJson(res, 201, {
+          ...sessionRecord,
+          ...(substitution ? { substitution } : {}),
+        });
       }
 
       if (
@@ -3258,6 +3291,11 @@ export class HttpRouter {
           }
           throw error;
         }
+      }
+
+      if (this.arenaRoutes) {
+        const handled = await this.arenaRoutes.handle(method, url, body, authUser?.id);
+        if (handled) return this.sendJson(res, handled.status, handled.body);
       }
 
       return this.sendJson(res, 404, { error: `Endpoint not found: ${method} ${path}` });

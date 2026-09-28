@@ -33,6 +33,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiClient, ApiError } from "@/lib/api-client";
 import { realtimeClient } from "@/lib/realtime";
+import { agentLabel } from "@/lib/arena";
 import { explainStartFailure } from "@/lib/session-errors";
 import { toast } from "sonner";
 
@@ -78,6 +79,93 @@ interface SessionDetail {
   completedAt?: unknown;
   error?: string | null;
   tokensUsed?: number | null;
+  config?: { metadata?: Record<string, unknown> };
+}
+
+/** Where this session came from or went: hand-offs, a launch redirect, contests, benchmarks. */
+function SessionLinks({ session }: { session: SessionDetail }) {
+  const meta = session.config?.metadata ?? {};
+  const text = (key: string) => (typeof meta[key] === "string" ? (meta[key] as string) : undefined);
+  const notes: Array<{ tone: "info" | "warn"; body: React.ReactNode }> = [];
+
+  if (text("handoffFrom")) {
+    notes.push({
+      tone: "info",
+      body: (
+        <>
+          <strong>Never idle:</strong>{" "}
+          {text("handoffReason") === "Usage limit reset"
+            ? "restarted automatically after its usage limit reset. "
+            : `continued from ${agentLabel(text("handoffFromAgent") ?? "another agent")}, which hit its usage limit${text("handoffReason") ? ` (“${text("handoffReason")}”)` : ""}. `}
+          <Link href={`/sessions/${text("handoffFrom")}`} className="font-medium underline underline-offset-2">
+            Open the earlier session
+          </Link>
+        </>
+      ),
+    });
+  }
+  if (text("handedOffTo")) {
+    notes.push({
+      tone: "warn",
+      body: (
+        <>
+          <strong>Never idle:</strong> this agent hit its usage limit, so{" "}
+          {agentLabel(text("handedOffToAgent") ?? "another agent")} continued the task.{" "}
+          <Link href={`/sessions/${text("handedOffTo")}`} className="font-medium underline underline-offset-2">
+            Open the continued session
+          </Link>
+        </>
+      ),
+    });
+  }
+  if (text("substitutionReason")) {
+    notes.push({ tone: "info", body: <><strong>Never idle:</strong> {text("substitutionReason")}</> });
+  }
+  if (meta["arena"] === "contest") {
+    notes.push({
+      tone: "info",
+      body: (
+        <>
+          {meta["contestRole"] === "review" ? "Cross-vendor review" : "Entry"} in a{" "}
+          <Link href="/contests" className="font-medium underline underline-offset-2">
+            contest
+          </Link>
+          , working in its own copy of the repository.
+        </>
+      ),
+    });
+  }
+  if (meta["arena"] === "benchmark") {
+    notes.push({
+      tone: "info",
+      body: (
+        <>
+          A run in a{" "}
+          <Link href="/leaderboard" className="font-medium underline underline-offset-2">
+            leaderboard benchmark
+          </Link>
+          , replaying a past change in its own copy of the repository.
+        </>
+      ),
+    });
+  }
+  if (notes.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      {notes.map((note, index) => (
+        <div
+          key={index}
+          className={
+            note.tone === "warn"
+              ? "rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-2.5 text-sm"
+              : "rounded-xl border border-primary/25 bg-primary/5 px-4 py-2.5 text-sm"
+          }
+        >
+          {note.body}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 interface DeviceSummary {
@@ -607,6 +695,10 @@ export default function LiveSessionPage({
           </Button>
         </div>
       </div>
+
+      {/* Below the header: the console's auto-scroll moves the window, which
+          hid a notice placed above it. */}
+      <SessionLinks session={session} />
 
       {/* Phase 7.5 — "While you were away" summary panel */}
       {showSummary && (

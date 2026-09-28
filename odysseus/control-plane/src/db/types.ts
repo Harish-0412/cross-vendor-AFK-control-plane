@@ -216,6 +216,37 @@ export interface IDatabase {
   integrationGrants: IIntegrationGrantRepository;
   externalConversations: IExternalConversationRepository;
   providerUsage: IProviderUsageRepository;
+  documents: IDocumentRepository;
+}
+
+/**
+ * Small JSON records owned by one user: contests, benchmark runs, hand-offs,
+ * vendor limits and settings. Stored as plain JSON with ISO date strings, so
+ * nothing comes back as a database-specific timestamp object.
+ */
+export interface StoredDocument<T = Record<string, unknown>> {
+  id: string;
+  userId: string;
+  data: T;
+  updatedAt: string;
+}
+
+export type DocumentCollection =
+  | 'contests'
+  | 'benchmarks'
+  | 'handoffs'
+  | 'vendor_limits'
+  | 'never_idle_settings'
+  | 'scheduled_resumes'
+  | 'remembered_approvals';
+
+export interface IDocumentRepository {
+  put<T>(collection: DocumentCollection, id: string, userId: string, data: T): Promise<void>;
+  get<T>(collection: DocumentCollection, id: string): Promise<StoredDocument<T> | null>;
+  listByUser<T>(collection: DocumentCollection, userId: string): Promise<StoredDocument<T>[]>;
+  /** Every record in a collection; for the few that are scanned on a timer. */
+  listAll<T>(collection: DocumentCollection): Promise<StoredDocument<T>[]>;
+  delete(collection: DocumentCollection, id: string): Promise<void>;
 }
 
 /**

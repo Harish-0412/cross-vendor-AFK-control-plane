@@ -137,7 +137,7 @@ export interface GatewayEvent {
   payload?: unknown;
 }
 
-export const GATEWAY_VERSION = '0.1.3';
+export const GATEWAY_VERSION = '0.1.4';
 export const DEFAULT_API_HOST = '127.0.0.1';
 export const DEFAULT_API_PORT = 5173;
 export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 30000;

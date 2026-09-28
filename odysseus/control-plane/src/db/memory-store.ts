@@ -32,6 +32,9 @@ import type {
   IProviderUsageRepository,
   ProviderUsageRecord,
   IDatabase,
+  IDocumentRepository,
+  DocumentCollection,
+  StoredDocument,
   IUserRepository,
   IDeviceRepository,
   IPairingRepository,
@@ -686,6 +689,44 @@ export class MemoryDatabase implements IDatabase {
   public integrationGrants = new MemoryIntegrationGrantRepository();
   public externalConversations = new MemoryExternalConversationRepository();
   public providerUsage = new MemoryProviderUsageRepository();
+  public documents = new MemoryDocumentRepository();
+}
+
+export class MemoryDocumentRepository implements IDocumentRepository {
+  private readonly records = new Map<string, StoredDocument<unknown>>();
+
+  async put<T>(collection: DocumentCollection, id: string, userId: string, data: T): Promise<void> {
+    // A deep copy, as a real database would store: callers keep mutating
+    // their objects after saving them.
+    this.records.set(`${collection}/${id}`, {
+      id,
+      userId,
+      data: JSON.parse(JSON.stringify(data)) as unknown,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  async get<T>(collection: DocumentCollection, id: string): Promise<StoredDocument<T> | null> {
+    const record = this.records.get(`${collection}/${id}`);
+    return record ? (JSON.parse(JSON.stringify(record)) as StoredDocument<T>) : null;
+  }
+
+  async listByUser<T>(
+    collection: DocumentCollection,
+    userId: string,
+  ): Promise<StoredDocument<T>[]> {
+    return (await this.listAll<T>(collection)).filter((record) => record.userId === userId);
+  }
+
+  async listAll<T>(collection: DocumentCollection): Promise<StoredDocument<T>[]> {
+    return [...this.records.entries()]
+      .filter(([key]) => key.startsWith(`${collection}/`))
+      .map(([, record]) => JSON.parse(JSON.stringify(record)) as StoredDocument<T>);
+  }
+
+  async delete(collection: DocumentCollection, id: string): Promise<void> {
+    this.records.delete(`${collection}/${id}`);
+  }
 }
 
 export class MemoryIntegrationGrantRepository implements IIntegrationGrantRepository {

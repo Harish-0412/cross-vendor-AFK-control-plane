@@ -1,4 +1,9 @@
-import type { GatewayOptions, SessionConfig, EventEnvelope } from '@odysseus/protocol';
+import {
+  GATEWAY_VERSION,
+  type GatewayOptions,
+  type SessionConfig,
+  type EventEnvelope,
+} from '@odysseus/protocol';
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 
 import { createGateway, type GatewayImpl } from '../../src/gateway';
@@ -26,7 +31,7 @@ describe('GatewayImpl (Integration)', () => {
     const status = await gateway.getStatus();
     expect(status.gatewayId).toMatch(/^gw_/);
     expect(status.deviceId).toMatch(/^dev_/);
-    expect(status.version).toBe('0.1.0');
+    expect(status.version).toBe(GATEWAY_VERSION);
     expect(status.features.localApiServer).toBe(true);
     expect(status.features.sandboxIsolation).toBe(false);
     expect(status.features.secretRedaction).toBe(true);
