@@ -239,7 +239,8 @@ export type DocumentCollection =
   | 'vendor_limits'
   | 'never_idle_settings'
   | 'scheduled_resumes'
-  | 'remembered_approvals';
+  | 'remembered_approvals'
+  | 'agent_traces';
 
 export interface IDocumentRepository {
   put<T>(collection: DocumentCollection, id: string, userId: string, data: T): Promise<void>;

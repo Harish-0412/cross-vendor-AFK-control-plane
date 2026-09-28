@@ -48,7 +48,14 @@ import {
   type ProtectedConfigGuard,
 } from './config-guard';
 import { type EventBus, createEventBus } from './event-bus';
-import { collectDiff, commit, createBranch, getStatus, push } from './git/git-operations';
+import {
+  addTraceNote,
+  collectDiff,
+  commit,
+  createBranch,
+  getStatus,
+  push,
+} from './git/git-operations';
 import { runProjectTests } from './git/test-runner';
 import {
   commitWorkspaceBranch,
@@ -691,6 +698,19 @@ export class GatewayImpl implements GatewayCore {
           return {
             success: true,
             result: await commit(root, this.requiredString(payload, 'message'), files),
+          };
+        }
+        case 'git.trace_note': {
+          // An Agent Trace record for a commit, stored as a git note.
+          const record = payload['record'];
+          if (typeof record !== 'object' || record === null) throw new Error('record is required');
+          return {
+            success: true,
+            result: await addTraceNote(
+              this.commandProjectRoot(payload),
+              this.requiredString(payload, 'revision'),
+              record,
+            ),
           };
         }
         case 'git.push':

@@ -104,6 +104,27 @@ async function main(): Promise<void> {
       startedAt: new Date(),
     });
 
+  // A finished review, so the session page can offer its Agent Trace record.
+  await cp.db.sessions.update('sess_demo_claude', {
+    reviewBundle: {
+      sessionId: 'sess_demo_claude',
+      projectId: 'proj_demo',
+      generatedAt: new Date(),
+      diff: [
+        'diff --git a/src/checkout.ts b/src/checkout.ts',
+        '--- a/src/checkout.ts',
+        '+++ b/src/checkout.ts',
+        '@@ -10,0 +11,3 @@',
+        '+export function total(items: Item[]): number {',
+        '+  return items.reduce((sum, item) => sum + item.price, 0);',
+        '+}',
+      ].join('\n'),
+      summary: {},
+      tests: null,
+      status: 'ready',
+    },
+  });
+
   const ask = async (
     sessionId: string,
     action: ActionDescriptor,

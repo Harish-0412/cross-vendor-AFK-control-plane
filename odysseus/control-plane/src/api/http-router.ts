@@ -61,6 +61,7 @@ import {
   type RememberedApproval,
   type RememberScope,
 } from '../policy/index';
+import { AgentTraces, type CommitResult } from '../review/agent-trace';
 import { ReviewOrchestrator } from '../review/review-orchestrator';
 import type { ConnectionRegistry } from '../tunnel/connection-registry';
 import type { TunnelServer } from '../tunnel/tunnel-server';
@@ -159,6 +160,7 @@ export class HttpRouter {
   private reviewOrchestrator: ReviewOrchestrator;
   private agentRouter?: AgentRouter | undefined;
   private riskEngine: RiskEngine;
+  private readonly agentTraces: AgentTraces;
   private costGovernor?: CostGovernor | undefined;
   private multiAgentOrchestrator?: MultiAgentOrchestrator | undefined;
   private readonly vcsOAuth: VcsOAuth;
@@ -214,6 +216,7 @@ export class HttpRouter {
       reviewOrchestrator ?? new ReviewOrchestrator(db, tunnelServer, policyService);
     this.agentRouter = agentRouter;
     this.riskEngine = riskEngine;
+    this.agentTraces = new AgentTraces(db, tunnelServer, { frontendUrl: config.frontendUrl });
     this.costGovernor = costGovernor;
     this.multiAgentOrchestrator = multiAgentOrchestrator;
     this.vcsCredentials = new VcsCredentialStore(
@@ -2648,6 +2651,7 @@ export class HttpRouter {
             typeof commandResult.payload === 'object' && commandResult.payload !== null
               ? (commandResult.payload as { result?: unknown })
               : null;
+          if (commandType === 'git.commit') this.traceCommit(session, commandResult.payload);
           return this.sendJson(res, commandResult.delivered ? 200 : 503, {
             decision: 'allow',
             delivered: commandResult.delivered,
@@ -2780,6 +2784,11 @@ export class HttpRouter {
             return this.sendJson(res, 400, { error: 'from must be a valid ISO date' });
           }
           return this.sendJson(res, 200, await this.summaryGenerator.generate(sessionId, from));
+        }
+
+        // Agent Trace records (agent-trace.dev) for the session and its commits.
+        if (segments.length === 5 && segments[4] === 'agent-trace' && method === 'GET') {
+          return this.sendJson(res, 200, await this.agentTraces.list(session));
         }
 
         if (segments.length === 5 && segments[4] === 'review' && method === 'GET') {
@@ -3614,6 +3623,9 @@ export class HttpRouter {
               reason,
             });
 
+    if (approved && executable?.commandType === 'git.commit')
+      this.traceCommit(session, tunnelResult.payload);
+
     // An orchestration approval deliberately carries the deferred session.start
     // command. Keep the durable session state aligned before advancing its DAG.
     const orchestrationRunId = result.record?.details?.['orchestrationRunId'];
@@ -3706,6 +3718,27 @@ export class HttpRouter {
             : 'Gateway is offline; approval decision will be relayed when the device reconnects.',
       },
     };
+  }
+
+  /**
+   * Record an Agent Trace for a commit Odysseus just made, and attach it to
+   * the commit as a git note. Never delays or fails the commit response.
+   */
+  private traceCommit(session: SessionRecord, payload: unknown): void {
+    const ack = payload as { result?: unknown } | null;
+    const result = (
+      ack && typeof ack === 'object' && 'result' in ack ? ack.result : ack
+    ) as Partial<CommitResult> | null;
+    if (!result || typeof result.hash !== 'string' || typeof result.diff !== 'string') return;
+    void this.agentTraces
+      .recordCommit(session, {
+        hash: result.hash,
+        diff: result.diff,
+        ...(result.diffTruncated ? { diffTruncated: true } : {}),
+      })
+      .catch((error: unknown) =>
+        console.warn('[Odysseus Control Plane] Agent Trace for commit failed:', error),
+      );
   }
 
   private async executeApprovedVcsPullRequest(

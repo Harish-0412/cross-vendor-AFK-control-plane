@@ -35,6 +35,7 @@ import { apiClient, ApiError } from "@/lib/api-client";
 import { realtimeClient } from "@/lib/realtime";
 import { agentLabel } from "@/lib/arena";
 import { explainStartFailure } from "@/lib/session-errors";
+import { AgentTraceDownloads } from "@/components/sessions/AgentTraceDownloads";
 import { toast } from "sonner";
 
 const MAX_EVENT_BUFFER = 2000;
@@ -699,6 +700,7 @@ export default function LiveSessionPage({
       {/* Below the header: the console's auto-scroll moves the window, which
           hid a notice placed above it. */}
       <SessionLinks session={session} />
+      <AgentTraceDownloads sessionId={session.id} refreshKey={session.state} />
 
       {/* Phase 7.5 — "While you were away" summary panel */}
       {showSummary && (

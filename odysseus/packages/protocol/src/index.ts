@@ -13,3 +13,4 @@ export * from './types/orchestration';
 export * from './types/integrations';
 
 export * from './ids';
+export * from './agent-trace';
