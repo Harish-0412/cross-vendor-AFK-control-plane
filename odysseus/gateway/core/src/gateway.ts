@@ -42,6 +42,11 @@ import {
 import { type TunnelClient, createTunnelClient } from '@odysseus/tunnel';
 
 import { type AgentManager, createAgentManager } from './agent-manager';
+import {
+  describeConfigChanges,
+  type ConfigSnapshot,
+  type ProtectedConfigGuard,
+} from './config-guard';
 import { type EventBus, createEventBus } from './event-bus';
 import { collectDiff, commit, createBranch, getStatus, push } from './git/git-operations';
 import { runProjectTests } from './git/test-runner';
@@ -122,6 +127,12 @@ export class GatewayImpl implements GatewayCore {
   private admissionPhase: AdmissionPhase = 'running';
   private readonly phaseListeners: Set<(phase: AdmissionPhase) => void> = new Set();
   private readonly adapterCircuits = new Map<string, AdapterCircuit>();
+  /** The deny floor for agents that cannot be intercepted; set by the runtime. */
+  private configGuard: ProtectedConfigGuard | undefined;
+  private readonly configWatches = new Map<
+    string,
+    { snapshot: ConfigSnapshot; timer: ReturnType<typeof setInterval>; checking: boolean }
+  >();
 
   constructor(options: GatewayOptions = {}) {
     this.options = mergeGatewayOptions(options) as typeof this.options;
@@ -546,6 +557,15 @@ export class GatewayImpl implements GatewayCore {
     this.integrationHandler = handler;
   }
 
+  /**
+   * Guard the files that make tools run commands by themselves (MCP server
+   * lists, hooks, git hooks) during every session. Off unless the runtime
+   * sets it, so embedded and test gateways never touch real files.
+   */
+  setConfigGuard(guard: ProtectedConfigGuard | undefined): void {
+    this.configGuard = guard;
+  }
+
   private async handleTunnelCommand(
     command: unknown,
   ): Promise<{ success: boolean; result?: unknown; error?: string }> {
@@ -791,6 +811,7 @@ export class GatewayImpl implements GatewayCore {
   async shutdown(graceful = true, timeoutMs?: number): Promise<void> {
     if (this.shuttingDown) return;
     this.shuttingDown = true;
+    for (const sessionId of [...this.configWatches.keys()]) this.stopConfigWatch(sessionId);
     // A direct shutdown() without a preceding drain() still has to close
     // admission, or a session could be accepted while teardown is running.
     this.setAdmissionPhase(graceful ? 'draining' : 'aborting');
@@ -975,6 +996,11 @@ export class GatewayImpl implements GatewayCore {
         : generateSessionId();
     let adapterSessionId: string;
 
+    // Before the agent can touch anything.
+    const configSnapshot = await this.configGuard
+      ?.snapshot(validation.resolvedRoot)
+      .catch(() => undefined);
+
     try {
       // Start the adapter session first to get its session ID
       adapterSessionId = await adapter.startSession(config);
@@ -1010,6 +1036,7 @@ export class GatewayImpl implements GatewayCore {
 
     this.registry.updateState(gatewaySessionId, 'running');
     this.totalSessionsEver++;
+    if (configSnapshot) this.watchProtectedConfig(gatewaySessionId, configSnapshot);
 
     // Wire events using the adapter's session ID
     this.wireAdapterEvents(gatewaySessionId, adapter, adapterSessionId);
@@ -1101,6 +1128,7 @@ export class GatewayImpl implements GatewayCore {
   }
 
   async cleanupSession(sessionId: string): Promise<void> {
+    this.stopConfigWatch(sessionId);
     const record = this.registry.get(sessionId);
     if (!record) return;
     try {
@@ -1134,6 +1162,42 @@ export class GatewayImpl implements GatewayCore {
   onGatewayEvent(listener: (event: GatewayEvent) => void): () => void {
     this.gatewayListeners.add(listener);
     return () => this.gatewayListeners.delete(listener);
+  }
+
+  private watchProtectedConfig(sessionId: string, snapshot: ConfigSnapshot): void {
+    const timer = setInterval(() => void this.checkProtectedConfig(sessionId, false), 10_000);
+    timer.unref?.();
+    this.configWatches.set(sessionId, { snapshot, timer, checking: false });
+  }
+
+  private stopConfigWatch(sessionId: string): void {
+    const watch = this.configWatches.get(sessionId);
+    if (!watch) return;
+    clearInterval(watch.timer);
+    this.configWatches.delete(sessionId);
+  }
+
+  /** Compare protected files with the session's snapshot; report and restore changes. */
+  private async checkProtectedConfig(sessionId: string, final: boolean): Promise<void> {
+    const watch = this.configWatches.get(sessionId);
+    if (!watch || !this.configGuard) return;
+    if (final) this.stopConfigWatch(sessionId);
+    if (watch.checking && !final) return;
+    watch.checking = true;
+    try {
+      const changes = await this.configGuard.check(watch.snapshot, sessionId);
+      if (changes.length > 0 && this.registry.get(sessionId)) {
+        this.publishEnvelope(sessionId, 'policy.violation', {
+          reason: 'protected-config-changed',
+          description: describeConfigChanges(changes),
+          changes,
+        });
+      }
+    } catch (error) {
+      this.emitGatewayEvent({ type: 'error', timestamp: new Date(), payload: error });
+    } finally {
+      watch.checking = false;
+    }
   }
 
   private wireAdapterEvents(
@@ -1205,6 +1269,14 @@ export class GatewayImpl implements GatewayCore {
           }
           const record = this.registry.get(gatewaySessionId);
           if (record) {
+            if (
+              event.eventType === 'session.completed' ||
+              event.eventType === 'session.failed' ||
+              event.eventType === 'session.cancelled' ||
+              event.eventType === 'session.crashed'
+            ) {
+              void this.checkProtectedConfig(gatewaySessionId, true);
+            }
             if (event.eventType === 'session.completed') {
               this.registry.updateState(gatewaySessionId, 'completed');
             } else if (event.eventType === 'session.failed') {

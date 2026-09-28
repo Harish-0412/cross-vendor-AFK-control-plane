@@ -89,6 +89,7 @@ export class PolicyEngineService {
       deviceStatus,
       userId: context.userId,
       ...(context.force !== undefined ? { force: context.force } : {}),
+      ...(context.command ? { command: context.command } : {}),
     };
 
     // Run the pure evaluation function

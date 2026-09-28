@@ -5,6 +5,7 @@ import type {
   PolicyVersion,
 } from '@odysseus/protocol';
 
+import { commandWriteTargets } from './action-risk';
 import { denyFloorMatches } from './deny-floor';
 import { riskClassDefaults } from './risk-defaults';
 import { sortRulesForEvaluation } from './specificity';
@@ -36,6 +37,18 @@ export function evaluate(
       policyVersion: policyVersion?.version ?? 'none',
       reason: `Denied by deny-override floor: ${context.capability}`,
     };
+  }
+  // A command that writes a protected file is that write, whatever it is called.
+  if (context.command) {
+    for (const target of commandWriteTargets(context.command)) {
+      if (denyFloorMatches('filesystem.write', target).matched) {
+        return {
+          decision: 'deny',
+          policyVersion: policyVersion?.version ?? 'none',
+          reason: `Denied by deny-override floor: the command writes ${target}, which agents may never change`,
+        };
+      }
+    }
   }
 
   // Step 2: Device status check — revoked/suspended devices get nothing

@@ -18,6 +18,9 @@
       "path": "../../packages/protocol"
     },
     {
+      "path": "../../packages/policy-engine"
+    },
+    {
       "path": "../../packages/schemas"
     },
     {

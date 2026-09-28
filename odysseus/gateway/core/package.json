@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@odysseus/protocol": "workspace:*",
+    "@odysseus/policy-engine": "workspace:*",
     "@odysseus/schemas": "workspace:*",
     "@odysseus/config": "workspace:*",
     "@odysseus/mock-adapter": "workspace:*",

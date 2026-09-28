@@ -12,11 +12,13 @@
  * supplies the two things they cannot know on their own: a WebSocket
  * implementation and a signing identity.
  */
+import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import WebSocket from 'ws';
 
+import { ProtectedConfigGuard } from '../gateway/core/src/config-guard';
 import { createGateway } from '../gateway/core/src/gateway';
 import {
   adaptersCheck,
@@ -220,6 +222,16 @@ async function main(): Promise<void> {
       });
     },
   });
+
+  // The deny floor for agents Odysseus cannot stop mid-action: files that make
+  // tools run commands by themselves are checked during every session, and
+  // changed project copies are put back (the changed version is kept).
+  gateway.setConfigGuard(
+    new ProtectedConfigGuard({
+      home: homedir(),
+      quarantineDir: join(homedir(), '.odysseus', 'quarantine'),
+    }),
+  );
 
   // One prompt at a time: a second request waits for `pnpm grants`.
   let prompting = false;

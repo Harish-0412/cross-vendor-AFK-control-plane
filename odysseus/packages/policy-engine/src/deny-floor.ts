@@ -9,6 +9,33 @@ import type { Capability } from '@odysseus/protocol';
  * Changing this list requires a PR + code review — it is NOT editable via
  * any API or database write.
  */
+/**
+ * Files that make an agent tool, git or an editor run commands by themselves
+ * the next time they start: MCP server lists, hook and permission settings,
+ * git hooks and executing git config, editor tasks that run on folder open,
+ * and Odysseus's own configuration.
+ *
+ * An agent that can write one of these can run anything later, outside any
+ * approval — in 2026 an injected prompt got Cursor to write a malicious
+ * `.cursor/mcp.json` and so ran code on the developer's machine. No policy
+ * can allow an agent to write them. Paths are relative to the project, or
+ * to the home directory for the per-user files.
+ */
+export const PROTECTED_CONFIG_FILES: readonly string[] = [
+  '.mcp.json',
+  '.cursor/mcp.json',
+  '.vscode/mcp.json',
+  '.vscode/tasks.json',
+  '.claude/settings.json',
+  '.claude/settings.local.json',
+  '.gemini/settings.json',
+  '.codex/config.toml',
+  '.git/config',
+  '.gitconfig',
+];
+/** Directories whose every file is protected the same way. */
+export const PROTECTED_CONFIG_DIRECTORIES: readonly string[] = ['.git/hooks', '.odysseus'];
+
 export const DENY_OVERRIDE_FLOOR: ReadonlyArray<{
   capability: Capability;
   resourcePattern?: string;
@@ -19,6 +46,14 @@ export const DENY_OVERRIDE_FLOOR: ReadonlyArray<{
   { capability: 'secret.read', resourcePattern: '**/.env*' },
   { capability: 'git.push', resourcePattern: 'main', force: true },
   { capability: 'git.push', resourcePattern: 'master', force: true },
+  ...PROTECTED_CONFIG_FILES.map((path) => ({
+    capability: 'filesystem.write' as const,
+    resourcePattern: `**/${path}`,
+  })),
+  ...PROTECTED_CONFIG_DIRECTORIES.map((path) => ({
+    capability: 'filesystem.write' as const,
+    resourcePattern: `**/${path}/**`,
+  })),
 ];
 
 /**
@@ -30,6 +65,10 @@ export function denyFloorMatches(
   resource?: string,
   force?: boolean,
 ): { matched: true; ruleId: string } | { matched: false } {
+  // Compare paths the way the file system resolves them: `C:\x\.CURSOR\MCP.JSON`
+  // and `./.cursor//mcp.json` are the same file as `.cursor/mcp.json`.
+  // Normalising can only make more resources match, never fewer.
+  if (resource) resource = normaliseResource(resource);
   for (const floorEntry of DENY_OVERRIDE_FLOOR) {
     if (floorEntry.capability !== capability) continue;
     if (floorEntry.force !== undefined && floorEntry.force !== force) continue;
@@ -55,6 +94,17 @@ export function denyFloorMatches(
     }
   }
   return { matched: false };
+}
+
+function normaliseResource(resource: string): string {
+  return resource
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/\/{2,}/g, '/')
+    .replace(/^(\.\/)+/, '')
+    .replace(/\/(\.\/)+/g, '/')
+    .replace(/\/+$/, '')
+    .toLowerCase();
 }
 
 /**

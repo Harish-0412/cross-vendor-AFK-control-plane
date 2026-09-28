@@ -376,13 +376,29 @@ describe('Policy Engine §9.9 — Deny-override immutability', () => {
     // the original three; this list is intentionally spelled out rather than
     // just length-checked so a future addition is forced to update this test
     // and think about whether the new entry's resourcePattern is correct.
-    expect(DENY_OVERRIDE_FLOOR).toHaveLength(5);
-    expect(DENY_OVERRIDE_FLOOR.map((e) => e.capability)).toEqual([
+    // The agent-config entries (2026-09-28) protect files that make tools run
+    // commands by themselves; each is a write, scoped to one path.
+    expect(DENY_OVERRIDE_FLOOR).toHaveLength(17);
+    expect(DENY_OVERRIDE_FLOOR.slice(0, 5).map((e) => e.capability)).toEqual([
       'deployment.execute',
       'filesystem.delete',
       'secret.read',
       'git.push',
       'git.push',
+    ]);
+    expect(DENY_OVERRIDE_FLOOR.slice(5).map((e) => [e.capability, e.resourcePattern])).toEqual([
+      ['filesystem.write', '**/.mcp.json'],
+      ['filesystem.write', '**/.cursor/mcp.json'],
+      ['filesystem.write', '**/.vscode/mcp.json'],
+      ['filesystem.write', '**/.vscode/tasks.json'],
+      ['filesystem.write', '**/.claude/settings.json'],
+      ['filesystem.write', '**/.claude/settings.local.json'],
+      ['filesystem.write', '**/.gemini/settings.json'],
+      ['filesystem.write', '**/.codex/config.toml'],
+      ['filesystem.write', '**/.git/config'],
+      ['filesystem.write', '**/.gitconfig'],
+      ['filesystem.write', '**/.git/hooks/**'],
+      ['filesystem.write', '**/.odysseus/**'],
     ]);
   });
 

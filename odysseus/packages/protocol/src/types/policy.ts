@@ -55,6 +55,8 @@ export interface PolicyEvaluationContext {
   userId: string;
   /** Git push modifier; used by the non-overridable protected-branch floor. */
   force?: boolean;
+  /** The shell command, for `process.exec`: the files it writes meet the deny floor too. */
+  command?: string;
 }
 
 export interface ApprovalRequest {

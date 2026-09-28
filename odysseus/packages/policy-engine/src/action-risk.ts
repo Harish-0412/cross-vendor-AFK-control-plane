@@ -1316,6 +1316,120 @@ function assessHost(resource?: string): Finding[] {
   return [{ name: 'unknown-host', weight: 0.1, detail: `connects to ${host}` }];
 }
 
+// ------------------------------------------------------------ write targets
+
+/** `git config` keys whose value git later runs as a command. */
+const EXECUTING_GIT_CONFIG =
+  /^(core\.(hookspath|fsmonitor|sshcommand|pager|editor|askpass|gitproxy)|alias\..+|credential\..*helper|include\.path|includeif\..+|filter\..+\.(clean|smudge|process)|diff\..+\.textconv|sequence\.editor|uploadpack\.packobjectshook)$/i;
+
+/**
+ * The settings in a git config file that git would later execute, as
+ * `section.subsection.key=value` lines. Two files with the same list can
+ * differ only in harmless ways — an upstream branch set by `git push -u`, a
+ * user name — so this is what "changed" means for `.git/config`.
+ */
+export function executingGitConfig(text: string): string[] {
+  const found: string[] = [];
+  let section = '';
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/\s[;#].*$/, '').trim();
+    if (!line || line.startsWith('#') || line.startsWith(';')) continue;
+    const header = /^\[\s*([^\s\]"]+)(?:\s+"([^"]*)")?\s*\]$/.exec(line);
+    if (header) {
+      const name = header[1]!.toLowerCase();
+      section = header[2] !== undefined ? `${name}.${header[2]}` : name;
+      continue;
+    }
+    const entry = /^([A-Za-z][\w-]*)\s*(?:=\s*(.*))?$/.exec(line);
+    if (!entry || !section) continue;
+    const key = `${section}.${entry[1]!.toLowerCase()}`;
+    if (EXECUTING_GIT_CONFIG.test(key)) found.push(`${key}=${(entry[2] ?? 'true').trim()}`);
+  }
+  return found.sort();
+}
+
+/**
+ * The files a shell command writes, as far as its text shows: redirections,
+ * `tee`, `touch`, `cp`/`mv` destinations, `sed -i`, `curl -o`, `dd of=`, the
+ * PowerShell equivalents, and `git config` keys that git later executes
+ * (reported as `.git/config`, or `~/.gitconfig` with `--global`).
+ *
+ * Best effort: code in an inline interpreter (`python -c "open(...)"`) is
+ * invisible here, which is why the risk score treats inline code as risky
+ * and the gateway checks protected files after the fact as well.
+ */
+export function commandWriteTargets(command: string): string[] {
+  const targets = new Set<string>();
+  for (const segment of splitSegments(command)) {
+    for (const target of redirectTargets(segment)) targets.add(normalisePath(target));
+    let tokens = tokenize(segment);
+    while (tokens[0] && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0])) tokens = tokens.slice(1);
+    while (tokens[0] && /^(sudo|doas|env|nohup|time|exec)$/i.test(program(tokens[0]))) {
+      tokens = tokens.slice(1);
+      while (tokens[0] && (tokens[0].startsWith('-') || /^[A-Za-z_]\w*=/.test(tokens[0])))
+        tokens = tokens.slice(1);
+    }
+    if (tokens.length === 0) continue;
+    const name = program(tokens[0]!);
+    const args = tokens.slice(1);
+    const operands = args.filter((arg) => !arg.startsWith('-'));
+    const add = (path: string | undefined) => {
+      if (path && !/^(\/dev\/(null|stdout|stderr)|nul)$/i.test(path))
+        targets.add(normalisePath(path));
+    };
+
+    if (/^(sh|bash|zsh|dash|cmd|powershell|pwsh)$/.test(name)) {
+      const flag = args.findIndex((arg) => /^(-c|\/c|-command)$/i.test(arg));
+      if (flag >= 0)
+        for (const inner of commandWriteTargets(args.slice(flag + 1).join(' '))) add(inner);
+      continue;
+    }
+    if (/^(tee|touch|truncate|new-item|set-content|add-content|out-file)$/.test(name)) {
+      const pathFlag = args.findIndex((arg) => /^-(path|filepath|literalpath)$/i.test(arg));
+      if (pathFlag >= 0) add(args[pathFlag + 1]);
+      else operands.forEach(add);
+      continue;
+    }
+    if (/^(cp|mv|install|ln|copy|move|copy-item|move-item|rsync)$/.test(name)) {
+      const destFlag = args.findIndex((arg) => /^-(destination|t|-target-directory)$/i.test(arg));
+      const destination = destFlag >= 0 ? args[destFlag + 1] : operands.at(-1);
+      const sources = destFlag >= 0 ? operands : operands.slice(0, -1);
+      if (!destination) continue;
+      add(destination);
+      // `cp mcp.json .cursor/` writes `.cursor/mcp.json`.
+      for (const source of sources)
+        add(`${destination.replace(/[\\/]+$/, '')}/${lastSegment(source)}`);
+      continue;
+    }
+    if (name === 'sed' && args.some((arg) => /^-i/.test(arg))) {
+      add(operands.at(-1));
+      continue;
+    }
+    if (/^(curl|wget|iwr|invoke-webrequest)$/.test(name)) {
+      const out = args.findIndex((arg) =>
+        /^(-o|--output|-O|--output-document|-outfile)$/.test(arg),
+      );
+      if (out >= 0) add(args[out + 1]);
+      continue;
+    }
+    if (name === 'dd') {
+      add(args.find((arg) => arg.startsWith('of='))?.slice(3));
+      continue;
+    }
+    if (name === 'git' && args.includes('config')) {
+      const rest = args.slice(args.indexOf('config') + 1);
+      const key = rest.find((arg) => !arg.startsWith('-'));
+      const setting =
+        rest.filter((arg) => !arg.startsWith('-')).length >= 2 || rest.includes('--add');
+      if (key && setting && EXECUTING_GIT_CONFIG.test(key))
+        add(
+          rest.includes('--global') || rest.includes('--system') ? '~/.gitconfig' : '.git/config',
+        );
+    }
+  }
+  return [...targets];
+}
+
 // ------------------------------------------------------------ helpers
 
 /** Split on `&&`, `||`, `;`, `|` and newlines that are outside quotes. */

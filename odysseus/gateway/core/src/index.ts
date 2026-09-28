@@ -1,4 +1,5 @@
 export * from './gateway';
+export * from './config-guard';
 export * from './session-registry';
 export * from './project-manager';
 export * from './git/git-exec';
