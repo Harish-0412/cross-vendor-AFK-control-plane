@@ -240,6 +240,102 @@ export default function BudgetsPage() {
               </div>
             </section>
           )}
+
+          {budgets && (
+            <section className="space-y-3">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Your budgets</h2>
+                <p className="text-sm text-muted-foreground">
+                  Limits on your personal organization. Once one is used up, orchestration runs stop before their next
+                  step. Only sessions on the organization&apos;s projects count toward it, not synced history.
+                </p>
+              </div>
+              {budgets.length === 0 ? (
+                <Card className="border-dashed">
+                  <CardContent className="flex flex-col items-center justify-center py-16 gap-4">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                      <Wallet className="h-6 w-6 text-muted-foreground" />
+                    </div>
+                    <div className="text-center">
+                      <p className="font-medium text-foreground">No budgets configured</p>
+                      <p className="text-sm text-muted-foreground mt-1">Set spending limits to prevent runaway AI costs</p>
+                    </div>
+                    <Button onClick={() => setAddOpen(true)} variant="outline" className="gap-2">
+                      <Plus className="h-4 w-4" />
+                      Add your first budget
+                    </Button>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {budgets.map((usage) => {
+                    const limit = usage.limit;
+                    if (!limit) return null;
+                    const status: Status = usage.exceeded ? "exceeded" : usage.alertTriggered ? "warning" : "ok";
+                    const meters = [
+                      ...(limit.costLimitUsd
+                        ? [{
+                            label: "Dollars",
+                            used: formatUsd(usage.costUsd),
+                            cap: formatUsd(limit.costLimitUsd),
+                            ratio: usage.costUsd / limit.costLimitUsd,
+                          }]
+                        : []),
+                      ...(limit.tokenLimit
+                        ? [{
+                            label: "Tokens",
+                            used: formatTokens(usage.tokens),
+                            cap: formatTokens(limit.tokenLimit),
+                            ratio: usage.tokens / limit.tokenLimit,
+                          }]
+                        : []),
+                    ];
+                    const title =
+                      meters.length === 2 ? "Spending and token limit" : limit.costLimitUsd ? "Spending limit" : "Token limit";
+                    return (
+                      <Card key={limit.id} className={status === "exceeded" ? "border-destructive/40" : ""}>
+                        <CardHeader className="pb-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <CardTitle className="text-base">{title}</CardTitle>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {status !== "ok" && (
+                                <AlertTriangle className={`h-4 w-4 ${status === "exceeded" ? "text-destructive" : "text-amber-500"}`} />
+                              )}
+                              <Badge variant="outline" className={`text-[10px] ${statusColor[status]}`}>
+                                {status}
+                              </Badge>
+                            </div>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Personal organization · warning at {limit.alertPercent}%
+                          </p>
+                        </CardHeader>
+                        <CardContent className="pt-0 space-y-3">
+                          {meters.map((meter) => (
+                            <div key={meter.label} className="space-y-1.5">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="text-muted-foreground">{meter.label}</span>
+                                <span className="font-medium">
+                                  {meter.used} / {meter.cap}
+                                </span>
+                              </div>
+                              <div className="relative h-2 rounded-full bg-muted overflow-hidden">
+                                <div
+                                  className={`absolute left-0 top-0 h-full rounded-full transition-all ${progressColor[statusOf(meter.ratio, limit.alertPercent)]}`}
+                                  style={{ width: `${Math.min(100, meter.ratio * 100)}%` }}
+                                />
+                              </div>
+                              <p className="text-right text-xs text-muted-foreground">{(meter.ratio * 100).toFixed(1)}%</p>
+                            </div>
+                          ))}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          )}
         </>
       )}
     </div>
