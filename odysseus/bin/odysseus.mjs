@@ -13,6 +13,7 @@ const commands = Object.freeze({
   grants: 'grants.mjs',
   import: 'import.mjs',
   'openai-org': 'openai-org.mjs',
+  service: 'service.mjs',
 });
 
 const usage = `Odysseus Gateway
@@ -23,6 +24,7 @@ Usage:
   odysseus grants <command>
   odysseus import <provider> <file>
   odysseus openai-org <command>
+  odysseus service <install|uninstall|status>
 
 Commands:
   pair          Pair this computer with the hosted Odysseus Control Plane
@@ -30,6 +32,7 @@ Commands:
   grants        Approve, inspect, revoke, or terminate local access grants
   import        Import supported conversation exports locally
   openai-org    Configure or sync OpenAI organization usage
+  service       Start the gateway when you sign in, so sessions continue after a restart
 
 Environment:
   CONTROL_PLANE_URL              HTTPS URL used by the pairing command
@@ -67,7 +70,7 @@ process.env.ODYSSEUS_CLI_COMMAND ??= 'odysseus';
 if (command === 'pair') {
   process.env.CONTROL_PLANE_URL ??= 'https://odysseus-control-plane.onrender.com';
 }
-if (command === 'gateway' && !existsSync(join(homedir(), '.odysseus', 'pairing.json'))) {
+if ((command === 'gateway' || command === 'service') && !existsSync(join(homedir(), '.odysseus', 'pairing.json'))) {
   // Only a fallback for a machine that has never paired. Once `pair` has run,
   // ~/.odysseus/pairing.json names the server this device is registered on,
   // and an environment default set here would override it — pointing a

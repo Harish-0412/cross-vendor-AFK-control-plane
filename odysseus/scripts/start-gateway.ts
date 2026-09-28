@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 
 import { ProtectedConfigGuard } from '../gateway/core/src/config-guard';
+import { SessionJournal } from '../gateway/core/src/session-journal';
 import { createGateway } from '../gateway/core/src/gateway';
 import {
   adaptersCheck,
@@ -232,6 +233,10 @@ async function main(): Promise<void> {
       quarantineDir: join(homedir(), '.odysseus', 'quarantine'),
     }),
   );
+
+  // Sessions still recorded here when the gateway starts again were cut off
+  // (a restart, a crash); the Control Plane continues them on reconnect.
+  gateway.setSessionJournal(new SessionJournal(join(homedir(), '.odysseus', 'sessions.json')));
 
   // One prompt at a time: a second request waits for `pnpm grants`.
   let prompting = false;

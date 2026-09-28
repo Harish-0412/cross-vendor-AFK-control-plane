@@ -109,6 +109,11 @@ export class CodexAdapter implements AgentAdapter {
       current: undefined,
       turn: undefined,
     };
+    // Continuing after the workstation restarted: resume the same Codex thread.
+    const resume = config.metadata?.['resumeNativeSessionId'];
+    if (typeof resume === 'string' && /^[A-Za-z0-9][\w-]{7,127}$/.test(resume)) {
+      record.threadId = resume;
+    }
     this.sessions.set(id, record);
     if (config.prompt) record.turn = this.runTurn(record, config.prompt);
     else {

@@ -1,5 +1,6 @@
 export * from './gateway';
 export * from './config-guard';
+export * from './session-journal';
 export * from './session-registry';
 export * from './project-manager';
 export * from './git/git-exec';
@@ -20,6 +21,7 @@ export * from './runtime/tunnel-supervisor';
 export * from './runtime/adapter-manifest';
 export * from './runtime/capabilities';
 export * from './runtime/paired-control-plane';
+export * from './runtime/service';
 
 // Re-export new Phase 1 modules
 export { CheckpointStore, createCheckpointStore } from '@odysseus/checkpoint';

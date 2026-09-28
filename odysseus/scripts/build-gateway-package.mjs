@@ -13,6 +13,7 @@ const commandEntries = {
   grants: join(root, 'scripts', 'grants.ts'),
   import: join(root, 'scripts', 'import.ts'),
   'openai-org': join(root, 'scripts', 'openai-org.ts'),
+  service: join(root, 'scripts', 'service.ts'),
 };
 
 const adapterIds = ['antigravity', 'claude', 'codex', 'freebuff', 'mock', 'opencode'];

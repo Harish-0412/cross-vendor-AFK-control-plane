@@ -124,6 +124,12 @@ export class ClaudeCodeAdapter implements AgentAdapter {
         metadata: { projectRoot: config.projectRoot, model: config.model },
       },
     };
+    // Continuing after the workstation restarted: pick up the same Claude Code
+    // conversation (`--resume`), with everything the agent already knew.
+    const resume = config.metadata?.['resumeNativeSessionId'];
+    if (typeof resume === 'string' && /^[A-Za-z0-9][\w-]{7,127}$/.test(resume)) {
+      record.claudeSessionId = resume;
+    }
     this.sessions.set(sessionId, record);
 
     // A session with no prompt is a valid idle session: the first sendMessage

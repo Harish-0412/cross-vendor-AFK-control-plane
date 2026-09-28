@@ -74,6 +74,7 @@ import {
   findCapabilityViolations,
   requirementsForSession,
 } from './runtime/capabilities';
+import type { SessionJournal } from './session-journal';
 import {
   type SessionRegistry,
   createSessionRegistry,
@@ -136,6 +137,9 @@ export class GatewayImpl implements GatewayCore {
   private readonly adapterCircuits = new Map<string, AdapterCircuit>();
   /** The deny floor for agents that cannot be intercepted; set by the runtime. */
   private configGuard: ProtectedConfigGuard | undefined;
+  /** Sessions this gateway is running, on disk, so a restart can be recovered from. */
+  private sessionJournal: SessionJournal | undefined;
+  private readonly nativeIdsCaptured = new Set<string>();
   private readonly configWatches = new Map<
     string,
     { snapshot: ConfigSnapshot; timer: ReturnType<typeof setInterval>; checking: boolean }
@@ -573,6 +577,25 @@ export class GatewayImpl implements GatewayCore {
     this.configGuard = guard;
   }
 
+  /**
+   * Keep a journal of running sessions on disk. Whatever is still in it
+   * when the gateway starts again was interrupted, and the Control Plane
+   * continues it. Off unless the runtime sets it.
+   */
+  setSessionJournal(journal: SessionJournal | undefined): void {
+    this.sessionJournal = journal;
+  }
+
+  /**
+   * The person cancelled everything on purpose (SIGQUIT): nothing running
+   * now should be continued after the gateway starts again.
+   */
+  async forgetRunningSessions(): Promise<void> {
+    if (!this.sessionJournal) return;
+    for (const record of this.registry.list())
+      await this.sessionJournal.remove(record.id).catch(() => undefined);
+  }
+
   private async handleTunnelCommand(
     command: unknown,
   ): Promise<{ success: boolean; result?: unknown; error?: string }> {
@@ -648,6 +671,19 @@ export class GatewayImpl implements GatewayCore {
             throw new Error('sessionId and message are required');
           await this.sendMessage(sessionId, payload['message']);
           return { success: true };
+        case 'session.interrupted': {
+          // Asked on every reconnect: what a previous run of this gateway was
+          // doing when it stopped abruptly, and what is running now.
+          const running = this.registry
+            .listByState(['initializing', 'running', 'waiting_for_approval', 'paused'])
+            .map((record) => record.id);
+          const interrupted = this.sessionJournal
+            ? await this.sessionJournal.takeInterrupted(
+                new Set(this.registry.list().map((record) => record.id)),
+              )
+            : [];
+          return { success: true, result: { interrupted, active: running } };
+        }
         case 'session.approve': {
           // A decision on an approval the agent asked for, made by a person, by
           // policy, or by the timeout. `approvalId` is the adapter's own id.
@@ -1057,6 +1093,15 @@ export class GatewayImpl implements GatewayCore {
     this.registry.updateState(gatewaySessionId, 'running');
     this.totalSessionsEver++;
     if (configSnapshot) this.watchProtectedConfig(gatewaySessionId, configSnapshot);
+    void this.sessionJournal
+      ?.record({
+        sessionId: gatewaySessionId,
+        adapter: config.adapter,
+        projectRoot: validation.resolvedRoot,
+        ...(config.prompt ? { prompt: config.prompt } : {}),
+        startedAt: new Date().toISOString(),
+      })
+      .catch(() => undefined);
 
     // Wire events using the adapter's session ID
     this.wireAdapterEvents(gatewaySessionId, adapter, adapterSessionId);
@@ -1149,6 +1194,8 @@ export class GatewayImpl implements GatewayCore {
 
   async cleanupSession(sessionId: string): Promise<void> {
     this.stopConfigWatch(sessionId);
+    this.nativeIdsCaptured.delete(sessionId);
+    await this.sessionJournal?.remove(sessionId).catch(() => undefined);
     const record = this.registry.get(sessionId);
     if (!record) return;
     try {
@@ -1182,6 +1229,27 @@ export class GatewayImpl implements GatewayCore {
   onGatewayEvent(listener: (event: GatewayEvent) => void): () => void {
     this.gatewayListeners.add(listener);
     return () => this.gatewayListeners.delete(listener);
+  }
+
+  /**
+   * Note the agent's own conversation id once it has one, so a session
+   * interrupted by a restart can resume the same conversation.
+   */
+  private async captureNativeSessionId(
+    sessionId: string,
+    adapter: AgentAdapter,
+    adapterSessionId: string,
+  ): Promise<void> {
+    if (!this.sessionJournal || !adapter.checkpointSession) return;
+    if (this.nativeIdsCaptured.has(sessionId)) return;
+    try {
+      const nativeId = await adapter.checkpointSession(adapterSessionId);
+      if (!nativeId) return;
+      this.nativeIdsCaptured.add(sessionId);
+      await this.sessionJournal.setNativeSessionId(sessionId, nativeId);
+    } catch {
+      // Not known yet; the next event tries again.
+    }
   }
 
   private watchProtectedConfig(sessionId: string, snapshot: ConfigSnapshot): void {
@@ -1289,13 +1357,18 @@ export class GatewayImpl implements GatewayCore {
           }
           const record = this.registry.get(gatewaySessionId);
           if (record) {
-            if (
-              event.eventType === 'session.completed' ||
-              event.eventType === 'session.failed' ||
-              event.eventType === 'session.cancelled' ||
-              event.eventType === 'session.crashed'
-            ) {
+            // Some adapters end with `session.completed`, others only with a
+            // status change to a final state; both mean the session is over.
+            const endedAs = endingState(event);
+            if (endedAs) {
               void this.checkProtectedConfig(gatewaySessionId, true);
+              // A session cut off by the gateway shutting down (a restart, a
+              // stop that ran out of drain time) stays in the journal, to be
+              // continued; one that ended on its own leaves it.
+              if (!this.shuttingDown || endedAs === 'completed')
+                void this.sessionJournal?.remove(gatewaySessionId).catch(() => undefined);
+            } else {
+              void this.captureNativeSessionId(gatewaySessionId, adapter, effectiveId);
             }
             if (event.eventType === 'session.completed') {
               this.registry.updateState(gatewaySessionId, 'completed');
@@ -1416,4 +1489,29 @@ export class GatewayImpl implements GatewayCore {
 
 export function createGateway(options?: GatewayOptions): GatewayImpl {
   return new GatewayImpl(options);
+}
+
+/** The final state an event puts a session in, if it ends it. */
+function endingState(event: EventEnvelope): SessionState | undefined {
+  switch (event.eventType) {
+    case 'session.completed':
+      return 'completed';
+    case 'session.failed':
+      return 'failed';
+    case 'session.cancelled':
+      return 'cancelled';
+    case 'session.crashed':
+      return 'crashed';
+    case 'session.status_changed': {
+      const state = (event.payload as { state?: unknown } | undefined)?.state;
+      return state === 'completed' ||
+        state === 'failed' ||
+        state === 'cancelled' ||
+        state === 'crashed'
+        ? state
+        : undefined;
+    }
+    default:
+      return undefined;
+  }
 }

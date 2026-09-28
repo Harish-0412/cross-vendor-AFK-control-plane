@@ -7,6 +7,7 @@ import { AfkOrchestrator } from './afk/afk-orchestrator';
 import { EscalationScheduler } from './afk/escalation-scheduler';
 import { notificationForUsageAlert } from './afk/notification-templates';
 import { PushSender } from './afk/push-sender';
+import { RestartRecovery } from './afk/restart-recovery';
 import { HttpRouter } from './api/http-router';
 import { BenchmarkService } from './arena/benchmark';
 import { ContestService } from './arena/contest';
@@ -46,6 +47,7 @@ export class ControlPlane {
   public pushSender: PushSender;
   public afkOrchestrator: AfkOrchestrator;
   public escalationScheduler: EscalationScheduler;
+  public restartRecovery!: RestartRecovery;
   public reviewOrchestrator: ReviewOrchestrator;
   public agentRouter: AgentRouter;
   public costGovernor: CostGovernor;
@@ -156,6 +158,13 @@ export class ControlPlane {
     this.neverIdle = new NeverIdleService(arenaRuntime, notifyArena);
     this.contests = new ContestService(arenaRuntime, notifyArena);
     this.benchmarks = new BenchmarkService(arenaRuntime, notifyArena);
+    // Sessions interrupted by a restart continue when their gateway reconnects.
+    this.restartRecovery = new RestartRecovery(
+      this.db,
+      this.tunnelServer,
+      arenaRuntime,
+      notifyArena,
+    );
 
     // Wire real-time event forwarding and the automatic completion review.
     this.tunnelServer.setOnEventBroadcast((storedEvent) => {
@@ -261,6 +270,10 @@ export class ControlPlane {
       });
     });
     this.tunnelServer.setOnGatewayAuthenticated((deviceId) => {
+      void this.restartRecovery.onGatewayConnected(deviceId).catch((error: unknown) => {
+        // eslint-disable-next-line no-console
+        console.warn('[Odysseus Control Plane] Restart recovery failed:', error);
+      });
       void this.integrationAccess.deliverPendingRevokes(deviceId).catch((error: unknown) => {
         // eslint-disable-next-line no-console
         console.warn('[Odysseus Control Plane] Delivering pending revokes failed:', error);

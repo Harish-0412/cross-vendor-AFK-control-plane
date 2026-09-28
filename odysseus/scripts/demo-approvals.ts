@@ -104,6 +104,39 @@ async function main(): Promise<void> {
       startedAt: new Date(),
     });
 
+  // A session interrupted by a restart, and the one that continued it.
+  for (const [id, state, metadata] of [
+    ['sess_demo_interrupted', 'crashed', { continuedIn: 'sess_demo_continued' }],
+    [
+      'sess_demo_continued',
+      'running',
+      { resumedFrom: 'sess_demo_interrupted', resumeNativeSessionId: 'demo-claude-session' },
+    ],
+  ] as const)
+    await cp.db.sessions.create({
+      id,
+      userId: user.id,
+      deviceId: 'dev_demo',
+      gatewayId: 'gw_demo',
+      agentId: 'claude-code',
+      projectId: 'proj_demo',
+      projectRoot: '/work/storefront',
+      state,
+      trustProfile: 'default',
+      config: {
+        adapter: 'claude-code',
+        projectRoot: '/work/storefront',
+        metadata: { ...metadata },
+      },
+      startedAt: new Date(),
+      ...(state === 'crashed'
+        ? {
+            error:
+              'The workstation restarted while the agent was working; continued in sess_demo_continued',
+          }
+        : {}),
+    });
+
   // A finished review, so the session page can offer its Agent Trace record.
   await cp.db.sessions.update('sess_demo_claude', {
     reviewBundle: {

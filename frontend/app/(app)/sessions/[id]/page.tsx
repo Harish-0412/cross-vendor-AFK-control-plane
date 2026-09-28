@@ -119,6 +119,35 @@ function SessionLinks({ session }: { session: SessionDetail }) {
       ),
     });
   }
+  if (text("resumedFrom")) {
+    notes.push({
+      tone: "info",
+      body: (
+        <>
+          <strong>Continued after a restart:</strong>{" "}
+          {text("resumeNativeSessionId")
+            ? "the workstation restarted mid-task, so this session picked up the same agent conversation. "
+            : "the workstation restarted mid-task, so this session took over the task with a summary of the progress. "}
+          <Link href={`/sessions/${text("resumedFrom")}`} className="font-medium underline underline-offset-2">
+            Open the interrupted session
+          </Link>
+        </>
+      ),
+    });
+  }
+  if (text("continuedIn")) {
+    notes.push({
+      tone: "warn",
+      body: (
+        <>
+          <strong>Interrupted by a restart:</strong> the work carried on in a new session.{" "}
+          <Link href={`/sessions/${text("continuedIn")}`} className="font-medium underline underline-offset-2">
+            Open the continued session
+          </Link>
+        </>
+      ),
+    });
+  }
   if (text("substitutionReason")) {
     notes.push({ tone: "info", body: <><strong>Never idle:</strong> {text("substitutionReason")}</> });
   }

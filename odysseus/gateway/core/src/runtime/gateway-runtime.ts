@@ -308,6 +308,8 @@ export class GatewayRuntime {
     const active = this.gateway.getActiveSessionCount();
     this.setState('aborting', reason);
     this.gateway.beginAborting();
+    // Cancelling on purpose: do not continue this work after a restart.
+    await this.gateway.forgetRunningSessions?.().catch(() => undefined);
     this.log.warn('runtime.aborting', { activeSessions: active, reason });
 
     await this.teardown(false);
