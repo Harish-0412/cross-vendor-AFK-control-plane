@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiClient } from "@/lib/api-client";
 import { ProviderLimits } from "@/components/integrations/ProviderLimits";
+import { AgentAvailability } from "@/components/integrations/AgentAvailability";
 
 /** A budget as the Control Plane stores it. */
 interface BudgetLimit {
@@ -167,6 +168,7 @@ export default function BudgetsPage() {
           </p>
         </div>
         <ProviderLimits />
+        <AgentAvailability />
       </section>
 
       {loading ? (

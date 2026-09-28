@@ -621,6 +621,23 @@ export class GatewayImpl implements GatewayCore {
             throw new Error('sessionId and message are required');
           await this.sendMessage(sessionId, payload['message']);
           return { success: true };
+        case 'session.approve': {
+          // A decision on an approval the agent asked for, made by a person, by
+          // policy, or by the timeout. `approvalId` is the adapter's own id.
+          const approvalId = payload['approvalId'];
+          const decision = payload['decision'];
+          if (!sessionId || typeof approvalId !== 'string' || !approvalId)
+            throw new Error('sessionId and approvalId are required');
+          if (decision !== 'granted' && decision !== 'denied')
+            throw new Error('decision must be granted or denied');
+          await this.submitApproval(
+            sessionId,
+            approvalId,
+            decision === 'granted',
+            typeof payload['reason'] === 'string' ? payload['reason'] : undefined,
+          );
+          return { success: true };
+        }
         case 'session.diff_collection': {
           const root = this.commandProjectRoot(payload);
           return { success: true, result: { diff: await collectDiff(root) } };

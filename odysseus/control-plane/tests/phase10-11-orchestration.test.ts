@@ -113,10 +113,10 @@ describe('Phases 10-11 multi-machine governance', () => {
     const risk = new RiskEngine().assess({
       taskKind: 'implementation',
       prompt: 'deploy production release',
-      protectedProject: true,
+      protectedBranches: ['main'],
     });
     expect(risk).toMatchObject({ level: 'critical', requiresApproval: true });
-    expect(risk.factors.map((item) => item.name)).toContain('production-keyword');
+    expect(risk.factors.map((item) => item.name)).toContain('production-deploy');
     const db = await fixture();
     const governor = new CostGovernor(db);
     await governor.setBudget({

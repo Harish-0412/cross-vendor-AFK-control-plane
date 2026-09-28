@@ -150,6 +150,47 @@ export class ApprovalWorkflow {
   }
 
   /**
+   * Deny an approval nobody decided in time, and tell the agent waiting on it.
+   *
+   * Called by the escalation scheduler when the approval window closes, and
+   * again on startup for approvals that expired while the process was down.
+   * Returns the record when this call expired it, null otherwise (already
+   * decided, not yet expired, or gone).
+   *
+   * A deferred command — a git push, pull request or orchestration step the
+   * Control Plane is holding — simply never runs. An agent paused on its own
+   * request is sent a denial, so it stops waiting instead of hanging.
+   */
+  async expireApproval(approvalId: string, now = new Date()): Promise<ApprovalRecord | null> {
+    const record = await this.db.approvals.findById(approvalId);
+    if (!record || record.status !== 'pending' || !record.expiresAt) return null;
+    if (record.expiresAt.getTime() > now.getTime()) return null;
+    const reason = 'Nobody decided before the approval expired, so it was denied.';
+    const updated = await this.db.approvals.update(approvalId, {
+      status: 'timeout',
+      decidedAt: now,
+      decidedBy: 'system',
+      reason,
+    });
+    if (!updated) return null;
+    if (isAgentWaiting(updated)) {
+      await this.tunnelServer.sendCommandToDevice(
+        updated.deviceId,
+        'session.approve',
+        {
+          sessionId: updated.sessionId,
+          approvalId: agentApprovalId(updated),
+          decision: 'denied',
+          reason,
+        },
+        10_000,
+        false,
+      );
+    }
+    return updated;
+  }
+
+  /**
    * Check and transition expired approvals to 'timeout' (lazy evaluation).
    * Called on-read or by a background sweep.
    */
@@ -274,4 +315,19 @@ export class ApprovalWorkflow {
     if (!user) return false;
     return user.role === 'admin' || user.role === 'owner';
   }
+}
+
+/**
+ * True when an agent is paused on this approval itself. Otherwise the
+ * Control Plane is holding a deferred command that runs only if approved.
+ */
+export function isAgentWaiting(approval: ApprovalRecord): boolean {
+  const details = approval.details ?? {};
+  return !details['pendingCommand'] && !details['pendingControlAction'];
+}
+
+/** The id the agent's adapter gave the request, which is what it waits on. */
+export function agentApprovalId(approval: ApprovalRecord): string {
+  const id = approval.details?.['approvalId'];
+  return typeof id === 'string' && id ? id : approval.id;
 }

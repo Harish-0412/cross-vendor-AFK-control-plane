@@ -50,4 +50,42 @@ describe('Subphase 7.4 approval escalation scheduler', () => {
     expect(sender.sendToUser).not.toHaveBeenCalled();
     scheduler.close();
   });
+  it('hands an unanswered approval to onExpired when its window closes', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-08T00:00:00Z'));
+    const db = new MemoryDatabase();
+    const approval = await db.approvals.create({
+      sessionId: 'sess_3', deviceId: 'dev_3', userId: 'usr_3', actionType: 'git.push',
+      description: 'git push', status: 'pending', expiresAt: new Date(Date.now() + 1_000),
+    });
+    const onExpired = vi.fn();
+    const scheduler = new EscalationScheduler(db, { sendToUser: vi.fn().mockResolvedValue([]) }, { onExpired });
+    await scheduler.schedule(approval);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(onExpired).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(onExpired).toHaveBeenCalledWith(expect.objectContaining({ id: approval.id }));
+    scheduler.close();
+  });
+
+  it('expires approvals that ran out while the process was down, and skips decided ones', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-08T00:00:00Z'));
+    const db = new MemoryDatabase();
+    const stale = await db.approvals.create({
+      sessionId: 'sess_4', deviceId: 'dev_4', userId: 'usr_4', actionType: 'git.push',
+      description: 'stale', status: 'pending', expiresAt: new Date(Date.now() - 60_000),
+    });
+    const decided = await db.approvals.create({
+      sessionId: 'sess_5', deviceId: 'dev_5', userId: 'usr_5', actionType: 'git.push',
+      description: 'decided', status: 'pending', expiresAt: new Date(Date.now() + 1_000),
+    });
+    const onExpired = vi.fn();
+    const scheduler = new EscalationScheduler(db, { sendToUser: vi.fn().mockResolvedValue([]) }, { onExpired });
+    await scheduler.reconcile();
+    await db.approvals.update(decided.id, { status: 'granted', decidedAt: new Date() });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(onExpired.mock.calls.map(([item]) => item.id)).toEqual([stale.id]);
+    scheduler.close();
+  });
 });

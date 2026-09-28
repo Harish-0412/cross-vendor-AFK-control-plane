@@ -38,6 +38,16 @@ export interface OrchestrationStep {
   startedAt?: string;
   finishedAt?: string;
   risk?: { level: string; score: number };
+  /** Why the router picked this step's agent, and who it passed over. */
+  routingDecision?: {
+    reasons: string[];
+    selected?: {
+      agentId: string;
+      trackRecord?: { summary: string; samples: number };
+      quota?: { state: string; detail: string };
+    } | null;
+    skipped?: Array<{ agentId: string; reason: string }>;
+  };
   outcome?: {
     summary: string;
     filesChanged: string[];

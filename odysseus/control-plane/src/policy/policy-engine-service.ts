@@ -15,6 +15,7 @@ import type { IDatabase } from '../db/types';
 import type { ControlPlaneConfig } from '../types';
 
 import { type AuditLog } from './audit-log';
+import { RememberedApprovals } from './remembered-approvals';
 
 /**
  * §7 — Policy Engine Service.
@@ -31,11 +32,16 @@ import { type AuditLog } from './audit-log';
  */
 
 export class PolicyEngineService {
+  /** The user's "approve and remember" rules; consulted only after policy asks for a person. */
+  public readonly remembered: RememberedApprovals;
+
   constructor(
     private db: IDatabase,
     _config: ControlPlaneConfig,
     private auditLog: AuditLog,
-  ) {}
+  ) {
+    this.remembered = new RememberedApprovals(db);
+  }
 
   /**
    * Evaluate a proposed action against the current policy.
@@ -54,6 +60,8 @@ export class PolicyEngineService {
       sessionId?: string;
       userId: string;
       force?: boolean;
+      /** The exact command, for `process.exec`; lets a remembered rule match it. */
+      command?: string;
     },
   ): Promise<Decision> {
     // Load the current policy version
@@ -84,7 +92,30 @@ export class PolicyEngineService {
     };
 
     // Run the pure evaluation function
-    const decision = evaluate(evalContext, policyVersion);
+    let decision = evaluate(evalContext, policyVersion);
+
+    // A remembered approval can only answer a question the risk-class defaults
+    // put to a person. It never turns a deny into an allow, and it never
+    // overrides a rule an admin wrote to require approval.
+    if (decision.decision === 'require_approval' && decision.matchedRules.length === 0) {
+      const rule = await this.remembered.match({
+        userId: context.userId,
+        capability,
+        riskClass,
+        command: context.command,
+        resource: context.resource,
+        projectId: context.projectId ?? session?.projectId,
+        sessionId: context.sessionId,
+        agentId: session?.agentId,
+      });
+      if (rule)
+        decision = {
+          decision: 'allow',
+          policyVersion: decision.policyVersion,
+          reason: `Remembered approval: ${rule.description}`,
+          matchedRules: [`remembered:${rule.id}`],
+        };
+    }
 
     // Record in audit log
     await this.auditLog.record({

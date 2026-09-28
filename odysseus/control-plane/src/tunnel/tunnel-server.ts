@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 
+import { assessAction, isCapability, isRiskClass, maxRiskClass } from '@odysseus/policy-engine';
 import type {
   Decision,
   EventEnvelope,
@@ -37,6 +38,31 @@ function failureReason(payload: unknown): string | undefined {
   const p = (payload ?? {}) as { error?: unknown; errorMessage?: unknown; reason?: unknown };
   const reason = p.error ?? p.errorMessage ?? p.reason;
   return typeof reason === 'string' && reason ? reason.slice(0, 500) : undefined;
+}
+
+/**
+ * Whether Odysseus could see what an action does: a command it recognises,
+ * or the path or branch it touches. Only visible actions are settled without
+ * a person.
+ */
+function isVisible(
+  capability: Capability,
+  command: string | undefined,
+  resource: string | undefined,
+  risk: { factors: Array<{ name: string }> },
+): boolean {
+  if (capability === 'process.exec')
+    return (
+      Boolean(command) && !risk.factors.some((factor) => factor.name === 'unrecognised-command')
+    );
+  return Boolean(resource);
+}
+
+/** The first non-empty string, bounded, from fields adapters name differently. */
+function firstString(...values: unknown[]): string | undefined {
+  for (const value of values)
+    if (typeof value === 'string' && value.trim()) return value.trim().slice(0, 2_000);
+  return undefined;
 }
 
 export interface TunnelServerOptions {
@@ -96,6 +122,7 @@ export class TunnelServer {
         riskClass: 'low' | 'medium' | 'high' | 'critical',
         context: {
           resource?: string;
+          command?: string;
           projectId?: string;
           deviceId: string;
           sessionId?: string;
@@ -702,31 +729,79 @@ export class TunnelServer {
 
           if (envelope.eventType === 'session.approval_required') {
             const p = (envelope.payload ?? {}) as {
+              approvalId?: string;
               actionType?: string;
-              action?: { type?: string; description?: string; riskLevel?: string };
+              /** An object, or just the action type (the mock adapter). */
+              action?:
+                | string
+                | {
+                    type?: string;
+                    description?: string;
+                    riskLevel?: string;
+                    command?: string;
+                    resource?: string;
+                    path?: string;
+                  };
               description?: string;
               capability?: string;
               riskClass?: string;
+              riskLevel?: string;
               resource?: string;
+              command?: string;
+              path?: string;
+              input?: { command?: string; path?: string; file_path?: string };
             };
+            const action = typeof p.action === 'object' && p.action !== null ? p.action : {};
             const session = await this.db.sessions.findById(envelope.sessionId);
             const device = await this.db.devices.findById(authedId);
+
+            // The Control Plane scores the action itself, from the command and
+            // path, rather than taking the gateway's word for how risky it is.
+            // A gateway may report a higher risk; it can never report a lower one.
+            const capability: Capability = isCapability(p.capability)
+              ? p.capability
+              : isCapability(action.type)
+                ? action.type
+                : isCapability(p.action)
+                  ? p.action
+                  : 'process.exec';
+            const command = firstString(p.command, action.command, p.input?.command);
+            const resource = firstString(
+              p.resource,
+              action.resource,
+              p.path,
+              action.path,
+              p.input?.file_path,
+              p.input?.path,
+            );
+            const project = session?.projectId
+              ? await this.db.projects.findById(session.projectId)
+              : null;
+            const risk = assessAction({
+              capability,
+              ...(command ? { command } : {}),
+              ...(resource ? { resource } : {}),
+              ...(session?.projectRoot ? { projectRoot: session.projectRoot } : {}),
+              ...(project ? { protectedBranches: project.preferences.protectedBranches } : {}),
+            });
+            const claimed = p.riskClass ?? p.riskLevel ?? action.riskLevel;
+            const riskClass = isRiskClass(claimed) ? maxRiskClass(claimed, risk.level) : risk.level;
 
             // Evaluate policy if evaluator is available
             let policyVersion = 'p_default';
             let matchedRules: string[] | undefined;
             let requiredRole: 'owner' | 'admin' | undefined;
             let expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+            let settled: { status: 'granted' | 'denied'; reason: string } | null = null;
 
             if (this.policyEvaluator && session && device) {
-              const capability = (p.capability || p.action?.type || 'process.exec') as Capability;
-              const riskClass = (p.riskClass || p.action?.riskLevel || 'medium') as
-                'low' | 'medium' | 'high' | 'critical';
               const result = await this.policyEvaluator(
                 capability,
                 riskClass,
                 {
-                  ...(p.resource ? { resource: p.resource } : {}),
+                  ...(resource ? { resource } : {}),
+                  ...(command ? { command } : {}),
+                  ...(session.projectId ? { projectId: session.projectId } : {}),
                   deviceId: authedId,
                   sessionId: envelope.sessionId,
                   userId: session.userId,
@@ -737,22 +812,65 @@ export class TunnelServer {
               if ('matchedRules' in result) matchedRules = result.matchedRules;
               if ('requiredRole' in result) requiredRole = result.requiredRole;
               if ('expiresAt' in result) expiresAt = result.expiresAt;
+
+              // Only questions policy leaves open go to a person. What policy
+              // already denies is denied now. What it allows is allowed now —
+              // but only when Odysseus could see what the action is; an
+              // approval request it cannot read still goes to a person.
+              if (result.decision === 'deny') {
+                settled = { status: 'denied', reason: result.reason };
+              } else if (
+                result.decision === 'allow' &&
+                isVisible(capability, command, resource, risk)
+              ) {
+                settled = {
+                  status: 'granted',
+                  reason: result.reason ?? `Allowed by policy: ${riskClass} risk`,
+                };
+              }
             }
 
             const approval = await this.db.approvals.create({
               sessionId: envelope.sessionId,
               deviceId: authedId,
               userId: session?.userId || 'usr_unknown',
-              actionType: p.actionType || p.action?.type || 'operation',
-              description: p.description || p.action?.description || 'Agent requires user approval',
-              details: p as Record<string, unknown>,
-              status: 'pending',
+              actionType: p.actionType || action.type || capability,
+              description: p.description || action.description || risk.summary,
+              details: {
+                ...(p as Record<string, unknown>),
+                capability,
+                riskClass,
+                ...(command ? { command } : {}),
+                ...(resource ? { resource } : {}),
+                risk,
+                eventId: envelope.eventId,
+              },
+              status: settled?.status ?? 'pending',
+              ...(settled
+                ? { decidedAt: new Date(), decidedBy: 'policy', reason: settled.reason }
+                : {}),
               policyVersion,
               matchedRules,
               requiredRole,
               expiresAt,
             });
-            this.onApprovalCreated?.(approval);
+            if (settled) {
+              await this.sendCommandToDevice(
+                authedId,
+                'session.approve',
+                {
+                  sessionId: envelope.sessionId,
+                  approvalId:
+                    typeof p.approvalId === 'string' && p.approvalId ? p.approvalId : approval.id,
+                  decision: settled.status,
+                  reason: settled.reason,
+                },
+                10_000,
+                false,
+              );
+            } else {
+              this.onApprovalCreated?.(approval);
+            }
           }
 
           if (this.onEventBroadcast) {

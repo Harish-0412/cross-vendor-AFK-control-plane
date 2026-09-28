@@ -1,7 +1,13 @@
 export type RiskClass = 'low' | 'medium' | 'high' | 'critical';
 
 export type Decision =
-  | { decision: 'allow'; policyVersion: string }
+  | {
+      decision: 'allow';
+      policyVersion: string;
+      /** Set when something other than the policy's own rules allowed it. */
+      reason?: string;
+      matchedRules?: string[];
+    }
   | { decision: 'deny'; policyVersion: string; reason: string; matchedRules?: string[] }
   | {
       decision: 'require_approval';

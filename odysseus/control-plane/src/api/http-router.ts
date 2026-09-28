@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
+import { assessAction, isCapability } from '@odysseus/policy-engine';
 import type {
   AgentCapabilities,
   Capability,
@@ -51,11 +52,25 @@ import { type CostGovernor } from '../orchestration/cost-governor';
 import { type MultiAgentOrchestrator } from '../orchestration/multi-agent-orchestrator';
 import { RiskEngine } from '../orchestration/risk-engine';
 import { spendSummary } from '../orchestration/spend-summary';
-import { type PolicyEngineService, type ApprovalWorkflow, type AuditLog } from '../policy/index';
+import {
+  agentApprovalId,
+  RememberError,
+  type ApprovalWorkflow,
+  type AuditLog,
+  type PolicyEngineService,
+  type RememberedApproval,
+  type RememberScope,
+} from '../policy/index';
 import { ReviewOrchestrator } from '../review/review-orchestrator';
 import type { ConnectionRegistry } from '../tunnel/connection-registry';
 import type { TunnelServer } from '../tunnel/tunnel-server';
-import type { ControlPlaneConfig, DeviceRecord, User } from '../types';
+import type {
+  ApprovalRecord,
+  ControlPlaneConfig,
+  DeviceRecord,
+  SessionRecord,
+  User,
+} from '../types';
 
 const TRUST_PROFILES: readonly TrustProfile[] = [
   'default',
@@ -93,6 +108,14 @@ function workstationPath(value: unknown): string | null {
 
 function folderName(root: string): string {
   return root.split(/[\\/]/).filter(Boolean).pop() ?? root;
+}
+
+/** The risk level an approval was raised at, from its assessment or its class. */
+function approvalRiskLevel(approval: ApprovalRecord): string | undefined {
+  const risk = approval.details?.['risk'] as { level?: unknown } | undefined;
+  if (typeof risk?.level === 'string') return risk.level;
+  const riskClass = approval.details?.['riskClass'];
+  return typeof riskClass === 'string' ? riskClass : undefined;
 }
 
 function isTrustProfile(value: unknown): value is TrustProfile {
@@ -1628,6 +1651,34 @@ export class HttpRouter {
         const project = projectId ? await this.db.projects.findById(projectId) : null;
         if (!project || project.userId !== authUser.id)
           return this.sendJson(res, 404, { error: 'Project not found' });
+        // A concrete action ({ capability, command?, resource?, force? }) is scored
+        // as the action; otherwise the prompt is scored as a task.
+        const action = body['action'];
+        if (typeof action === 'object' && action !== null) {
+          const fields = action as Record<string, unknown>;
+          if (!isCapability(fields['capability']))
+            return this.sendJson(res, 400, {
+              error: 'action.capability is not a known capability',
+            });
+          const text = (key: string) => {
+            const value = fields[key];
+            return typeof value === 'string' ? value.slice(0, 2_000) : undefined;
+          };
+          const command = text('command');
+          const resource = text('resource');
+          return this.sendJson(
+            res,
+            200,
+            assessAction({
+              capability: fields['capability'],
+              ...(command ? { command } : {}),
+              ...(resource ? { resource } : {}),
+              ...(fields['force'] === true ? { force: true } : {}),
+              projectRoot: project.root,
+              protectedBranches: project.preferences.protectedBranches,
+            }),
+          );
+        }
         const taskKind = typeof body['taskKind'] === 'string' ? body['taskKind'] : 'general';
         if (
           !['implementation', 'test', 'security_review', 'planning', 'general'].includes(taskKind)
@@ -1639,9 +1690,18 @@ export class HttpRouter {
           this.riskEngine.assess({
             taskKind: taskKind as TaskKind,
             prompt: typeof body['prompt'] === 'string' ? body['prompt'] : '',
-            protectedProject: Boolean(project.preferences.protectedBranches.length),
+            protectedBranches: project.preferences.protectedBranches,
           }),
         );
+      }
+      // How much of each agent's subscription is left, per machine: the plan
+      // windows (5-hour, weekly) rather than dollars.
+      if (path === '/api/v1/quota' && method === 'GET') {
+        if (!authUser || !this.costGovernor)
+          return this.sendJson(res, authUser ? 503 : 401, {
+            error: authUser ? 'Cost service unavailable' : 'Unauthorized',
+          });
+        return this.sendJson(res, 200, await this.costGovernor.quotaOverview(authUser.id));
       }
       if (path === '/api/v1/budgets' && method === 'POST') {
         if (!authUser || !this.costGovernor)
@@ -2123,13 +2183,22 @@ export class HttpRouter {
             return this.sendJson(res, 409, {
               error: 'A project session is required for policy evaluation',
             });
-          const decision = await this.policyService.evaluate('git.pull_request_create', 'medium', {
+          const prRisk = assessAction({
+            capability: 'git.pull_request_create',
             resource: `${repository}:${head}->${base}`,
-            projectId,
-            deviceId: policySession.deviceId,
-            sessionId: policySession.id,
-            userId: authUser.id,
+            protectedBranches: project.preferences.protectedBranches,
           });
+          const decision = await this.policyService.evaluate(
+            'git.pull_request_create',
+            prRisk.level,
+            {
+              resource: `${repository}:${head}->${base}`,
+              projectId,
+              deviceId: policySession.deviceId,
+              sessionId: policySession.id,
+              userId: authUser.id,
+            },
+          );
           if (decision.decision === 'deny') return this.sendJson(res, 403, { decision });
           if (decision.decision === 'require_approval') {
             const approval = await this.approvalWorkflow.createApproval({
@@ -2139,7 +2208,8 @@ export class HttpRouter {
               actionType: 'git.pull_request_create',
               description: `Create pull request ${repository}:${head}->${base}`,
               details: {
-                riskClass: 'medium',
+                riskClass: prRisk.level,
+                risk: prRisk,
                 resource: `${repository}:${head}->${base}`,
                 pendingControlAction: {
                   type: 'vcs.pull_request_create',
@@ -2492,24 +2562,22 @@ export class HttpRouter {
           const sessionProject = session.projectId
             ? await this.db.projects.findById(session.projectId)
             : null;
-          const protectedBranch =
-            body['protected'] === true ||
-            Boolean(
-              branch &&
-              (sessionProject?.preferences.protectedBranches.includes(branch) ||
-                branch === 'main' ||
-                branch === 'master'),
-            );
-          const riskClass =
+          // A client may mark the branch protected; it cannot unprotect one.
+          const protectedBranches = [
+            ...(sessionProject?.preferences.protectedBranches ?? []),
+            ...(body['protected'] === true && branch ? [branch] : []),
+          ];
+          const risk =
             operation === 'status'
-              ? 'low'
-              : operation === 'branch'
-                ? protectedBranch
-                  ? 'medium'
-                  : 'low'
-                : operation === 'commit'
-                  ? 'medium'
-                  : 'high';
+              ? null
+              : assessAction({
+                  capability,
+                  ...(branch ? { resource: branch } : {}),
+                  ...(operation === 'push' ? { force } : {}),
+                  projectRoot: session.projectRoot,
+                  protectedBranches,
+                });
+          const riskClass = risk?.level ?? 'low';
           const resource = branch ?? session.projectRoot;
           const decision = await this.policyService.evaluate(capability, riskClass, {
             resource,
@@ -2561,6 +2629,7 @@ export class HttpRouter {
                 pendingCommand: { commandType, payload: commandPayload },
                 riskClass,
                 resource,
+                ...(risk ? { risk } : {}),
               },
               policyVersion: decision.policyVersion,
               matchedRules: decision.matchedRules,
@@ -2738,183 +2807,21 @@ export class HttpRouter {
           const approvalId = segments[5];
           if (!approvalId) return this.sendJson(res, 400, { error: 'Approval ID is required' });
           const approved = typeof body['approved'] === 'boolean' ? body['approved'] : undefined;
-          const reason = typeof body['reason'] === 'string' ? body['reason'] : undefined;
-          const feedback = typeof body['feedback'] === 'string' ? body['feedback'] : undefined; // §7.3 — new optional field for voice feedback
-
           if (approved === undefined) {
             return this.sendJson(res, 400, { error: '"approved" boolean is required' });
           }
-
-          const currentApproval = await this.approvalWorkflow.getApproval(approvalId);
-          if (
-            !currentApproval ||
-            currentApproval.sessionId !== sessionId ||
-            currentApproval.userId !== authUser.id
-          ) {
-            return this.sendJson(res, 404, { error: 'Approval not found' });
-          }
-          if (
-            currentApproval.requiredRole &&
-            authUser.role !== 'owner' &&
-            authUser.role !== currentApproval.requiredRole
-          ) {
-            return this.sendJson(res, 403, {
-              error: `${currentApproval.requiredRole} role is required`,
-            });
-          }
-          if (approved && currentApproval.actionType.startsWith('git.')) {
-            const details = currentApproval.details ?? {};
-            const pending =
-              typeof details['pendingCommand'] === 'object' && details['pendingCommand'] !== null
-                ? (details['pendingCommand'] as { payload?: Record<string, unknown> })
-                : undefined;
-            const reEvaluation = await this.policyService.evaluate(
-              currentApproval.actionType as Capability,
-              (details['riskClass'] as 'low' | 'medium' | 'high' | 'critical') ?? 'high',
-              {
-                ...(typeof details['resource'] === 'string'
-                  ? { resource: details['resource'] }
-                  : {}),
-                ...(session.projectId ? { projectId: session.projectId } : {}),
-                ...(typeof pending?.payload?.['force'] === 'boolean'
-                  ? { force: pending.payload['force'] }
-                  : {}),
-                deviceId: session.deviceId,
-                sessionId,
-                userId: authUser.id,
-              },
-            );
-            if (reEvaluation.decision === 'deny') {
-              await this.approvalWorkflow.handlePolicyChange(approvalId, 'deny');
-              return this.sendJson(res, 409, {
-                error: 'Approval superseded by current policy',
-                decision: reEvaluation,
-              });
-            }
-          }
-
-          // Use the approval workflow state machine (CAS — first valid decision wins)
-          const result = await this.approvalWorkflow.submitDecision(
-            approvalId,
-            authUser.id,
+          const remember =
+            body['remember'] === 'session' || body['remember'] === 'project'
+              ? body['remember']
+              : undefined;
+          const outcome = await this.decideApproval(authUser, session, approvalId, {
             approved,
-            reason,
-            feedback,
-          );
-
-          if (result.conflict) {
-            return this.sendJson(res, 409, {
-              error: 'Approval already decided by another user',
-              currentStatus: result.record?.status,
-            });
-          }
-
-          if (!result.success) {
-            if (result.record?.status === 'timeout') {
-              return this.sendJson(res, 410, {
-                error: 'Approval request has expired',
-                status: 'timeout',
-              });
-            }
-            return this.sendJson(res, 400, {
-              error: 'Could not process approval decision',
-              status: result.record?.status,
-            });
-          }
-
-          const decision = approved ? 'granted' : 'denied';
-          const pendingCommand = approved && result.record?.details?.['pendingCommand'];
-          const pendingControlAction = approved && result.record?.details?.['pendingControlAction'];
-          const executable =
-            typeof pendingCommand === 'object' && pendingCommand !== null
-              ? (pendingCommand as { commandType?: unknown; payload?: unknown })
-              : null;
-          const controlAction =
-            typeof pendingControlAction === 'object' && pendingControlAction !== null
-              ? (pendingControlAction as Record<string, unknown>)
-              : null;
-          const tunnelResult =
-            controlAction?.['type'] === 'vcs.pull_request_create' ||
-            controlAction?.['type'] === 'github.pull_request_create'
-              ? await this.executeApprovedVcsPullRequest(authUser.id, controlAction)
-              : executable && typeof executable.commandType === 'string'
-                ? await this.tunnelServer.sendCommandToDevice(
-                    session.deviceId,
-                    executable.commandType,
-                    executable.payload ?? {},
-                  )
-                : await this.tunnelServer.sendCommandToDevice(session.deviceId, 'session.approve', {
-                    sessionId,
-                    approvalId,
-                    decision,
-                    reason,
-                  });
-
-          // An orchestration approval deliberately carries the deferred session.start
-          // command. Keep the durable session state aligned before advancing its DAG.
-          const orchestrationRunId = result.record?.details?.['orchestrationRunId'];
-          const deferredStart =
-            (result.record?.details?.['pendingCommand'] as { commandType?: unknown } | undefined)
-              ?.commandType === 'session.start';
-          // A denied step never starts. Ending its session is what lets the
-          // run notice, instead of waiting on an approval that is settled.
-          if (!approved && deferredStart && typeof orchestrationRunId === 'string') {
-            await this.db.sessions.update(sessionId, {
-              state: 'cancelled',
-              error: reason ? `Approval denied: ${reason}` : 'Approval denied',
-              completedAt: new Date(),
-            });
-            void this.multiAgentOrchestrator
-              ?.advance(orchestrationRunId)
-              .catch((error: unknown) =>
-                console.warn(
-                  '[Odysseus Control Plane] Could not advance denied orchestration:',
-                  error,
-                ),
-              );
-          }
-          if (approved && executable?.commandType === 'session.start' && tunnelResult.delivered) {
-            await this.db.sessions.update(sessionId, { state: 'running' });
-            const runId = orchestrationRunId;
-            if (typeof runId === 'string' && this.multiAgentOrchestrator) {
-              void this.multiAgentOrchestrator
-                .advance(runId)
-                .catch((error: unknown) =>
-                  console.warn(
-                    '[Odysseus Control Plane] Could not advance approved orchestration:',
-                    error,
-                  ),
-                );
-            }
-          }
-
-          // Record the decision in audit log
-          await this.auditLog.record({
-            actor: { type: 'user', id: authUser.id },
-            sessionId,
-            deviceId: session.deviceId,
-            action:
-              controlAction?.['type'] === 'vcs.pull_request_create' ||
-              controlAction?.['type'] === 'github.pull_request_create'
-                ? 'git.pull_request_create.approval_granted'
-                : executable && typeof executable.commandType === 'string'
-                  ? `${executable.commandType}.approval_${decision}`
-                  : 'approval.decision',
-            decision,
-            ...(result.record?.policyVersion ? { policyVersion: result.record.policyVersion } : {}),
+            ...(typeof body['reason'] === 'string' ? { reason: body['reason'] } : {}),
+            // §7.3 — optional corrective feedback (typed or spoken) sent back on denial
+            ...(typeof body['feedback'] === 'string' ? { feedback: body['feedback'] } : {}),
+            ...(remember ? { remember } : {}),
           });
-
-          return this.sendJson(res, 200, {
-            success: true,
-            decision,
-            delivered: tunnelResult.delivered,
-            acknowledged: tunnelResult.acknowledged,
-            note: tunnelResult.acknowledged
-              ? 'Approval decision delivered to gateway and acknowledged.'
-              : tunnelResult.delivered
-                ? 'Approval decision forwarded to gateway; awaiting acknowledgment.'
-                : 'Gateway is offline; approval decision will be relayed when the device reconnects.',
-          });
+          return this.sendJson(res, outcome.status, outcome.body);
         }
 
         if (segments.length === 5 && segments[4] === 'diff' && method === 'GET') {
@@ -2949,6 +2856,73 @@ export class HttpRouter {
       }
 
       // --- APPROVALS (cross-session listing for the web dashboard) ---
+      // Decide several approvals at once. Each goes through exactly the checks a
+      // single decision does; approving refuses critical items, which deserve
+      // a look of their own.
+      if (path === '/api/v1/approvals/decisions' && method === 'POST') {
+        if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+        const ids = body['approvalIds'];
+        const approved = body['approved'];
+        if (
+          !Array.isArray(ids) ||
+          ids.length === 0 ||
+          ids.length > 50 ||
+          !ids.every((id): id is string => typeof id === 'string' && id.length > 0)
+        )
+          return this.sendJson(res, 400, { error: 'approvalIds must list 1 to 50 approval ids' });
+        if (typeof approved !== 'boolean')
+          return this.sendJson(res, 400, { error: '"approved" boolean is required' });
+        const reason = typeof body['reason'] === 'string' ? body['reason'] : undefined;
+        const results: Array<Record<string, unknown>> = [];
+        for (const approvalId of [...new Set(ids)]) {
+          const approval = await this.db.approvals.findById(approvalId);
+          const session = approval ? await this.db.sessions.findById(approval.sessionId) : null;
+          if (
+            !approval ||
+            approval.userId !== authUser.id ||
+            !session ||
+            session.userId !== authUser.id
+          ) {
+            results.push({ approvalId, status: 404, error: 'Approval not found' });
+            continue;
+          }
+          const outcome = await this.decideApproval(authUser, session, approvalId, {
+            approved,
+            batch: true,
+            ...(reason ? { reason } : {}),
+          });
+          results.push({ approvalId, status: outcome.status, ...outcome.body });
+        }
+        return this.sendJson(res, 200, {
+          decided: results.filter((item) => item['status'] === 200).length,
+          results,
+        });
+      }
+
+      if (path === '/api/v1/approvals/remembered' && method === 'GET') {
+        if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+        return this.sendJson(res, 200, await this.policyService.remembered.list(authUser.id));
+      }
+
+      if (
+        method === 'DELETE' &&
+        segments.length === 5 &&
+        segments[2] === 'approvals' &&
+        segments[3] === 'remembered' &&
+        segments[4]
+      ) {
+        if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
+        const revoked = await this.policyService.remembered.revoke(authUser.id, segments[4]);
+        if (!revoked) return this.sendJson(res, 404, { error: 'Remembered approval not found' });
+        await this.auditLog.record({
+          actor: { type: 'user', id: authUser.id },
+          action: 'approval.remembered_revoked',
+          decision: 'deny',
+          matchedRules: [`remembered:${revoked.id}`],
+        });
+        return this.sendJson(res, 200, { revoked });
+      }
+
       if (path === '/api/v1/approvals' && method === 'GET') {
         if (!authUser) return this.sendJson(res, 401, { error: 'Unauthorized' });
         const qStatus = url.searchParams.get('status');
@@ -2969,6 +2943,8 @@ export class HttpRouter {
             reason: a.reason ?? null,
             policyVersion: a.policyVersion ?? null,
             matchedRules: a.matchedRules ?? [],
+            requiredRole: a.requiredRole ?? null,
+            expiresAt: a.expiresAt?.toISOString() ?? null,
           }));
         return this.sendJson(res, 200, mapped);
       }
@@ -3507,6 +3483,229 @@ export class HttpRouter {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Decide one approval: the checks, the state change, running what was held
+   * back, the audit entry and, when asked, remembering the approval as a rule.
+   * Shared by the single decision route and the batch route, so both apply
+   * exactly the same checks.
+   */
+  private async decideApproval(
+    authUser: { id: string; role?: string | undefined },
+    session: SessionRecord,
+    approvalId: string,
+    input: {
+      approved: boolean;
+      reason?: string;
+      feedback?: string;
+      remember?: RememberScope;
+      /** Batch approval refuses critical items: those deserve a look of their own. */
+      batch?: boolean;
+    },
+  ): Promise<{ status: number; body: Record<string, unknown> }> {
+    const { approved, reason, feedback } = input;
+    const sessionId = session.id;
+    const currentApproval = await this.approvalWorkflow.getApproval(approvalId);
+    if (
+      !currentApproval ||
+      currentApproval.sessionId !== sessionId ||
+      currentApproval.userId !== authUser.id
+    ) {
+      return { status: 404, body: { error: 'Approval not found' } };
+    }
+    if (
+      currentApproval.requiredRole &&
+      authUser.role !== 'owner' &&
+      authUser.role !== currentApproval.requiredRole
+    ) {
+      return { status: 403, body: { error: `${currentApproval.requiredRole} role is required` } };
+    }
+    if (approved && input.batch && approvalRiskLevel(currentApproval) === 'critical') {
+      return {
+        status: 422,
+        body: { error: 'Critical approvals must be reviewed one at a time', skipped: true },
+      };
+    }
+    if (approved && currentApproval.actionType.startsWith('git.')) {
+      const details = currentApproval.details ?? {};
+      const pending =
+        typeof details['pendingCommand'] === 'object' && details['pendingCommand'] !== null
+          ? (details['pendingCommand'] as { payload?: Record<string, unknown> })
+          : undefined;
+      const reEvaluation = await this.policyService.evaluate(
+        currentApproval.actionType as Capability,
+        (details['riskClass'] as 'low' | 'medium' | 'high' | 'critical') ?? 'high',
+        {
+          ...(typeof details['resource'] === 'string' ? { resource: details['resource'] } : {}),
+          ...(session.projectId ? { projectId: session.projectId } : {}),
+          ...(typeof pending?.payload?.['force'] === 'boolean'
+            ? { force: pending.payload['force'] }
+            : {}),
+          deviceId: session.deviceId,
+          sessionId,
+          userId: authUser.id,
+        },
+      );
+      if (reEvaluation.decision === 'deny') {
+        await this.approvalWorkflow.handlePolicyChange(approvalId, 'deny');
+        return {
+          status: 409,
+          body: { error: 'Approval superseded by current policy', decision: reEvaluation },
+        };
+      }
+    }
+
+    // Use the approval workflow state machine (CAS — first valid decision wins)
+    const result = await this.approvalWorkflow.submitDecision(
+      approvalId,
+      authUser.id,
+      approved,
+      reason,
+      feedback,
+    );
+
+    if (result.conflict) {
+      return {
+        status: 409,
+        body: {
+          error: 'Approval already decided by another user',
+          currentStatus: result.record?.status,
+        },
+      };
+    }
+
+    if (!result.success) {
+      if (result.record?.status === 'timeout') {
+        return { status: 410, body: { error: 'Approval request has expired', status: 'timeout' } };
+      }
+      return {
+        status: 400,
+        body: { error: 'Could not process approval decision', status: result.record?.status },
+      };
+    }
+
+    const decision = approved ? 'granted' : 'denied';
+    const pendingCommand = approved && result.record?.details?.['pendingCommand'];
+    const pendingControlAction = approved && result.record?.details?.['pendingControlAction'];
+    const executable =
+      typeof pendingCommand === 'object' && pendingCommand !== null
+        ? (pendingCommand as { commandType?: unknown; payload?: unknown })
+        : null;
+    const controlAction =
+      typeof pendingControlAction === 'object' && pendingControlAction !== null
+        ? (pendingControlAction as Record<string, unknown>)
+        : null;
+    const tunnelResult =
+      controlAction?.['type'] === 'vcs.pull_request_create' ||
+      controlAction?.['type'] === 'github.pull_request_create'
+        ? await this.executeApprovedVcsPullRequest(authUser.id, controlAction)
+        : executable && typeof executable.commandType === 'string'
+          ? await this.tunnelServer.sendCommandToDevice(
+              session.deviceId,
+              executable.commandType,
+              executable.payload ?? {},
+            )
+          : await this.tunnelServer.sendCommandToDevice(session.deviceId, 'session.approve', {
+              sessionId,
+              // The agent waits on its own request id, not the Control Plane's.
+              approvalId: result.record ? agentApprovalId(result.record) : approvalId,
+              decision,
+              reason,
+            });
+
+    // An orchestration approval deliberately carries the deferred session.start
+    // command. Keep the durable session state aligned before advancing its DAG.
+    const orchestrationRunId = result.record?.details?.['orchestrationRunId'];
+    const deferredStart =
+      (result.record?.details?.['pendingCommand'] as { commandType?: unknown } | undefined)
+        ?.commandType === 'session.start';
+    // A denied step never starts. Ending its session is what lets the
+    // run notice, instead of waiting on an approval that is settled.
+    if (!approved && deferredStart && typeof orchestrationRunId === 'string') {
+      await this.db.sessions.update(sessionId, {
+        state: 'cancelled',
+        error: reason ? `Approval denied: ${reason}` : 'Approval denied',
+        completedAt: new Date(),
+      });
+      void this.multiAgentOrchestrator
+        ?.advance(orchestrationRunId)
+        .catch((error: unknown) =>
+          console.warn('[Odysseus Control Plane] Could not advance denied orchestration:', error),
+        );
+    }
+    if (approved && executable?.commandType === 'session.start' && tunnelResult.delivered) {
+      await this.db.sessions.update(sessionId, { state: 'running' });
+      const runId = orchestrationRunId;
+      if (typeof runId === 'string' && this.multiAgentOrchestrator) {
+        void this.multiAgentOrchestrator
+          .advance(runId)
+          .catch((error: unknown) =>
+            console.warn(
+              '[Odysseus Control Plane] Could not advance approved orchestration:',
+              error,
+            ),
+          );
+      }
+    }
+
+    // Record the decision in audit log
+    await this.auditLog.record({
+      actor: { type: 'user', id: authUser.id },
+      sessionId,
+      deviceId: session.deviceId,
+      action:
+        controlAction?.['type'] === 'vcs.pull_request_create' ||
+        controlAction?.['type'] === 'github.pull_request_create'
+          ? 'git.pull_request_create.approval_granted'
+          : executable && typeof executable.commandType === 'string'
+            ? `${executable.commandType}.approval_${decision}`
+            : 'approval.decision',
+      decision,
+      ...(result.record?.policyVersion ? { policyVersion: result.record.policyVersion } : {}),
+    });
+
+    // "Approve and remember": the decision stands whether or not the rule can
+    // be made, so a refusal is reported alongside it rather than as a failure.
+    let remembered: RememberedApproval | undefined;
+    let rememberError: string | undefined;
+    if (approved && input.remember && result.record) {
+      try {
+        remembered = await this.policyService.remembered.remember(
+          result.record,
+          session,
+          input.remember,
+        );
+        await this.auditLog.record({
+          actor: { type: 'user', id: authUser.id },
+          sessionId,
+          deviceId: session.deviceId,
+          action: 'approval.remembered',
+          decision: 'allow',
+          matchedRules: [`remembered:${remembered.id}`],
+        });
+      } catch (error) {
+        if (!(error instanceof RememberError)) throw error;
+        rememberError = error.message;
+      }
+    }
+
+    return {
+      status: 200,
+      body: {
+        success: true,
+        decision,
+        delivered: tunnelResult.delivered,
+        acknowledged: tunnelResult.acknowledged,
+        ...(remembered ? { remembered } : {}),
+        ...(rememberError ? { rememberError } : {}),
+        note: tunnelResult.acknowledged
+          ? 'Approval decision delivered to gateway and acknowledged.'
+          : tunnelResult.delivered
+            ? 'Approval decision forwarded to gateway; awaiting acknowledgment.'
+            : 'Gateway is offline; approval decision will be relayed when the device reconnects.',
+      },
+    };
   }
 
   private async executeApprovedVcsPullRequest(

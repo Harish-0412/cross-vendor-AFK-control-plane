@@ -1,8 +1,46 @@
 import type { AgentCapabilities } from './agent';
+import type { Capability } from './policy';
 
 export type OrganizationRole = 'owner' | 'admin' | 'member';
 export type TaskKind = 'implementation' | 'test' | 'security_review' | 'planning' | 'general';
 export type RoutingStrategy = 'least_loaded' | 'capability_first' | 'lowest_risk' | 'lowest_cost';
+
+/**
+ * How much of an agent's subscription is left on one machine: the plan
+ * window closest to running out (a 5-hour or weekly limit), not dollars.
+ */
+export interface AgentQuota {
+  agentId: string;
+  deviceId: string;
+  /** `unknown` when nothing has reported on this agent's plan. */
+  state: 'available' | 'low' | 'exhausted' | 'unknown';
+  /** The window closest to running out. */
+  window?: {
+    /** "5-hour limit", "Weekly limit". */
+    label: string;
+    /** Absent when the provider said only that the limit was hit. */
+    usedPercent?: number;
+    resetsAt: string;
+  };
+  /** Where the figure came from: the provider's own numbers, or a limit message. */
+  source: 'provider' | 'limit-hit' | 'none';
+  /** One sentence, e.g. "5-hour limit reached; resets 14:20". */
+  detail: string;
+  observedAt?: string;
+}
+
+/** How an agent has done on one project: finished sessions, tests and reviews of its work. */
+export interface AgentTrackRecord {
+  agentId: string;
+  projectId: string;
+  successes: number;
+  failures: number;
+  samples: number;
+  /** Smoothed success rate, 0–1; 0.5 with no history. */
+  score: number;
+  /** "7 of 9 went well: sessions, tests and reviews". */
+  summary: string;
+}
 
 export interface AgentRouteCandidate {
   deviceId: string;
@@ -12,6 +50,8 @@ export interface AgentRouteCandidate {
   activeSessions: number;
   capabilities?: Partial<AgentCapabilities>;
   estimatedCostUsd?: number;
+  quota?: AgentQuota;
+  trackRecord?: AgentTrackRecord;
 }
 
 export interface RoutingRequest {
@@ -30,14 +70,45 @@ export interface RoutingDecision {
   selected: AgentRouteCandidate | null;
   alternatives: AgentRouteCandidate[];
   reasons: string[];
+  /** Agents that were otherwise eligible but left out, and why (an exhausted plan). */
+  skipped?: Array<{ agentId: string; deviceId: string; reason: string }>;
   createdAt: Date;
 }
 
 export interface RiskAssessment {
   score: number;
   level: 'low' | 'medium' | 'high' | 'critical';
-  factors: Array<{ name: string; weight: number; contribution: number }>;
+  factors: Array<{
+    name: string;
+    weight: number;
+    contribution: number;
+    /** What the factor saw, in words a person can read on a phone. */
+    detail?: string;
+  }>;
   requiresApproval: boolean;
+}
+
+/** A concrete thing an agent wants to do, as the risk engine sees it. */
+export interface ActionDescriptor {
+  capability: Capability;
+  /** The shell command, for `process.exec`. */
+  command?: string;
+  /** What the capability acts on: a file path, branch, repository or URL. */
+  resource?: string;
+  /** Git push modifier. */
+  force?: boolean;
+  /** The project's root, so paths inside it can be told from paths outside it. */
+  projectRoot?: string;
+  /** Branches the project protects. `main` and `master` always count. */
+  protectedBranches?: string[];
+}
+
+/** The risk of one concrete action: what it does, and whether it can be undone. */
+export interface ActionRiskAssessment extends RiskAssessment {
+  /** False when nothing inside the project (git, a rebuild) can take it back. */
+  reversible: boolean;
+  /** One sentence for the approval card, e.g. "Pushes to protected branch main. Cannot be undone." */
+  summary: string;
 }
 
 export type BudgetScope = 'session' | 'project' | 'organization';

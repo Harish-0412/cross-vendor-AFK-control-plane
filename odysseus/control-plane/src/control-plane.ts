@@ -25,12 +25,13 @@ import { ContextAgent } from './orchestration/context-agent';
 import { CostGovernor } from './orchestration/cost-governor';
 import { MultiAgentOrchestrator } from './orchestration/multi-agent-orchestrator';
 import { RiskEngine } from './orchestration/risk-engine';
+import { TrackRecords } from './orchestration/track-record';
 import { PolicyEngineService, ApprovalWorkflow, AuditLog } from './policy/index';
 import { ReviewOrchestrator } from './review/review-orchestrator';
 import { ClientServer } from './tunnel/client-server';
 import { ConnectionRegistry } from './tunnel/connection-registry';
 import { TunnelServer } from './tunnel/tunnel-server';
-import type { ControlPlaneConfig, StoredEvent } from './types';
+import type { ApprovalRecord, ControlPlaneConfig, StoredEvent } from './types';
 
 export class ControlPlane {
   public db: IDatabase;
@@ -101,7 +102,10 @@ export class ControlPlane {
 
     this.pushSender = new PushSender(this.db);
     this.afkOrchestrator = new AfkOrchestrator(this.db, this.registry, this.pushSender);
-    this.escalationScheduler = new EscalationScheduler(this.db, this.pushSender);
+    this.escalationScheduler = new EscalationScheduler(this.db, this.pushSender, {
+      // Unanswered approvals are denied when their window closes.
+      onExpired: (approval) => this.expireApproval(approval),
+    });
     this.tunnelServer.setOnApprovalCreated((approval) => {
       void this.escalationScheduler.schedule(approval).catch((error: unknown) => {
         // eslint-disable-next-line no-console
@@ -123,7 +127,11 @@ export class ControlPlane {
     );
     this.riskEngine = new RiskEngine();
     this.costGovernor = new CostGovernor(this.db);
-    this.agentRouter = new AgentRouter(this.db, this.registry, this.tunnelServer);
+    const trackRecords = new TrackRecords(this.db);
+    this.agentRouter = new AgentRouter(this.db, this.registry, this.tunnelServer, {
+      quota: (userId, deviceId, agentId) => this.costGovernor.quota(userId, deviceId, agentId),
+      trackRecords: (userId, projectId) => trackRecords.forProject(userId, projectId),
+    });
     this.multiAgentOrchestrator = new MultiAgentOrchestrator(
       this.db,
       this.tunnelServer,
@@ -209,6 +217,7 @@ export class ControlPlane {
     this.tunnelServer.setPolicyEvaluator((capability, riskClass, context, _policyVersion) => {
       return this.policyService.evaluate(capability, riskClass, {
         ...(context.resource ? { resource: context.resource } : {}),
+        ...(context.command ? { command: context.command } : {}),
         ...(context.projectId ? { projectId: context.projectId } : {}),
         deviceId: context.deviceId,
         ...(context.sessionId ? { sessionId: context.sessionId } : {}),
@@ -324,6 +333,39 @@ export class ControlPlane {
       // eslint-disable-next-line no-console
       console.warn('[Odysseus Control Plane] Usage alert push failed:', error);
     }
+  }
+
+  /**
+   * An approval nobody decided in time is denied. The agent waiting on it is
+   * told (by the workflow); an agent-team step waiting on it ends, so its run
+   * moves on instead of waiting forever; and the web app hears about it.
+   */
+  private async expireApproval(approval: ApprovalRecord): Promise<void> {
+    const expired = await this.approvalWorkflow.expireApproval(approval.id);
+    if (!expired) return;
+    await this.auditLog.record({
+      actor: { type: 'system', id: 'approval-timeout' },
+      sessionId: expired.sessionId,
+      deviceId: expired.deviceId,
+      action: `${expired.actionType}.approval_timeout`,
+      decision: 'timeout',
+      ...(expired.policyVersion ? { policyVersion: expired.policyVersion } : {}),
+    });
+    const pending = expired.details?.['pendingCommand'] as { commandType?: unknown } | undefined;
+    if (pending?.commandType === 'session.start') {
+      await this.db.sessions.update(expired.sessionId, {
+        state: 'cancelled',
+        error: 'Approval expired without a decision',
+        completedAt: new Date(),
+      });
+      const runId = expired.details?.['orchestrationRunId'];
+      if (typeof runId === 'string') await this.multiAgentOrchestrator.advance(runId);
+    }
+    this.clientServer.sendToUser(expired.userId, {
+      type: 'approval_expired',
+      approvalId: expired.id,
+      sessionId: expired.sessionId,
+    });
   }
 
   async start(): Promise<{ url: string; port: number }> {

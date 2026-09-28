@@ -21,11 +21,87 @@ import {
   TimerOff,
   Ban,
   ChevronDown,
+  Repeat,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiClient, ApiError } from "@/lib/api-client";
 import { realtimeClient } from "@/lib/realtime";
 import { toast } from "sonner";
+
+type RiskLevel = "low" | "medium" | "high" | "critical";
+
+interface RiskView {
+  level: RiskLevel;
+  score: number;
+  reversible?: boolean;
+  summary?: string;
+  factors: Array<{ name: string; contribution: number; detail?: string }>;
+}
+
+/** The Control Plane's explained assessment, when the approval carries one. */
+function riskOf(details: Record<string, unknown> | null | undefined): RiskView | null {
+  const risk = details?.["risk"];
+  if (typeof risk !== "object" || risk === null) return null;
+  const view = risk as Partial<RiskView>;
+  if (!view.level || !Array.isArray(view.factors)) return null;
+  return view as RiskView;
+}
+
+const RISK_SUMMARY_KEYS = new Set(["riskClass", "capability", "command", "resource", "eventId", "approvalId"]);
+
+const RISK_STYLES: Record<RiskLevel, string> = {
+  low: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+  medium: "bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20",
+  high: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
+  critical: "bg-destructive/10 text-destructive border-destructive/30",
+};
+
+function RiskPanel({ risk }: { risk: RiskView }) {
+  const [open, setOpen] = useState(false);
+  const reasons = risk.factors.filter((factor) => factor.contribution > 0 && factor.detail);
+  return (
+    <div className="mt-1 flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+        <span className={`rounded-full border px-2 py-0.5 font-semibold capitalize ${RISK_STYLES[risk.level]}`}>
+          {risk.level} risk
+        </span>
+        {risk.reversible !== undefined && (
+          <span
+            className={`rounded-full border px-2 py-0.5 font-medium ${
+              risk.reversible
+                ? "border-border bg-muted text-muted-foreground"
+                : "border-destructive/30 bg-destructive/5 text-destructive"
+            }`}
+          >
+            {risk.reversible ? "Can be undone" : "Cannot be undone"}
+          </span>
+        )}
+        {reasons.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setOpen((value) => !value)}
+            className="flex items-center gap-0.5 text-muted-foreground hover:text-foreground"
+            aria-expanded={open}
+          >
+            Why
+            <ChevronDown className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`} />
+          </button>
+        )}
+      </div>
+      {open && (
+        <ul className="flex flex-col gap-0.5 rounded-lg border border-border/60 bg-muted/30 p-2 text-[11px] text-muted-foreground">
+          {reasons.map((factor) => (
+            <li key={`${factor.name}-${factor.detail}`} className="flex justify-between gap-3">
+              <span>{factor.detail}</span>
+              <span className="font-mono text-foreground/60">+{factor.contribution.toFixed(2)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 interface ApprovalItem {
   id: string;
@@ -41,9 +117,53 @@ interface ApprovalItem {
   reason?: string | null;
   policyVersion?: string | null;
   matchedRules?: string[];
+  requiredRole?: "owner" | "admin" | null;
+  /** When an undecided approval is denied automatically. */
+  expiresAt?: string | null;
 }
 
-type TabKey = "pending" | "decided";
+interface RememberedRule {
+  id: string;
+  description: string;
+  scope: "session" | "project";
+  maxRiskLevel: RiskLevel;
+  uses: number;
+  createdAt: string;
+  lastUsedAt?: string;
+  expiresAt?: string;
+}
+
+type RememberScope = "session" | "project";
+
+/** Only a visible, non-critical action can become a remembered rule. */
+function canRemember(approval: ApprovalItem): boolean {
+  const risk = riskOf(approval.details);
+  const level = risk?.level ?? approval.details?.["riskClass"];
+  if (level !== "low" && level !== "medium" && level !== "high") return false;
+  return typeof approval.details?.["command"] === "string" || typeof approval.details?.["resource"] === "string";
+}
+
+function isCritical(approval: ApprovalItem): boolean {
+  return (riskOf(approval.details)?.level ?? approval.details?.["riskClass"]) === "critical";
+}
+
+function untilExpiry(expiresAt: string | null | undefined, now: number): string | null {
+  if (!expiresAt) return null;
+  const ms = Date.parse(expiresAt) - now;
+  if (!Number.isFinite(ms)) return null;
+  if (ms <= 0) return "any moment";
+  const minutes = Math.ceil(ms / 60_000);
+  return minutes >= 60 ? `${Math.floor(minutes / 60)} h ${minutes % 60} min` : `${minutes} min`;
+}
+
+function decidedByLabel(approval: ApprovalItem): string {
+  if (approval.status === "timeout") return "Denied automatically";
+  if (approval.decidedBy === "policy") return "Settled by policy, without asking";
+  if (approval.decidedBy === "system") return "Decided automatically";
+  return approval.decidedBy ? `Decided by ${approval.decidedBy.slice(0, 10)}…` : "Decided automatically";
+}
+
+type TabKey = "pending" | "decided" | "remembered";
 
 interface DecisionState {
   approvalId: string;
@@ -103,19 +223,34 @@ export default function ApprovalsPage() {
   const [activeTab, setActiveTab] = useState<TabKey>("pending");
   const [decisionStates, setDecisionStates] = useState<Record<string, DecisionState>>({});
   const [feedbackInputs, setFeedbackInputs] = useState<Record<string, string>>({});
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [rememberOpen, setRememberOpen] = useState<string | null>(null);
+  const [rules, setRules] = useState<RememberedRule[]>([]);
+  const [now, setNow] = useState(() => Date.now());
 
   const voice = useVoiceCapture();
 
   const fetchApprovals = useCallback(async () => {
     try {
-      const data = await apiClient.get<ApprovalItem[]>("/api/v1/approvals");
+      const [data, remembered] = await Promise.all([
+        apiClient.get<ApprovalItem[]>("/api/v1/approvals"),
+        apiClient.get<RememberedRule[]>("/api/v1/approvals/remembered").catch(() => null),
+      ]);
       setApprovals(data || []);
+      if (remembered) setRules(remembered);
     } catch {
       /* ignore */
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
+  }, []);
+
+  // Keeps the "denied automatically in …" countdowns current.
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(tick);
   }, []);
 
   useEffect(() => {
@@ -143,32 +278,98 @@ export default function ApprovalsPage() {
 
   const pending = approvals.filter((a) => a.status === "pending");
   const decided = approvals.filter((a) => a.status !== "pending");
+  const selectedPending = pending.filter((a) => selected.has(a.id));
 
   const setDecisionState = (id: string, patch: Partial<DecisionState>) => {
     setDecisionStates((prev) => ({ ...prev, [id]: { ...prev[id], approvalId: id, ...patch } }));
   };
 
-  const submitDecision = async (approval: ApprovalItem, approved: boolean) => {
+  const toggleSelected = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const submitBatch = async (approved: boolean) => {
+    if (batchBusy || selectedPending.length === 0) return;
+    setBatchBusy(true);
+    try {
+      const result = await apiClient.post<{
+        decided: number;
+        results: Array<{ approvalId: string; status: number; skipped?: boolean; error?: string }>;
+      }>("/api/v1/approvals/decisions", {
+        approvalIds: selectedPending.map((a) => a.id),
+        approved,
+        reason: approved ? "Approved in a batch" : "Denied in a batch",
+      });
+      const skipped = result.results.filter((item) => item.skipped).length;
+      const failed = result.results.filter((item) => item.status !== 200 && !item.skipped).length;
+      toast.success(`${approved ? "Approved" : "Denied"} ${result.decided}`, {
+        description:
+          [
+            skipped ? `${skipped} critical left for a separate look` : "",
+            failed ? `${failed} could not be decided` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ") || undefined,
+      });
+      setSelected(new Set(result.results.filter((item) => item.skipped).map((item) => item.approvalId)));
+      void fetchApprovals();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Failed to submit decisions");
+    } finally {
+      setBatchBusy(false);
+    }
+  };
+
+  const revokeRule = async (rule: RememberedRule) => {
+    try {
+      await apiClient.delete(`/api/v1/approvals/remembered/${rule.id}`);
+      setRules((prev) => prev.filter((item) => item.id !== rule.id));
+      toast.success("Rule removed — this will ask again");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not remove the rule");
+    }
+  };
+
+  const submitDecision = async (approval: ApprovalItem, approved: boolean, remember?: RememberScope) => {
     const st = decisionStates[approval.id];
     if (st?.submitting) return;
     setDecisionState(approval.id, { submitting: true });
+    setRememberOpen(null);
 
     const feedback = approved ? undefined : (feedbackInputs[approval.id] || "").trim() || undefined;
 
     try {
-      await apiClient.post(
+      const result = await apiClient.post<{
+        remembered?: { description: string };
+        rememberError?: string;
+      }>(
         `/api/v1/sessions/${approval.sessionId}/approvals/${approval.id}/decision`,
         {
           approved,
           reason: approved ? "Approved by operator" : "Denied by operator",
           ...(feedback ? { feedback } : {}),
+          ...(remember ? { remember } : {}),
         },
       );
 
       toast.success(approved ? "Approval granted — agent may proceed" : "Approval denied");
+      if (result?.remembered) {
+        toast.info("Remembered", { description: result.remembered.description });
+      } else if (result?.rememberError) {
+        toast.warning("Approved, but not remembered", { description: result.rememberError });
+      }
       if (!approved && feedback) {
         toast.info("Your feedback was sent back to the agent as a message");
       }
+      setSelected((prev) => {
+        const next = new Set(prev);
+        next.delete(approval.id);
+        return next;
+      });
       setFeedbackInputs((prev) => ({ ...prev, [approval.id]: "" }));
       setDecisionState(approval.id, { showFeedback: false });
       void fetchApprovals();
@@ -230,6 +431,15 @@ export default function ApprovalsPage() {
         <div className="flex flex-col gap-4">
           <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
             <div className="flex items-start gap-3">
+              {isPending && (
+                <input
+                  type="checkbox"
+                  checked={selected.has(appr.id)}
+                  onChange={() => toggleSelected(appr.id)}
+                  aria-label={`Select ${appr.description}`}
+                  className="mt-3.5 h-4 w-4 shrink-0 accent-primary"
+                />
+              )}
               <motion.div
                 animate={isPending ? { scale: [1, 1.06, 1] } : {}}
                 transition={{ repeat: isPending ? Infinity : 0, duration: 2.2 }}
@@ -263,11 +473,25 @@ export default function ApprovalsPage() {
                     <Clock className="h-3.5 w-3.5" />
                     {new Date(appr.requestedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                   </span>
+                  {isPending && untilExpiry(appr.expiresAt, now) && (
+                    <>
+                      <span>•</span>
+                      <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                        <TimerOff className="h-3.5 w-3.5" />
+                        Denied automatically in {untilExpiry(appr.expiresAt, now)}
+                      </span>
+                    </>
+                  )}
                 </div>
+
+                {riskOf(appr.details) && <RiskPanel risk={riskOf(appr.details)!} />}
 
                 {appr.details && (
                   <div className="mt-1 flex flex-wrap gap-1.5">
                     {Object.entries(appr.details)
+                      .filter(([, v]) => v !== null && typeof v !== "object")
+                      // The risk summary already says what the action is and touches.
+                      .filter(([k]) => !riskOf(appr.details) || !RISK_SUMMARY_KEYS.has(k))
                       .slice(0, 3)
                       .map(([k, v]) => (
                         <span key={k} className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
@@ -277,7 +501,7 @@ export default function ApprovalsPage() {
                   </div>
                 )}
 
-                {(appr.policyVersion || appr.matchedRules?.length) && (
+                {(appr.policyVersion || (appr.matchedRules?.length ?? 0) > 0) && (
                   <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
                     <KeyRound className="h-3 w-3" />
                     <span className="font-mono">policy {appr.policyVersion || "—"}</span>
@@ -319,7 +543,7 @@ export default function ApprovalsPage() {
             <div className="flex flex-col gap-1 rounded-lg bg-muted/40 border border-border/50 p-3 text-xs">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <span className="text-muted-foreground">
-                  {appr.decidedBy ? `Decided by ${appr.decidedBy.slice(0, 10)}…` : "Decided automatically"}
+                  {decidedByLabel(appr)}
                   {appr.decidedAt && (
                     <span className="ml-1.5 text-muted-foreground/70">
                       · {new Date(appr.decidedAt).toLocaleString()}
@@ -438,6 +662,22 @@ export default function ApprovalsPage() {
                   )}
                   Approve
                 </Button>
+                {canRemember(appr) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-xs"
+                    onClick={() => setRememberOpen(rememberOpen === appr.id ? null : appr.id)}
+                    disabled={st?.submitting}
+                    aria-expanded={rememberOpen === appr.id}
+                  >
+                    <Repeat className="h-3.5 w-3.5" />
+                    Approve &amp; remember
+                    <ChevronDown
+                      className={`h-3 w-3 transition-transform ${rememberOpen === appr.id ? "rotate-180" : ""}`}
+                    />
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   size="sm"
@@ -449,6 +689,33 @@ export default function ApprovalsPage() {
                   Deny
                 </Button>
               </div>
+
+              {rememberOpen === appr.id && (
+                <div className="grid gap-2 rounded-xl border border-border bg-muted/30 p-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => submitDecision(appr, true, "session")}
+                    disabled={st?.submitting}
+                    className="flex flex-col items-start rounded-lg border border-border bg-card px-3 py-2 text-left transition-colors hover:border-primary/40"
+                  >
+                    <span className="text-xs font-medium text-foreground">Approve for this session</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      Stop asking about exactly this until the session ends.
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => submitDecision(appr, true, "project")}
+                    disabled={st?.submitting}
+                    className="flex flex-col items-start rounded-lg border border-border bg-card px-3 py-2 text-left transition-colors hover:border-primary/40"
+                  >
+                    <span className="text-xs font-medium text-foreground">Approve for this project, 30 days</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      Same agent, same exact action. Never anything riskier.
+                    </span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -459,9 +726,49 @@ export default function ApprovalsPage() {
   const tabs: Array<{ key: TabKey; label: string; count: number }> = [
     { key: "pending", label: "Pending", count: pending.length },
     { key: "decided", label: "Decided", count: decided.length },
+    { key: "remembered", label: "Remembered", count: rules.length },
   ];
 
   const list = activeTab === "pending" ? pending : decided;
+  const criticalSelected = selectedPending.filter(isCritical).length;
+
+  const renderRules = () =>
+    rules.length === 0 ? (
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card p-12 text-center shadow-sm">
+        <Repeat className="mb-3 h-10 w-10 text-muted-foreground" />
+        <h3 className="text-base font-semibold text-foreground">Nothing remembered yet</h3>
+        <p className="mt-1 max-w-sm text-xs text-muted-foreground">
+          Use “Approve &amp; remember” on an approval to stop being asked about exactly the same action.
+          Critical actions always ask.
+        </p>
+      </div>
+    ) : (
+      <div className="flex flex-col gap-2">
+        {rules.map((rule) => (
+          <div
+            key={rule.id}
+            className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div className="flex flex-col gap-1">
+              <span className="text-sm font-medium text-foreground">{rule.description}</span>
+              <span className="text-[11px] text-muted-foreground">
+                Up to {rule.maxRiskLevel} risk · used {rule.uses} {rule.uses === 1 ? "time" : "times"}
+                {rule.expiresAt ? ` · until ${new Date(rule.expiresAt).toLocaleDateString()}` : " · this session only"}
+              </span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 self-start text-xs text-destructive border-destructive/30 hover:bg-destructive/10 sm:self-auto"
+              onClick={() => revokeRule(rule)}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Forget
+            </Button>
+          </div>
+        ))}
+      </div>
+    );
 
   return (
     <div className="flex flex-col gap-6 max-w-5xl mx-auto">
@@ -525,7 +832,55 @@ export default function ApprovalsPage() {
         ))}
       </div>
 
-      {list.length === 0 && !loading ? (
+      {activeTab === "pending" && pending.length > 1 && (
+        <div className="sticky top-2 z-10 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card/95 px-3 py-2 shadow-sm backdrop-blur">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-primary"
+              checked={selectedPending.length === pending.length}
+              onChange={() =>
+                setSelected(
+                  selectedPending.length === pending.length ? new Set() : new Set(pending.map((a) => a.id)),
+                )
+              }
+            />
+            {selectedPending.length > 0 ? `${selectedPending.length} selected` : "Select all"}
+            {criticalSelected > 0 && (
+              <span className="text-destructive">
+                · {criticalSelected} critical {criticalSelected === 1 ? "needs" : "need"} a separate look
+              </span>
+            )}
+          </label>
+          {selectedPending.length > 0 && (
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                className="gap-1.5 bg-emerald-600 text-xs text-white hover:bg-emerald-700"
+                onClick={() => submitBatch(true)}
+                disabled={batchBusy || criticalSelected === selectedPending.length}
+              >
+                {batchBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                Approve {selectedPending.length - criticalSelected}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
+                onClick={() => submitBatch(false)}
+                disabled={batchBusy}
+              >
+                <XCircle className="h-3.5 w-3.5" />
+                Deny {selectedPending.length}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === "remembered" ? (
+        renderRules()
+      ) : list.length === 0 && !loading ? (
         <motion.div
           initial={{ opacity: 0, scale: 0.98 }}
           animate={{ opacity: 1, scale: 1 }}

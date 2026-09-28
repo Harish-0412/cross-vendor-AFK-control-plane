@@ -10,7 +10,16 @@ export interface ApprovalPushSender {
 export interface EscalationSchedulerOptions {
   /** Optional hook for a future email/Slack escalation at 80% of the approval window. */
   onFallbackDue?: (approval: ApprovalRecord) => Promise<void> | void;
+  /**
+   * Called when the window closes on an approval still pending: the default
+   * is to deny. Startup reconciliation calls it at once for approvals that
+   * expired while the process was down.
+   */
+  onExpired?: (approval: ApprovalRecord) => Promise<void> | void;
 }
+
+/** setTimeout's ceiling; a later expiry is picked up by the next reconcile. */
+const MAX_TIMER_MS = 2_147_483_647;
 
 /**
  * Persists delivery checkpoints on the approval record, while keeping only the
@@ -35,13 +44,21 @@ export class EscalationScheduler {
     this.cancel(approval.id);
     if (approval.status !== 'pending' || !approval.expiresAt) return;
 
-    const windowMs = approval.expiresAt.getTime() - approval.requestedAt.getTime();
-    if (windowMs <= 0) return;
-
     const now = Date.now();
+    const timers: NodeJS.Timeout[] = [];
+    const untilExpiry = approval.expiresAt.getTime() - now;
+    if (this.options.onExpired && untilExpiry <= MAX_TIMER_MS) {
+      timers.push(this.setTimer(Math.max(0, untilExpiry), () => this.expire(approval.id)));
+    }
+
+    const windowMs = approval.expiresAt.getTime() - approval.requestedAt.getTime();
+    if (windowMs <= 0) {
+      if (timers.length > 0) this.timers.set(approval.id, timers);
+      return;
+    }
+
     const reminderAt = approval.requestedAt.getTime() + windowMs * 0.5;
     const fallbackAt = approval.requestedAt.getTime() + windowMs * 0.8;
-    const timers: NodeJS.Timeout[] = [];
 
     if (!approval.reminderSentAt && now < approval.expiresAt.getTime()) {
       timers.push(
@@ -85,6 +102,13 @@ export class EscalationScheduler {
     const marked = await this.db.approvals.update(approval.id, { reminderSentAt: new Date() });
     if (!marked) return;
     await this.pushSender.sendToUser(marked.userId, approvalReminderNotification(marked));
+  }
+
+  private async expire(approvalId: string): Promise<void> {
+    this.timers.delete(approvalId);
+    const approval = await this.db.approvals.findById(approvalId);
+    if (!approval || approval.status !== 'pending') return;
+    await this.options.onExpired?.(approval);
   }
 
   private async triggerFallback(approvalId: string): Promise<void> {

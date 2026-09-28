@@ -19,6 +19,14 @@ export class AfkOrchestrator {
   async handleEvent(stored: StoredEvent): Promise<void> {
     const session = await this.db.sessions.findById(stored.sessionId);
     if (!session) return;
+    // Policy settled this request the moment it arrived; nobody needs paging.
+    if (stored.envelope.eventType === 'session.approval_required') {
+      const approvals = await this.db.approvals.listBySession(session.id);
+      const approval = approvals.find(
+        (item) => item.details?.['eventId'] === stored.envelope.eventId,
+      );
+      if (approval && approval.status !== 'pending') return;
+    }
     const user = await this.db.users.findById(session.userId);
     const preferences = mergeNotificationPreferences(user?.notificationPreferences);
     const level = classifyEvent(stored.envelope, session.trustProfile, preferences);

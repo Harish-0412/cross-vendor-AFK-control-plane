@@ -125,6 +125,18 @@ export function RunDetail({
   );
 }
 
+/** The router's reasons worth showing: track record, plan quota, and who was passed over. */
+function whyThisAgent(step: OrchestrationStep): string[] {
+  const decision = step.routingDecision;
+  if (!decision) return [];
+  const lines: string[] = [];
+  const selected = decision.selected;
+  if (selected?.trackRecord) lines.push(`Track record on this project: ${selected.trackRecord.summary}`);
+  if (selected?.quota && selected.quota.state !== "unknown") lines.push(`Plan: ${selected.quota.detail}`);
+  for (const skipped of decision.skipped ?? []) lines.push(`Passed over ${skipped.reason}`);
+  return lines;
+}
+
 function StepRow({ step }: { step: OrchestrationStep }) {
   const [open, setOpen] = useState(false);
   const RoleIcon = ROLE_ICON[step.taskKind];
@@ -215,6 +227,16 @@ function StepRow({ step }: { step: OrchestrationStep }) {
                     )}{" "}
                     {finding.summary}
                   </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {whyThisAgent(step).length > 0 && (
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Why this agent</p>
+              <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                {whyThisAgent(step).map((line) => (
+                  <li key={line}>{line}</li>
                 ))}
               </ul>
             </div>

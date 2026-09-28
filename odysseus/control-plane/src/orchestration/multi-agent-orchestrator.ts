@@ -487,14 +487,16 @@ export class MultiAgentOrchestrator {
     const risk = this.risk.assess({
       taskKind: step.taskKind,
       prompt: step.prompt,
-      protectedProject: Boolean(project.preferences.protectedBranches.length),
+      protectedBranches: project.preferences.protectedBranches,
     });
     const route = await this.route(run, project, step, risk.score);
     if (!route.selected) {
       step.state = 'blocked';
-      step.error = step.requiredAgentId
-        ? `${step.requiredAgentId} is not available on any online machine`
-        : 'No eligible online agent';
+      step.error = route.skipped?.length
+        ? `Out of plan quota: ${route.skipped.map((item) => item.reason).join('; ')}`
+        : step.requiredAgentId
+          ? `${step.requiredAgentId} is not available on any online machine`
+          : 'No eligible online agent';
       return false;
     }
     const budget = await this.costs.usage('organization', run.organizationId);
@@ -556,6 +558,7 @@ export class MultiAgentOrchestrator {
         description: `Orchestration step: ${step.title}`,
         details: {
           riskClass: risk.level,
+          risk,
           resource: `orchestration:${step.taskKind}`,
           orchestrationRunId: run.id,
           orchestrationStepId: step.id,

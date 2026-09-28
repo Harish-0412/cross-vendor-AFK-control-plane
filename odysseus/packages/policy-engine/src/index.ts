@@ -9,3 +9,13 @@ export { DENY_OVERRIDE_FLOOR, denyFloorMatches } from './deny-floor';
 export { ruleSpecificity, sortRulesForEvaluation } from './specificity';
 export { riskClassDefaults, type RiskClassDefaults } from './risk-defaults';
 export { evaluate } from './evaluate';
+export {
+  assessAction,
+  assessCommand,
+  assessPath,
+  isCapability,
+  isRiskClass,
+  maxRiskClass,
+  riskLevel,
+  RISK_THRESHOLDS,
+} from './action-risk';
