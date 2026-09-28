@@ -3552,11 +3552,16 @@ export class HttpRouter {
     res.end();
   }
 
+  /** The organization the user owns, if they have one yet. */
+  private async findPersonalOrganization(userId: string) {
+    return (
+      (await this.db.organizations.listByUser(userId)).find((org) => org.ownerId === userId) ?? null
+    );
+  }
+
   /** The user's own organization, created the first time they need one. */
   private async personalOrganization(userId: string) {
-    const owned = (await this.db.organizations.listByUser(userId)).find(
-      (org) => org.ownerId === userId,
-    );
+    const owned = await this.findPersonalOrganization(userId);
     if (owned) return owned;
     return this.db.organizations.create({
       id: `org_${randomUUID().replace(/-/g, '').slice(0, 24)}`,
