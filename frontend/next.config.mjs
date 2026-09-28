@@ -11,6 +11,8 @@ const controlPlaneUrl =
   "https://odysseus-control-plane.onrender.com";
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // A second dev server (e.g. against a demo Control Plane) needs its own build folder.
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   transpilePackages: ['@odysseus/protocol'],
   eslint: {
     ignoreDuringBuilds: true,

@@ -13,6 +13,25 @@
       "runtimeArgs": ["--dir", "odysseus", "exec", "tsx", "control-plane/src/server.ts"],
       "env": { "USE_FIRESTORE": "false", "CORS_ORIGINS": "http://localhost:3100,http://localhost:3000" },
       "port": 4000
+    },
+    {
+      "name": "control-plane-demo",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "odysseus", "exec", "tsx", "scripts/demo-approvals.ts"],
+      "env": { "USE_FIRESTORE": "false", "CORS_ORIGINS": "http://localhost:3200", "DEMO_PORT": "4100" },
+      "port": 4100
+    },
+    {
+      "name": "frontend-demo",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "frontend", "dev", "--port", "3200"],
+      "env": {
+        "NEXT_DIST_DIR": ".next/demo",
+        "NEXT_PUBLIC_API_URL": "http://localhost:4100",
+        "NEXT_PUBLIC_WS_URL": "ws://localhost:4100",
+        "NEXT_PUBLIC_AUTH_PROVIDER": "local"
+      },
+      "port": 3200
     }
   ]
 }
