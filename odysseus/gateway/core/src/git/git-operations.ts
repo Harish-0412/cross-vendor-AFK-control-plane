@@ -64,10 +64,15 @@ export async function commit(
   };
 }
 
+export const TRACE_NOTES_REF = 'refs/notes/agent-trace';
+/** Where the remote's notes land while they are merged into ours. */
+const REMOTE_TRACE_NOTES_REF = 'refs/notes/odysseus-remote-agent-trace';
+const NETWORK_TIMEOUT_MS = 60_000;
+
 /**
  * Attach an Agent Trace record to a commit as a git note under
  * refs/notes/agent-trace. Notes travel with the commit without adding files
- * to the tree; they are pushed with `git push origin refs/notes/agent-trace`.
+ * to the tree; `push` sends them along with the branch.
  */
 export async function addTraceNote(
   root: string,
@@ -84,7 +89,62 @@ export async function addTraceNote(
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
-  return { ref: 'refs/notes/agent-trace', revision };
+  return { ref: TRACE_NOTES_REF, revision };
+}
+
+export interface TraceNotesPush {
+  /** `none` when this repository has no Agent Trace notes yet. */
+  state: 'pushed' | 'none' | 'failed';
+  /** Set when the remote's notes were merged in before pushing. */
+  merged?: boolean;
+  error?: string;
+}
+
+/**
+ * Send refs/notes/agent-trace to the remote. When the remote has notes this
+ * machine lacks (another machine pushed), they are merged in first; for a
+ * commit both sides annotated, this machine's record wins. Never throws.
+ */
+export async function pushTraceNotes(root: string, remote = 'origin'): Promise<TraceNotesPush> {
+  if (!remote || remote.startsWith('-')) throw new Error('Invalid remote name');
+  const local = await safeGitExec(root, ['rev-parse', '--verify', '--quiet', TRACE_NOTES_REF]);
+  if (!local.success) return { state: 'none' };
+
+  const send = () =>
+    safeGitExec(root, ['push', '--', remote, `${TRACE_NOTES_REF}:${TRACE_NOTES_REF}`], {
+      timeoutMs: NETWORK_TIMEOUT_MS,
+    });
+  const first = await send();
+  if (first.success) return { state: 'pushed' };
+
+  // Rejected, most likely because the remote moved on: merge its notes and retry.
+  const fetched = await safeGitExec(
+    root,
+    ['fetch', '--', remote, `+${TRACE_NOTES_REF}:${REMOTE_TRACE_NOTES_REF}`],
+    { timeoutMs: NETWORK_TIMEOUT_MS },
+  );
+  if (!fetched.success) return { state: 'failed', error: gitError(first) };
+  try {
+    const merged = await safeGitExec(root, [
+      'notes',
+      '--ref=agent-trace',
+      'merge',
+      '--strategy=ours',
+      '--quiet',
+      REMOTE_TRACE_NOTES_REF,
+    ]);
+    if (!merged.success) return { state: 'failed', error: gitError(merged) };
+    const second = await send();
+    return second.success
+      ? { state: 'pushed', merged: true }
+      : { state: 'failed', error: gitError(second) };
+  } finally {
+    await safeGitExec(root, ['update-ref', '-d', REMOTE_TRACE_NOTES_REF]);
+  }
+}
+
+function gitError(result: { stderr: string }): string {
+  return result.stderr.trim().split('\n').slice(-1)[0] || 'git failed';
 }
 
 export async function push(
@@ -92,7 +152,7 @@ export async function push(
   branch: string,
   remote = 'origin',
   force = false,
-): Promise<{ remote: string; branch: string; forced: boolean }> {
+): Promise<{ remote: string; branch: string; forced: boolean; traceNotes: TraceNotesPush }> {
   await validateBranch(root, branch);
   if (!remote || remote.startsWith('-')) throw new Error('Invalid remote name');
   const refspec = `refs/heads/${branch}:refs/heads/${branch}`;
@@ -103,7 +163,9 @@ export async function push(
     remote,
     refspec,
   ]);
-  return { remote, branch, forced: force };
+  // Agent Trace notes go wherever the code goes. The branch is already
+  // pushed, so a problem with the notes is reported, not thrown.
+  return { remote, branch, forced: force, traceNotes: await pushTraceNotes(root, remote) };
 }
 
 export async function getStatus(root: string): Promise<GitStatus> {
