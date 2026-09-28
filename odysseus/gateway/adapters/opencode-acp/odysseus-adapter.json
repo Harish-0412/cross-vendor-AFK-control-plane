@@ -1,0 +1,9 @@
+{
+  "id": "opencode-acp",
+  "name": "OpenCode (ACP)",
+  "entry": "../acp/src/index.ts",
+  "export": "OpenCodeAcpAdapter",
+  "protocolVersion": "1",
+  "platforms": ["linux", "darwin", "win32"],
+  "description": "OpenCode in ACP mode, with each tool call approved in Odysseus"
+}

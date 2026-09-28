@@ -16,6 +16,9 @@ const AGENT_INTEGRATION: Record<string, IntegrationId> = {
   codex: 'codex',
   'claude-code': 'claude',
   antigravity: 'antigravity',
+  // The same subscriptions, driven over the Agent Client Protocol.
+  'codex-acp': 'codex',
+  'claude-acp': 'claude',
 };
 
 /**

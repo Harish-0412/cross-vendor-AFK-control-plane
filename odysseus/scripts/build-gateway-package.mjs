@@ -16,7 +16,19 @@ const commandEntries = {
   service: join(root, 'scripts', 'service.ts'),
 };
 
-const adapterIds = ['antigravity', 'claude', 'codex', 'freebuff', 'mock', 'opencode'];
+const adapterIds = [
+  'antigravity',
+  'claude',
+  'codex',
+  'freebuff',
+  'mock',
+  'opencode',
+  // Agent Client Protocol presets; their manifests point at gateway/adapters/acp.
+  'claude-acp',
+  'codex-acp',
+  'gemini-acp',
+  'opencode-acp',
+];
 
 await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });
@@ -48,15 +60,15 @@ for (const id of adapterIds) {
   const sourceDirectory = join(root, 'gateway', 'adapters', id);
   const targetDirectory = join(output, 'adapters', id);
   await mkdir(targetDirectory, { recursive: true });
-  await build({
-    ...common,
-    entryPoints: [join(sourceDirectory, 'src', 'index.ts')],
-    outfile: join(targetDirectory, 'index.mjs'),
-  });
-
   const manifest = JSON.parse(
     await readFile(join(sourceDirectory, 'odysseus-adapter.json'), 'utf8'),
   );
+  // Bundle what the manifest names: a preset may share another package's code.
+  await build({
+    ...common,
+    entryPoints: [join(sourceDirectory, manifest.entry)],
+    outfile: join(targetDirectory, 'index.mjs'),
+  });
   manifest.entry = './index.mjs';
   await writeFile(
     join(targetDirectory, 'odysseus-adapter.json'),

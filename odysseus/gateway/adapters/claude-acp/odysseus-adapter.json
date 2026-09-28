@@ -1,0 +1,9 @@
+{
+  "id": "claude-acp",
+  "name": "Claude Code (ACP)",
+  "entry": "../acp/src/index.ts",
+  "export": "ClaudeAcpAdapter",
+  "protocolVersion": "1",
+  "platforms": ["linux", "darwin", "win32"],
+  "description": "Claude Code through its ACP bridge, with each tool call approved in Odysseus"
+}

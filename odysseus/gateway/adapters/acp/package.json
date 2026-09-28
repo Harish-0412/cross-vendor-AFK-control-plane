@@ -1,0 +1,21 @@
+{
+  "name": "@odysseus/acp-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "One adapter for every agent that speaks the Agent Client Protocol (ACP)",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./src/index.ts" } },
+  "scripts": {
+    "build": "tsc --build",
+    "lint": "eslint src --ext .ts",
+    "test": "vitest run",
+    "typecheck": "tsc --build --dry"
+  },
+  "dependencies": {
+    "@odysseus/policy-engine": "workspace:*",
+    "@odysseus/protocol": "workspace:*"
+  },
+  "devDependencies": { "@types/node": "^20.12.0", "vitest": "^1.5.0" }
+}

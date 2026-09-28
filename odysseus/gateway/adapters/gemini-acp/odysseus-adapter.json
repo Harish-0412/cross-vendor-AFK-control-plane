@@ -1,0 +1,9 @@
+{
+  "id": "gemini-acp",
+  "name": "Gemini CLI (ACP)",
+  "entry": "../acp/src/index.ts",
+  "export": "GeminiAcpAdapter",
+  "protocolVersion": "1",
+  "platforms": ["linux", "darwin", "win32"],
+  "description": "Gemini CLI in ACP mode, with each tool call approved in Odysseus"
+}

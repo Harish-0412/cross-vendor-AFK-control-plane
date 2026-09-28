@@ -187,11 +187,11 @@ export function traceModelId(agentId: string, model?: string): string | undefine
   if (!model) return undefined;
   if (model.includes('/')) return model.slice(0, 250);
   const provider =
-    agentId === 'claude-code' || /^claude/i.test(model)
+    agentId === 'claude-code' || agentId === 'claude-acp' || /^claude/i.test(model)
       ? 'anthropic'
-      : agentId === 'codex' || /^(gpt|o\d|codex)/i.test(model)
+      : agentId === 'codex' || agentId === 'codex-acp' || /^(gpt|o\d|codex)/i.test(model)
         ? 'openai'
-        : /^gemini/i.test(model)
+        : agentId === 'gemini-acp' || /^gemini/i.test(model)
           ? 'google'
           : undefined;
   return provider ? `${provider}/${model}`.slice(0, 250) : undefined;

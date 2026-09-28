@@ -1,0 +1,9 @@
+{
+  "id": "codex-acp",
+  "name": "Codex (ACP)",
+  "entry": "../acp/src/index.ts",
+  "export": "CodexAcpAdapter",
+  "protocolVersion": "1",
+  "platforms": ["linux", "darwin", "win32"],
+  "description": "Codex through its ACP bridge, with each tool call approved in Odysseus"
+}
