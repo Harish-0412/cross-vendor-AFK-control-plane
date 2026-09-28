@@ -183,6 +183,63 @@ export default function BudgetsPage() {
               </CardContent>
             </Card>
           )}
+
+          {summary && (
+            <section className="space-y-3">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Last {summary.days} days</h2>
+                <p className="text-sm text-muted-foreground">
+                  Everything recorded for you, including history synced from your tools.
+                </p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <Card>
+                  <CardContent className="p-5">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-500/10">
+                        <Wallet className="h-5 w-5 text-violet-500" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Total spent</p>
+                        <p className="text-xl font-bold">{formatUsd(summary.costUsd)}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-5">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10">
+                        <TrendingUp className="h-5 w-5 text-blue-500" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Daily average</p>
+                        <p className="text-xl font-bold">{formatUsd(summary.dailyAverageUsd)}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-5">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/10">
+                        <Coins className="h-5 w-5 text-amber-500" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Tokens</p>
+                        <p className="text-xl font-bold">{formatTokens(summary.tokens)}</p>
+                        {summary.subscriptionTokens > 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            {formatTokens(summary.subscriptionTokens)} on subscription plans, no dollar cost
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </section>
+          )}
         </>
       )}
     </div>
