@@ -1647,8 +1647,33 @@ export class HttpRouter {
           return this.sendJson(res, authUser ? 503 : 401, {
             error: authUser ? 'Cost service unavailable' : 'Unauthorized',
           });
-        const scope = body['scope'];
-        const scopeId = typeof body['scopeId'] === 'string' ? body['scopeId'] : '';
+        // A limit is a number above zero. Anything else is a mistake, not "no limit".
+        const readAmount = (key: string): number | undefined | false => {
+          const value = body[key] ?? undefined;
+          if (value === undefined) return undefined;
+          return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : false;
+        };
+        const tokenLimit = readAmount('tokenLimit');
+        const costLimitUsd = readAmount('costLimitUsd');
+        const alertPercent = readAmount('alertPercent') ?? 80;
+        if (
+          tokenLimit === false ||
+          costLimitUsd === false ||
+          (tokenLimit === undefined && costLimitUsd === undefined)
+        )
+          return this.sendJson(res, 400, {
+            error: 'A tokenLimit or costLimitUsd above zero is required',
+          });
+        if (alertPercent === false || alertPercent > 100)
+          return this.sendJson(res, 400, { error: 'alertPercent must be above 0 and at most 100' });
+        // Without a scope, the budget is for the caller's personal organization:
+        // the one their orchestration runs fall back to, which enforces it.
+        let scope = body['scope'];
+        let scopeId = typeof body['scopeId'] === 'string' ? body['scopeId'] : '';
+        if (scope === undefined && !scopeId) {
+          scope = 'organization';
+          scopeId = (await this.personalOrganization(authUser.id)).id;
+        }
         if ((scope !== 'session' && scope !== 'project' && scope !== 'organization') || !scopeId)
           return this.sendJson(res, 400, { error: 'Valid scope and scopeId are required' });
         if (scope === 'organization') {
@@ -1672,11 +1697,9 @@ export class HttpRouter {
           await this.costGovernor.setBudget({
             scope,
             scopeId,
-            ...(typeof body['tokenLimit'] === 'number' ? { tokenLimit: body['tokenLimit'] } : {}),
-            ...(typeof body['costLimitUsd'] === 'number'
-              ? { costLimitUsd: body['costLimitUsd'] }
-              : {}),
-            alertPercent: typeof body['alertPercent'] === 'number' ? body['alertPercent'] : 80,
+            ...(tokenLimit !== undefined ? { tokenLimit } : {}),
+            ...(costLimitUsd !== undefined ? { costLimitUsd } : {}),
+            alertPercent,
           }),
         );
       }
