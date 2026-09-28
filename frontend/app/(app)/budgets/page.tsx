@@ -338,6 +338,64 @@ export default function BudgetsPage() {
           )}
         </>
       )}
+
+      <Dialog open={addOpen} onOpenChange={setAddDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Budget</DialogTitle>
+            <DialogDescription>
+              For your personal organization. Set a spending limit, a token limit, or both. Sessions on subscription
+              plans cost nothing per token, so only a token limit caps them.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="budget-cost">Spending limit (USD)</Label>
+              <Input
+                id="budget-cost"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="100.00"
+                value={form.costLimitUsd}
+                onChange={(e) => setForm((f) => ({ ...f, costLimitUsd: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="budget-tokens">Token limit</Label>
+              <Input
+                id="budget-tokens"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="5000000"
+                value={form.tokenLimit}
+                onChange={(e) => setForm((f) => ({ ...f, tokenLimit: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="budget-alert">Warn at (% used)</Label>
+              <Input
+                id="budget-alert"
+                type="number"
+                min="1"
+                max="100"
+                step="1"
+                value={form.alertPercent}
+                onChange={(e) => setForm((f) => ({ ...f, alertPercent: e.target.value }))}
+              />
+            </div>
+            {formError && <p className="text-sm text-destructive">{formError}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddDialog(false)}>Cancel</Button>
+            <Button onClick={handleAdd} disabled={submitting || !hasLimit} className="gap-2">
+              {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+              Add Budget
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
