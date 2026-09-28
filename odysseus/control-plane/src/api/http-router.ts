@@ -1708,8 +1708,16 @@ export class HttpRouter {
           return this.sendJson(res, authUser ? 503 : 401, {
             error: authUser ? 'Cost service unavailable' : 'Unauthorized',
           });
-        const scope = url.searchParams.get('scope');
-        const scopeId = url.searchParams.get('scopeId');
+        let scope = url.searchParams.get('scope');
+        let scopeId = url.searchParams.get('scopeId');
+        // With neither, the caller's personal organization, as for POST. Reading
+        // does not create one: someone without one has no budgets yet.
+        if (scope === null && scopeId === null) {
+          const personal = await this.findPersonalOrganization(authUser.id);
+          if (!personal) return this.sendJson(res, 200, []);
+          scope = 'organization';
+          scopeId = personal.id;
+        }
         if ((scope !== 'session' && scope !== 'project' && scope !== 'organization') || !scopeId)
           return this.sendJson(res, 400, { error: 'scope and scopeId are required' });
         if (
