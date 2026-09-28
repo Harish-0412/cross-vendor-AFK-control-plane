@@ -138,6 +138,7 @@ export interface IOrchestrationRepository {
     sessionId?: string;
     projectId?: string;
     organizationId?: string;
+    userId?: string;
   }): Promise<CostEventRecord[]>;
 }
 

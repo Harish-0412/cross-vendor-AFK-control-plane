@@ -663,12 +663,14 @@ export class MemoryOrchestrationRepository implements IOrchestrationRepository {
     sessionId?: string;
     projectId?: string;
     organizationId?: string;
+    userId?: string;
   }): Promise<CostEventRecord[]> {
     return this.costs.filter(
       (item) =>
         (!options.sessionId || item.sessionId === options.sessionId) &&
         (!options.projectId || item.projectId === options.projectId) &&
-        (!options.organizationId || item.organizationId === options.organizationId),
+        (!options.organizationId || item.organizationId === options.organizationId) &&
+        (!options.userId || item.userId === options.userId),
     );
   }
 }
